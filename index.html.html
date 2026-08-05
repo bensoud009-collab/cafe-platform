@@ -1,0 +1,702 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>منصة إدارة المقاهي والمطاعم</title>
+
+<!-- ============================================================= -->
+<!-- Firebase (compat) — الوحيدة اللي تحتاج إنترنت وقت التشغيل      -->
+<!-- ============================================================= -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
+
+<style>
+/* ============================ نظام التصميم ============================ */
+:root{
+  --bg:#0f1115; --surface:#171a21; --surface-2:#1e222b; --line:#2a2f3a;
+  --text:#e8eaed; --muted:#9aa3b2; --brand:#c8a15a; --brand-2:#e0be7e;
+  --green:#3fb984; --red:#e5645f; --amber:#e0a54b; --blue:#5b8def;
+  --radius:14px; --shadow:0 8px 30px rgba(0,0,0,.35);
+  font-family:"Segoe UI",system-ui,-apple-system,"Tahoma",sans-serif;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--text);font-size:15px}
+body{-webkit-font-smoothing:antialiased}
+h1,h2,h3,h4{margin:0;font-weight:700}
+a{color:var(--brand-2);text-decoration:none}
+button{font-family:inherit}
+.hidden{display:none !important}
+.muted{color:var(--muted)}
+.center{display:flex;align-items:center;justify-content:center}
+
+/* عناصر عامة */
+.btn{display:inline-flex;align-items:center;gap:8px;justify-content:center;border:none;border-radius:10px;
+  padding:10px 16px;font-weight:600;cursor:pointer;background:var(--surface-2);color:var(--text);
+  border:1px solid var(--line);transition:.15s}
+.btn:hover{border-color:var(--brand)}
+.btn.primary{background:linear-gradient(135deg,var(--brand),var(--brand-2));color:#20160a;border:none}
+.btn.primary:hover{filter:brightness(1.05)}
+.btn.danger{background:transparent;color:var(--red);border-color:var(--red)}
+.btn.ghost{background:transparent}
+.btn.sm{padding:6px 10px;font-size:13px}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+
+.input,select,textarea{width:100%;background:var(--surface-2);border:1px solid var(--line);
+  color:var(--text);border-radius:10px;padding:11px 13px;font-family:inherit;font-size:15px;outline:none}
+.input:focus,select:focus,textarea:focus{border-color:var(--brand)}
+label.field{display:block;margin-bottom:14px}
+label.field > span{display:block;margin-bottom:6px;color:var(--muted);font-size:13px}
+
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:20px}
+.grid{display:grid;gap:16px}
+.tag{display:inline-block;padding:3px 10px;border-radius:999px;font-size:12px;font-weight:600}
+.tag.green{background:rgba(63,185,132,.15);color:var(--green)}
+.tag.red{background:rgba(229,100,95,.15);color:var(--red)}
+.tag.amber{background:rgba(224,165,75,.15);color:var(--amber)}
+
+table{width:100%;border-collapse:collapse}
+th,td{text-align:right;padding:11px 12px;border-bottom:1px solid var(--line);font-size:14px}
+th{color:var(--muted);font-weight:600;font-size:12px;letter-spacing:.3px}
+tbody tr:hover{background:var(--surface-2)}
+
+/* شاشة الدخول */
+#loginScreen{min-height:100%;display:flex;align-items:center;justify-content:center;padding:20px;
+  background:radial-gradient(1200px 600px at 70% -10%,rgba(200,161,90,.12),transparent)}
+.login-box{width:100%;max-width:400px}
+.brand-mark{width:56px;height:56px;border-radius:16px;background:linear-gradient(135deg,var(--brand),var(--brand-2));
+  display:flex;align-items:center;justify-content:center;font-size:26px;margin:0 auto 16px}
+
+/* التخطيط الرئيسي */
+.layout{display:flex;min-height:100%}
+.sidebar{width:250px;background:var(--surface);border-left:1px solid var(--line);
+  padding:18px 14px;display:flex;flex-direction:column;gap:6px;position:sticky;top:0;height:100vh;overflow:auto}
+.sidebar .logo{display:flex;align-items:center;gap:10px;padding:6px 8px 16px;border-bottom:1px solid var(--line);margin-bottom:8px}
+.nav-item{display:flex;align-items:center;gap:11px;padding:11px 12px;border-radius:10px;cursor:pointer;color:var(--muted);font-weight:600;font-size:14px}
+.nav-item:hover{background:var(--surface-2);color:var(--text)}
+.nav-item.active{background:var(--surface-2);color:var(--brand-2)}
+.nav-item .ic{width:20px;text-align:center}
+.main{flex:1;min-width:0;display:flex;flex-direction:column}
+.topbar{display:flex;align-items:center;justify-content:space-between;padding:16px 24px;border-bottom:1px solid var(--line);gap:12px}
+.content{padding:24px;max-width:1200px;width:100%}
+.page-title{margin-bottom:20px}
+.page-title h2{font-size:22px}
+.page-title p{color:var(--muted);margin:4px 0 0;font-size:14px}
+
+/* بطاقات المؤشرات */
+.kpi-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:16px}
+.kpi{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:18px}
+.kpi .v{font-size:26px;font-weight:800;margin-top:6px}
+.kpi .l{color:var(--muted);font-size:13px}
+
+/* المصفوفة (الصلاحيات) */
+.matrix{overflow:auto}
+.matrix th,.matrix td{text-align:center;padding:8px}
+.matrix td:first-child,.matrix th:first-child{text-align:right}
+
+/* المودال */
+.overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;padding:20px;z-index:50}
+.modal{background:var(--surface);border:1px solid var(--line);border-radius:16px;width:100%;max-width:560px;max-height:90vh;overflow:auto;box-shadow:var(--shadow)}
+.modal .head{display:flex;justify-content:space-between;align-items:center;padding:18px 20px;border-bottom:1px solid var(--line)}
+.modal .body{padding:20px}
+.modal .foot{padding:16px 20px;border-top:1px solid var(--line);display:flex;gap:10px;justify-content:flex-start}
+
+/* التوست */
+#toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:100;display:flex;flex-direction:column;gap:8px}
+.toast{background:var(--surface-2);border:1px solid var(--line);padding:12px 18px;border-radius:12px;box-shadow:var(--shadow);min-width:240px}
+.toast.ok{border-color:var(--green)} .toast.err{border-color:var(--red)}
+
+.spinner{width:34px;height:34px;border:3px solid var(--line);border-top-color:var(--brand);border-radius:50%;animation:spin 1s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.review-row{display:flex;justify-content:space-between;padding:9px 0;border-bottom:1px dashed var(--line)}
+.review-row b{color:var(--brand-2)}
+.photo-prev{margin-top:8px;border-radius:10px;max-height:180px;border:1px solid var(--line)}
+
+@media(max-width:820px){
+  .sidebar{position:fixed;right:-260px;z-index:40;transition:.2s} .sidebar.open{right:0}
+  .content{padding:16px}
+}
+.hamb{display:none} @media(max-width:820px){.hamb{display:inline-flex}}
+</style>
+</head>
+<body>
+
+<!-- ================= شاشة التحميل ================= -->
+<div id="bootScreen" class="center" style="height:100%"><div class="spinner"></div></div>
+
+<!-- ================= شاشة الدخول ================= -->
+<div id="loginScreen" class="hidden">
+  <div class="login-box card">
+    <div class="brand-mark">☕</div>
+    <h1 style="text-align:center;font-size:20px">منصة إدارة المقاهي والمطاعم</h1>
+    <p class="muted" style="text-align:center;margin:6px 0 22px;font-size:13px">سجّل الدخول للمتابعة</p>
+    <label class="field"><span>البريد الإلكتروني</span><input id="loginEmail" class="input" type="email" autocomplete="username" placeholder="you@example.com"></label>
+    <label class="field"><span>كلمة المرور</span><input id="loginPass" class="input" type="password" autocomplete="current-password" placeholder="••••••••"></label>
+    <button id="loginBtn" class="btn primary" style="width:100%">دخول</button>
+    <p id="loginErr" class="hidden" style="color:var(--red);text-align:center;margin-top:14px;font-size:13px"></p>
+  </div>
+</div>
+
+<!-- ================= التطبيق الرئيسي ================= -->
+<div id="appScreen" class="hidden">
+  <div class="layout">
+    <aside class="sidebar" id="sidebar">
+      <div class="logo"><div class="brand-mark" style="width:36px;height:36px;font-size:18px;margin:0">☕</div>
+        <div><div style="font-weight:800;font-size:15px" id="sideCompany">المنصة</div><div class="muted" style="font-size:11px" id="sideRole">—</div></div>
+      </div>
+      <nav id="navList"></nav>
+      <div style="margin-top:auto;padding-top:12px;border-top:1px solid var(--line)">
+        <div style="padding:8px 12px"><div style="font-weight:600;font-size:13px" id="sideUser">—</div><div class="muted" style="font-size:11px" id="sideEmail">—</div></div>
+        <button class="btn ghost sm" style="width:100%" onclick="doLogout()">تسجيل الخروج</button>
+      </div>
+    </aside>
+    <div class="main">
+      <div class="topbar">
+        <button class="btn ghost sm hamb" onclick="document.getElementById('sidebar').classList.toggle('open')">☰</button>
+        <div style="flex:1"></div>
+        <div class="muted" style="font-size:13px" id="topDate"></div>
+      </div>
+      <div class="content" id="pageContent"></div>
+    </div>
+  </div>
+</div>
+
+<div id="modalRoot"></div>
+<div id="toast"></div>
+
+<script>
+/* ================================================================== */
+/*  1) الإعدادات — عدّل هذي القيم فقط                                  */
+/* ================================================================== */
+const firebaseConfig = {
+  apiKey:            "AIzaSyDM_BuM3-DiMGOsEYs6GCbeVf2j5CmUZ_o",
+  authDomain:        "cafe-platform.firebaseapp.com",
+  projectId:         "cafe-platform",
+  storageBucket:     "cafe-platform.firebasestorage.app",
+  messagingSenderId: "65643654001",
+  appId:             "1:65643654001:web:efe7e5dcb802095b9624d0"
+};
+
+// بريد/بُرُد مالك المنصة (Super Admin) — أول دخول لأي منهم يُنشئ حسابه تلقائياً
+const SUPER_ADMIN_EMAILS = ["ben.soud.009@gmail.com"];
+
+/* ================================================================== */
+/*  2) ثوابت النظام                                                    */
+/* ================================================================== */
+// الأقسام والعمليات (تُستخدم في مصفوفة الصلاحيات)
+const MODULES = [
+  {key:"dashboard",  name:"لوحة التحكم", icon:"📊"},
+  {key:"sales",      name:"الإقفال اليومي", icon:"💰"},
+  {key:"invoices",   name:"الفواتير", icon:"🧾"},
+  {key:"inventory",  name:"المخزون والجرد", icon:"📦"},
+  {key:"suppliers",  name:"الموردين", icon:"🚚"},
+  {key:"payroll",    name:"الرواتب", icon:"💵"},
+  {key:"evaluation", name:"تقييم الموظفين", icon:"⭐"},
+  {key:"checklist",  name:"التشيك ليست", icon:"✅"},
+  {key:"reports",    name:"التقارير", icon:"📈"},
+  {key:"branches",   name:"الفروع", icon:"🏬"},
+  {key:"employees",  name:"الموظفون والصلاحيات", icon:"👥"},
+  {key:"settings",   name:"الإعدادات", icon:"⚙️"}
+];
+const ACTIONS = [
+  {key:"view",    name:"عرض"},
+  {key:"add",     name:"إضافة"},
+  {key:"edit",    name:"تعديل"},
+  {key:"delete",  name:"حذف"},
+  {key:"approve", name:"اعتماد"},
+  {key:"export",  name:"تصدير"}
+];
+
+// أي مرحلة مبنية فعلياً في هذا الأساس (Phase 1)
+const BUILT = new Set(["dashboard","sales","branches","employees","settings"]);
+
+/* ================================================================== */
+/*  3) التهيئة والحالة                                                 */
+/* ================================================================== */
+firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+const db   = firebase.firestore();
+const storage = firebase.storage();
+// نسخة ثانوية لإنشاء المستخدمين دون تسجيل خروج المدير الحالي
+const secondaryApp  = firebase.initializeApp(firebaseConfig, "secondary");
+const secondaryAuth = secondaryApp.auth();
+
+const state = {
+  user:null,        // firebase user
+  role:null,        // super | owner | manager | employee
+  companyId:null,   // معرف الشركة
+  profile:null,     // وثيقة المستخدم داخل الشركة (فيها الصلاحيات)
+  companyName:"",
+  current:null      // القسم المفتوح حالياً
+};
+
+/* ================================================================== */
+/*  4) أدوات مساعدة                                                    */
+/* ================================================================== */
+const $ = id => document.getElementById(id);
+const el = (t,c,h)=>{const e=document.createElement(t);if(c)e.className=c;if(h!=null)e.innerHTML=h;return e;};
+const esc = s => (s==null?"":String(s)).replace(/[&<>"]/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[m]));
+const money = n => (Number(n)||0).toLocaleString("ar-SA",{minimumFractionDigits:2,maximumFractionDigits:2})+" ﷼";
+const now = () => firebase.firestore.FieldValue.serverTimestamp();
+
+function toast(msg,type){const t=el("div","toast "+(type||""),esc(msg));$("toast").appendChild(t);
+  setTimeout(()=>{t.style.opacity="0";t.style.transition=".3s";setTimeout(()=>t.remove(),300);},3200);}
+
+function show(screen){["bootScreen","loginScreen","appScreen"].forEach(s=>$(s).classList.add("hidden"));$(screen).classList.remove("hidden");}
+
+// فحص الصلاحية: مالك المنصة وصاحب الشركة لهم كل شيء
+function can(moduleKey,action){
+  if(state.role==="super"||state.role==="owner") return true;
+  const p=state.profile&&state.profile.permissions&&state.profile.permissions[moduleKey];
+  return !!(p&&p[action]);
+}
+
+// مسار بيانات الشركة الحالية
+const cRef = ()=> db.collection("companies").doc(state.companyId);
+
+// سجل العمليات
+function logAction(action,details){
+  const base={action,details:details||"",at:now(),userUid:state.user.uid,userName:(state.profile&&state.profile.name)||state.user.email};
+  if(state.role==="super") db.collection("platform").doc("_").collection("auditLog").add(base).catch(()=>{});
+  else cRef().collection("auditLog").add(base).catch(()=>{});
+}
+
+/* ================================================================== */
+/*  5) الدخول والتوجيه                                                 */
+/* ================================================================== */
+$("loginBtn").onclick = async ()=>{
+  const email=$("loginEmail").value.trim(), pass=$("loginPass").value;
+  $("loginErr").classList.add("hidden");
+  if(!email||!pass){$("loginErr").textContent="أدخل البريد وكلمة المرور";$("loginErr").classList.remove("hidden");return;}
+  $("loginBtn").disabled=true;$("loginBtn").textContent="جارٍ الدخول…";
+  try{ await auth.signInWithEmailAndPassword(email,pass); }
+  catch(e){ $("loginErr").textContent="تعذّر الدخول: تأكد من البيانات"; $("loginErr").classList.remove("hidden"); }
+  $("loginBtn").disabled=false;$("loginBtn").textContent="دخول";
+};
+$("loginPass").addEventListener("keydown",e=>{if(e.key==="Enter")$("loginBtn").click();});
+
+function doLogout(){ auth.signOut(); }
+window.doLogout=doLogout;
+
+auth.onAuthStateChanged(async user=>{
+  if(!user){ state.user=null; show("loginScreen"); return; }
+  state.user=user;
+  show("bootScreen");
+  try{
+    // 1) وثيقة الربط العليا: users/{uid} => {role, companyId}
+    let mapSnap = await db.collection("users").doc(user.uid).get();
+
+    // Bootstrap مالك المنصة
+    if(!mapSnap.exists && SUPER_ADMIN_EMAILS.includes((user.email||"").toLowerCase())){
+      await db.collection("users").doc(user.uid).set({role:"super",companyId:null,name:"مالك المنصة",createdAt:now()});
+      mapSnap = await db.collection("users").doc(user.uid).get();
+    }
+    if(!mapSnap.exists){ toast("لا يوجد حساب مرتبط بهذا المستخدم","err"); return doLogout(); }
+
+    const map=mapSnap.data();
+    state.role=map.role;
+
+    if(map.role==="super"){
+      state.companyId=null; state.profile={name:map.name||"مالك المنصة",permissions:{}};
+      state.companyName="لوحة مالك المنصة";
+      buildShell(); renderSuperNav(); openPage("super_companies");
+    }else{
+      state.companyId=map.companyId;
+      const [companyDoc,profDoc]=await Promise.all([cRef().get(),cRef().collection("users").doc(user.uid).get()]);
+      if(!companyDoc.exists){ toast("الشركة غير موجودة","err"); return doLogout(); }
+      if(companyDoc.data().status==="suspended"){ toast("تم إيقاف اشتراك الشركة، راجع الإدارة","err"); return doLogout(); }
+      state.companyName=companyDoc.data().name;
+      state.profile=profDoc.exists?profDoc.data():{name:user.email,role:map.role,permissions:{}};
+      buildShell(); renderCompanyNav(); openPage("dashboard");
+    }
+    logAction("login");
+    show("appScreen");
+  }catch(e){ console.error(e); toast("خطأ أثناء تحميل الحساب","err"); }
+});
+
+/* ================================================================== */
+/*  6) الهيكل والقوائم                                                 */
+/* ================================================================== */
+function buildShell(){
+  $("sideCompany").textContent=state.companyName;
+  $("sideRole").textContent={super:"مالك المنصة",owner:"صاحب الشركة",manager:"مدير فرع",employee:"موظف"}[state.role]||state.role;
+  $("sideUser").textContent=state.profile.name||"";
+  $("sideEmail").textContent=state.user.email||"";
+  $("topDate").textContent=new Date().toLocaleDateString("ar-SA",{weekday:"long",year:"numeric",month:"long",day:"numeric"});
+}
+
+function navButton(label,icon,pageKey){
+  const b=el("div","nav-item","<span class='ic'>"+icon+"</span><span>"+esc(label)+"</span>");
+  b.onclick=()=>openPage(pageKey);
+  b.dataset.page=pageKey;
+  return b;
+}
+function renderSuperNav(){
+  const nav=$("navList");nav.innerHTML="";
+  nav.appendChild(navButton("الشركات","🏢","super_companies"));
+  nav.appendChild(navButton("الاشتراكات","💳","super_subs"));
+  nav.appendChild(navButton("سجل العمليات","📜","super_audit"));
+}
+function renderCompanyNav(){
+  const nav=$("navList");nav.innerHTML="";
+  MODULES.forEach(m=>{ if(can(m.key,"view")) nav.appendChild(navButton(m.name,m.icon,m.key)); });
+}
+function setActiveNav(pageKey){[...document.querySelectorAll(".nav-item")].forEach(n=>n.classList.toggle("active",n.dataset.page===pageKey));}
+
+function openPage(key){
+  state.current=key; setActiveNav(key);
+  document.getElementById("sidebar").classList.remove("open");
+  const c=$("pageContent"); c.innerHTML="";
+  const routes={
+    super_companies:pageSuperCompanies, super_subs:pageSuperSubs, super_audit:pageSuperAudit,
+    dashboard:pageDashboard, sales:pageSales, branches:pageBranches, employees:pageEmployees, settings:pageSettings
+  };
+  if(routes[key]) routes[key](c);
+  else pagePlaceholder(c,key);
+}
+
+function pageTitle(title,sub){return "<div class='page-title'><h2>"+esc(title)+"</h2>"+(sub?"<p>"+esc(sub)+"</p>":"")+"</div>";}
+
+function pagePlaceholder(c,key){
+  const m=MODULES.find(x=>x.key===key)||{name:key,icon:"🚧"};
+  c.innerHTML=pageTitle(m.name)+
+    "<div class='card center' style='flex-direction:column;gap:12px;padding:50px'>"+
+    "<div style='font-size:48px'>"+m.icon+"</div>"+
+    "<h3>هذا القسم ضمن المرحلة القادمة</h3>"+
+    "<p class='muted' style='text-align:center;max-width:440px'>الأساس والصلاحيات لهذا القسم جاهزة. يُبنى بنفس نمط قسم «الإقفال اليومي» المكتمل — نفس البنية: بيانات الشركة معزولة، فحص صلاحيات، مراجعة قبل الحفظ، وسجل عمليات.</p>"+
+    "</div>";
+}
+
+/* ================================================================== */
+/*  7) مالك المنصة — الشركات                                           */
+/* ================================================================== */
+function pageSuperCompanies(c){
+  c.innerHTML=pageTitle("الشركات","إنشاء وإدارة شركات العملاء")+
+    "<div style='margin-bottom:16px'><button class='btn primary' id='newCompanyBtn'>+ شركة جديدة</button></div>"+
+    "<div class='card'><table><thead><tr><th>الشركة</th><th>الكود</th><th>البريد</th><th>الحالة</th><th>إجراء</th></tr></thead><tbody id='compRows'><tr><td colspan='5' class='muted'>جارٍ التحميل…</td></tr></tbody></table></div>";
+  $("newCompanyBtn").onclick=openNewCompanyModal;
+  db.collection("companies").orderBy("createdAt","desc").onSnapshot(snap=>{
+    const tb=$("compRows"); if(!tb) return; tb.innerHTML="";
+    if(snap.empty){tb.innerHTML="<tr><td colspan='5' class='muted'>لا توجد شركات بعد</td></tr>";return;}
+    snap.forEach(d=>{const c=d.data();
+      const tag=c.status==="suspended"?"<span class='tag red'>موقوفة</span>":"<span class='tag green'>نشطة</span>";
+      const tr=el("tr",null,
+        "<td><b>"+esc(c.name)+"</b></td><td class='muted'>"+esc(c.code||"")+"</td><td class='muted'>"+esc(c.ownerEmail||"")+"</td><td>"+tag+"</td>"+
+        "<td></td>");
+      const act=tr.lastChild;
+      const toggle=el("button","btn sm",c.status==="suspended"?"تشغيل":"إيقاف");
+      toggle.onclick=()=>{db.collection("companies").doc(d.id).update({status:c.status==="suspended"?"active":"suspended"});logAction(c.status==="suspended"?"activate_company":"suspend_company",c.name);};
+      act.appendChild(toggle);
+      tb.appendChild(tr);
+    });
+  },err=>{const tb=$("compRows");if(tb)tb.innerHTML="<tr><td colspan='5' style='color:var(--red)'>تعذّر التحميل — تحقّق من قواعد الأمان</td></tr>";});
+}
+
+function openNewCompanyModal(){
+  openModal("إنشاء شركة جديدة",
+    "<label class='field'><span>اسم الشركة *</span><input id='ncName' class='input' placeholder='مثال: مقهى نسيم'></label>"+
+    "<label class='field'><span>بريد صاحب الشركة *</span><input id='ncEmail' class='input' type='email' placeholder='owner@company.com'></label>"+
+    "<label class='field'><span>جوال صاحب الشركة</span><input id='ncPhone' class='input' placeholder='05xxxxxxxx'></label>"+
+    "<p class='muted' style='font-size:13px'>سيُنشئ النظام كود الشركة وكلمة مرور مؤقتة تلقائياً.</p>",
+    "إنشاء", createCompany);
+}
+
+async function createCompany(){
+  const name=$("ncName").value.trim(), email=$("ncEmail").value.trim().toLowerCase(), phone=$("ncPhone").value.trim();
+  if(!name||!email){toast("أدخل اسم الشركة وبريد صاحبها","err");return false;}
+  const code="C"+Math.random().toString(36).slice(2,7).toUpperCase();
+  const tempPass=Math.random().toString(36).slice(2,6)+Math.floor(1000+Math.random()*9000);
+  try{
+    // 1) إنشاء حساب صاحب الشركة عبر النسخة الثانوية (لا يسجّل خروج المدير)
+    const cred=await secondaryAuth.createUserWithEmailAndPassword(email,tempPass);
+    const ownerUid=cred.user.uid;
+    await secondaryAuth.signOut();
+    // 2) وثيقة الشركة
+    const compRef=db.collection("companies").doc();
+    await compRef.set({name,code,ownerEmail:email,ownerPhone:phone,ownerUid,status:"active",
+      subscription:{plan:"monthly",startedAt:now(),active:true}, createdAt:now(), createdBy:state.user.uid});
+    // 3) ربط المستخدم + ملفه داخل الشركة بكامل الصلاحيات
+    await db.collection("users").doc(ownerUid).set({role:"owner",companyId:compRef.id,name:"صاحب الشركة "+name,createdAt:now()});
+    await compRef.collection("users").doc(ownerUid).set({name:"صاحب الشركة",email,phone,role:"owner",permissions:fullPermissions(),createdAt:now()});
+    logAction("create_company",name);
+    closeModal();
+    openModal("تم إنشاء الشركة ✅",
+      "<div class='review-row'><span>الشركة</span><b>"+esc(name)+"</b></div>"+
+      "<div class='review-row'><span>كود الشركة</span><b>"+code+"</b></div>"+
+      "<div class='review-row'><span>البريد</span><b>"+esc(email)+"</b></div>"+
+      "<div class='review-row'><span>كلمة المرور المؤقتة</span><b>"+tempPass+"</b></div>"+
+      "<p class='muted' style='margin-top:14px;font-size:13px'>سلّم هذي البيانات لصاحب الشركة، ويغيّر كلمة المرور بعد أول دخول.</p>",
+      "تم", ()=>true, true);
+    return false; // نتحكم بالإغلاق يدوياً
+  }catch(e){
+    console.error(e);
+    toast(e.code==="auth/email-already-in-use"?"البريد مستخدم مسبقاً":"تعذّر إنشاء الشركة","err");
+    return false;
+  }
+}
+
+function fullPermissions(){const p={};MODULES.forEach(m=>{p[m.key]={};ACTIONS.forEach(a=>p[m.key][a.key]=true);});return p;}
+function emptyPermissions(){const p={};MODULES.forEach(m=>{p[m.key]={};ACTIONS.forEach(a=>p[m.key][a.key]=false);});return p;}
+
+function pageSuperSubs(c){
+  c.innerHTML=pageTitle("الاشتراكات","إدارة اشتراكات الشركات")+
+   "<div class='card'><table><thead><tr><th>الشركة</th><th>الخطة</th><th>الحالة</th></tr></thead><tbody id='subRows'></tbody></table></div>";
+  db.collection("companies").onSnapshot(s=>{const tb=$("subRows");if(!tb)return;tb.innerHTML="";
+    s.forEach(d=>{const c=d.data();tb.appendChild(el("tr",null,"<td>"+esc(c.name)+"</td><td>"+esc((c.subscription&&c.subscription.plan)||"شهري")+"</td><td>"+(c.status==="suspended"?"<span class='tag red'>موقوفة</span>":"<span class='tag green'>نشطة</span>")+"</td>"));});
+  });
+}
+function pageSuperAudit(c){ renderAudit(c,db.collection("platform").doc("_").collection("auditLog"),"سجل عمليات المنصة"); }
+
+/* ================================================================== */
+/*  8) لوحة التحكم (الشركة)                                            */
+/* ================================================================== */
+function pageDashboard(c){
+  c.innerHTML=pageTitle("لوحة التحكم","نظرة سريعة على "+state.companyName)+
+   "<div class='kpi-grid' id='kpis'>"+
+     kpi("مبيعات اليوم","salesToday","—")+
+     kpi("عدد الإقفالات اليوم","closingsToday","—")+
+     kpi("الفروع","branchesCount","—")+
+     kpi("الموظفون","usersCount","—")+
+   "</div>";
+  const today=new Date();today.setHours(0,0,0,0);
+  cRef().collection("dailyClosings").where("date",">=",today.toISOString().slice(0,10)).onSnapshot(s=>{
+    let sum=0;s.forEach(d=>sum+=Number(d.data().actualSales)||0);
+    if($("salesToday"))$("salesToday").textContent=money(sum);
+    if($("closingsToday"))$("closingsToday").textContent=s.size;
+  },()=>{});
+  cRef().collection("branches").onSnapshot(s=>{if($("branchesCount"))$("branchesCount").textContent=s.size;},()=>{});
+  cRef().collection("users").onSnapshot(s=>{if($("usersCount"))$("usersCount").textContent=s.size;},()=>{});
+}
+function kpi(label,id,val){return "<div class='kpi'><div class='l'>"+esc(label)+"</div><div class='v' id='"+id+"'>"+val+"</div></div>";}
+
+/* ================================================================== */
+/*  9) الإقفال اليومي — القسم المكتمل (النموذج للباقي)                 */
+/* ================================================================== */
+function pageSales(c){
+  c.innerHTML=pageTitle("الإقفال اليومي","إرسال ومراجعة إقفالات المبيعات");
+  if(can("sales","add")){
+    const bar=el("div",null,"<button class='btn primary' id='newClosingBtn'>+ إرسال إقفال جديد</button>");
+    bar.style.marginBottom="16px"; c.appendChild(bar);
+    bar.querySelector("#newClosingBtn").onclick=openClosingModal;
+  }
+  const card=el("div","card");
+  card.innerHTML="<table><thead><tr><th>التاريخ</th><th>الفرع</th><th>الموظف</th><th>مبيعات فعلية</th><th>مبيعات النظام</th><th>الفرق</th><th>الحالة</th></tr></thead><tbody id='clRows'><tr><td colspan='7' class='muted'>جارٍ التحميل…</td></tr></tbody></table>";
+  c.appendChild(card);
+  cRef().collection("dailyClosings").orderBy("createdAt","desc").limit(100).onSnapshot(s=>{
+    const tb=$("clRows");if(!tb)return;tb.innerHTML="";
+    if(s.empty){tb.innerHTML="<tr><td colspan='7' class='muted'>لا توجد إقفالات</td></tr>";return;}
+    s.forEach(d=>{const x=d.data();const diff=(Number(x.actualSales)||0)-(Number(x.systemSales)||0);
+      const diffTag=diff===0?"<span class='tag green'>مطابق</span>":"<span class='tag "+(diff>0?"amber":"red")+"'>"+money(diff)+"</span>";
+      const st=x.status==="approved"?"<span class='tag green'>معتمد</span>":"<span class='tag amber'>بانتظار</span>";
+      const tr=el("tr",null,"<td>"+esc(x.date)+"</td><td>"+esc(x.branchName||"—")+"</td><td>"+esc(x.employeeName)+"</td><td>"+money(x.actualSales)+"</td><td>"+money(x.systemSales)+"</td><td>"+diffTag+"</td><td></td>");
+      const stc=tr.lastChild; stc.innerHTML=st;
+      if(x.status!=="approved"&&can("sales","approve")){
+        const ap=el("button","btn sm","اعتماد");ap.style.marginRight="6px";
+        ap.onclick=()=>{cRef().collection("dailyClosings").doc(d.id).update({status:"approved",approvedBy:state.user.uid,approvedAt:now()});logAction("approve_closing",x.date+" / "+x.branchName);};
+        stc.appendChild(ap);
+      }
+      tb.appendChild(tr);
+    });
+  },()=>{const tb=$("clRows");if(tb)tb.innerHTML="<tr><td colspan='7' style='color:var(--red)'>تعذّر التحميل</td></tr>";});
+}
+
+async function openClosingModal(){
+  // تحميل الفروع للاختيار
+  let branches=[];try{const bs=await cRef().collection("branches").get();bs.forEach(b=>branches.push({id:b.id,...b.data()}));}catch(e){}
+  const brOptions=branches.length?branches.map(b=>"<option value='"+b.id+"'>"+esc(b.name)+"</option>").join(""):"<option value=''>لا توجد فروع</option>";
+  openModal("إرسال إقفال يومي",
+    "<label class='field'><span>الفرع *</span><select id='clBranch'>"+brOptions+"</select></label>"+
+    "<div class='grid' style='grid-template-columns:1fr 1fr'>"+
+      "<label class='field'><span>المبيعات الفعلية *</span><input id='clActual' class='input' type='number' inputmode='decimal' placeholder='0.00'></label>"+
+      "<label class='field'><span>مبيعات النظام *</span><input id='clSystem' class='input' type='number' inputmode='decimal' placeholder='0.00'></label>"+
+      "<label class='field'><span>الكاش</span><input id='clCash' class='input' type='number' placeholder='0.00'></label>"+
+      "<label class='field'><span>مدى</span><input id='clMada' class='input' type='number' placeholder='0.00'></label>"+
+      "<label class='field'><span>فيزا</span><input id='clVisa' class='input' type='number' placeholder='0.00'></label>"+
+      "<label class='field'><span>ماستركارد</span><input id='clMaster' class='input' type='number' placeholder='0.00'></label>"+
+    "</div>"+
+    "<label class='field'><span>صورة الإقفال (اختيارية)</span><input id='clPhoto' class='input' type='file' accept='image/*' capture='environment'></label>"+
+    "<img id='clPrev' class='photo-prev hidden'>",
+    "مراجعة قبل الإرسال", reviewClosing);
+  const ph=$("clPhoto");ph.onchange=()=>{const f=ph.files[0];if(f){const u=URL.createObjectURL(f);$("clPrev").src=u;$("clPrev").classList.remove("hidden");}};
+}
+
+function reviewClosing(){
+  const g=id=>$(id)?$(id).value:"";
+  const branchSel=$("clBranch"); const branchName=branchSel&&branchSel.selectedOptions[0]?branchSel.selectedOptions[0].textContent:"";
+  const data={branchId:branchSel?branchSel.value:"",branchName,
+    actualSales:parseFloat(g("clActual"))||0, systemSales:parseFloat(g("clSystem"))||0,
+    cash:parseFloat(g("clCash"))||0, mada:parseFloat(g("clMada"))||0, visa:parseFloat(g("clVisa"))||0, mastercard:parseFloat(g("clMaster"))||0};
+  const file=$("clPhoto").files[0];
+  if(!data.branchId){toast("اختر الفرع","err");return false;}
+  if(!g("clActual")||!g("clSystem")){toast("أدخل المبيعات الفعلية ومبيعات النظام","err");return false;}
+  const paySum=data.cash+data.mada+data.visa+data.mastercard;
+  const diff=data.actualSales-data.systemSales;
+  // شاشة المراجعة
+  openModal("مراجعة الإقفال",
+    "<div class='review-row'><span>الفرع</span><b>"+esc(branchName)+"</b></div>"+
+    "<div class='review-row'><span>المبيعات الفعلية</span><b>"+money(data.actualSales)+"</b></div>"+
+    "<div class='review-row'><span>مبيعات النظام</span><b>"+money(data.systemSales)+"</b></div>"+
+    "<div class='review-row'><span>الفرق (فعلي − نظام)</span><b style='color:"+(diff===0?"var(--green)":"var(--amber)")+"'>"+money(diff)+"</b></div>"+
+    "<div class='review-row'><span>الكاش / مدى / فيزا / ماستر</span><b>"+money(data.cash)+" · "+money(data.mada)+" · "+money(data.visa)+" · "+money(data.mastercard)+"</b></div>"+
+    "<div class='review-row'><span>مجموع طرق الدفع</span><b style='color:"+(Math.abs(paySum-data.actualSales)<0.01?"var(--green)":"var(--red)")+"'>"+money(paySum)+"</b></div>"+
+    "<p class='muted' style='margin-top:10px;font-size:13px'>التاريخ والوقت واسم الموظف تُسجّل تلقائياً."+(file?" أرفقت الصورة ✅":" (بدون صورة)")+"</p>",
+    "اعتماد الإرسال", ()=>submitClosing(data,file));
+  return false;
+}
+
+async function submitClosing(data,file){
+  try{
+    const ref=cRef().collection("dailyClosings").doc();
+    let photoUrl="", photoPath="";
+    // الصورة اختيارية: نرفعها فقط إذا وُجدت وكانت خدمة Storage مفعّلة
+    if(file){
+      try{
+        photoPath="companies/"+state.companyId+"/closings/"+ref.id+".jpg";
+        const snap=await storage.ref(photoPath).put(file);
+        photoUrl=await snap.ref.getDownloadURL();
+      }catch(err){
+        console.warn("تعذّر رفع الصورة (Storage غير مفعّل) — سيُحفظ الإقفال بدون صورة",err);
+        photoUrl=""; photoPath="";
+        toast("حُفظ الإقفال بدون صورة (خدمة الصور غير مفعّلة)","");
+      }
+    }
+    await ref.set({...data, photoUrl, photoPath,
+      date:new Date().toISOString().slice(0,10),
+      employeeUid:state.user.uid, employeeName:state.profile.name||state.user.email,
+      status:"submitted", createdAt:now()});
+    logAction("submit_closing",data.date+" / "+data.branchName);
+    toast("تم إرسال الإقفال بنجاح","ok");
+    return true;
+  }catch(e){console.error(e);toast("تعذّر الإرسال","err");return false;}
+}
+
+/* ================================================================== */
+/*  10) الفروع                                                        */
+/* ================================================================== */
+function pageBranches(c){
+  c.innerHTML=pageTitle("الفروع","إدارة فروع الشركة");
+  if(can("branches","add")){const bar=el("div",null,"<button class='btn primary' id='newBranchBtn'>+ فرع جديد</button>");bar.style.marginBottom="16px";c.appendChild(bar);bar.firstChild.onclick=()=>branchModal();}
+  const card=el("div","card","<table><thead><tr><th>الفرع</th><th>العنوان</th><th>الجوال</th><th>إجراء</th></tr></thead><tbody id='brRows'></tbody></table>");
+  c.appendChild(card);
+  cRef().collection("branches").orderBy("name").onSnapshot(s=>{const tb=$("brRows");if(!tb)return;tb.innerHTML="";
+    if(s.empty){tb.innerHTML="<tr><td colspan='4' class='muted'>لا توجد فروع</td></tr>";return;}
+    s.forEach(d=>{const x=d.data();const tr=el("tr",null,"<td><b>"+esc(x.name)+"</b></td><td class='muted'>"+esc(x.address||"—")+"</td><td class='muted'>"+esc(x.phone||"—")+"</td><td></td>");
+      if(can("branches","edit")){const e=el("button","btn sm","تعديل");e.onclick=()=>branchModal(d.id,x);tr.lastChild.appendChild(e);}
+      if(can("branches","delete")){const dl=el("button","btn sm danger","حذف");dl.style.marginRight="6px";dl.onclick=()=>{if(confirm("حذف الفرع؟")){cRef().collection("branches").doc(d.id).delete();logAction("delete_branch",x.name);}};tr.lastChild.appendChild(dl);}
+      tb.appendChild(tr);});
+  },()=>{});
+}
+function branchModal(id,x){x=x||{};
+  openModal(id?"تعديل فرع":"فرع جديد",
+    "<label class='field'><span>اسم الفرع *</span><input id='brName' class='input' value='"+esc(x.name||"")+"'></label>"+
+    "<label class='field'><span>العنوان</span><input id='brAddr' class='input' value='"+esc(x.address||"")+"'></label>"+
+    "<label class='field'><span>الجوال</span><input id='brPhone' class='input' value='"+esc(x.phone||"")+"'></label>",
+    "حفظ", async ()=>{
+      const name=$("brName").value.trim();if(!name){toast("أدخل اسم الفرع","err");return false;}
+      const data={name,address:$("brAddr").value.trim(),phone:$("brPhone").value.trim()};
+      if(id){await cRef().collection("branches").doc(id).update(data);logAction("edit_branch",name);}
+      else{data.createdAt=now();await cRef().collection("branches").add(data);logAction("add_branch",name);}
+      return true;
+    });
+}
+
+/* ================================================================== */
+/*  11) الموظفون والصلاحيات                                            */
+/* ================================================================== */
+function pageEmployees(c){
+  c.innerHTML=pageTitle("الموظفون والصلاحيات","إضافة المستخدمين وتحديد صلاحياتهم لكل قسم");
+  if(can("employees","add")){const bar=el("div",null,"<button class='btn primary' id='newUserBtn'>+ مستخدم جديد</button>");bar.style.marginBottom="16px";c.appendChild(bar);bar.firstChild.onclick=userModal;}
+  const card=el("div","card","<table><thead><tr><th>الاسم</th><th>البريد</th><th>الدور</th><th>إجراء</th></tr></thead><tbody id='usRows'></tbody></table>");
+  c.appendChild(card);
+  cRef().collection("users").onSnapshot(s=>{const tb=$("usRows");if(!tb)return;tb.innerHTML="";
+    s.forEach(d=>{const x=d.data();const role={owner:"صاحب الشركة",manager:"مدير فرع",employee:"موظف"}[x.role]||x.role;
+      const tr=el("tr",null,"<td><b>"+esc(x.name||"")+"</b></td><td class='muted'>"+esc(x.email||"")+"</td><td>"+role+"</td><td></td>");
+      if(x.role!=="owner"&&can("employees","edit")){const p=el("button","btn sm","الصلاحيات");p.onclick=()=>permMatrixModal(d.id,x);tr.lastChild.appendChild(p);}
+      tb.appendChild(tr);});
+  },()=>{});
+}
+function userModal(){
+  openModal("مستخدم جديد",
+    "<label class='field'><span>الاسم *</span><input id='usName' class='input'></label>"+
+    "<label class='field'><span>البريد *</span><input id='usEmail' class='input' type='email'></label>"+
+    "<label class='field'><span>الدور *</span><select id='usRole'><option value='employee'>موظف</option><option value='manager'>مدير فرع</option></select></label>"+
+    "<p class='muted' style='font-size:13px'>تُنشأ كلمة مرور مؤقتة تلقائياً.</p>",
+    "إنشاء", async ()=>{
+      const name=$("usName").value.trim(),email=$("usEmail").value.trim().toLowerCase(),role=$("usRole").value;
+      if(!name||!email){toast("أكمل البيانات","err");return false;}
+      const tempPass=Math.random().toString(36).slice(2,6)+Math.floor(1000+Math.random()*9000);
+      try{
+        const cred=await secondaryAuth.createUserWithEmailAndPassword(email,tempPass);
+        const uid=cred.user.uid; await secondaryAuth.signOut();
+        await db.collection("users").doc(uid).set({role,companyId:state.companyId,name,createdAt:now()});
+        // مدير الفرع يبدأ بصلاحية العرض للأقسام التشغيلية، الموظف صفر
+        const perms=emptyPermissions();
+        if(role==="manager"){["dashboard","sales","inventory","checklist","reports"].forEach(k=>{perms[k].view=true;});perms.sales.add=true;perms.sales.approve=true;}
+        else{perms.dashboard.view=true;perms.sales.view=true;perms.sales.add=true;perms.checklist.view=true;}
+        await cRef().collection("users").doc(uid).set({name,email,role,permissions:perms,createdAt:now()});
+        logAction("add_user",name+" ("+role+")");
+        closeModal();
+        openModal("تم إنشاء المستخدم ✅","<div class='review-row'><span>البريد</span><b>"+esc(email)+"</b></div><div class='review-row'><span>كلمة المرور المؤقتة</span><b>"+tempPass+"</b></div>","تم",()=>true,true);
+        return false;
+      }catch(e){toast(e.code==="auth/email-already-in-use"?"البريد مستخدم":"تعذّر الإنشاء","err");return false;}
+    });
+}
+function permMatrixModal(uid,x){
+  const perms=x.permissions||emptyPermissions();
+  let head="<tr><th>القسم</th>"+ACTIONS.map(a=>"<th>"+a.name+"</th>").join("")+"</tr>";
+  let rows=MODULES.map(m=>"<tr><td>"+esc(m.name)+"</td>"+ACTIONS.map(a=>{
+    const ck=perms[m.key]&&perms[m.key][a.key]?"checked":"";
+    return "<td><input type='checkbox' data-m='"+m.key+"' data-a='"+a.key+"' "+ck+"></td>";
+  }).join("")+"</tr>").join("");
+  openModal("صلاحيات: "+esc(x.name||""),
+    "<div class='matrix'><table><thead>"+head+"</thead><tbody>"+rows+"</tbody></table></div>",
+    "حفظ الصلاحيات", async ()=>{
+      const p=emptyPermissions();
+      document.querySelectorAll("#modalRoot input[type=checkbox]").forEach(cb=>{p[cb.dataset.m][cb.dataset.a]=cb.checked;});
+      await cRef().collection("users").doc(uid).update({permissions:p});
+      logAction("edit_permissions",x.name);
+      return true;
+    }, false, 720);
+}
+
+/* ================================================================== */
+/*  12) الإعدادات + سجل العمليات                                       */
+/* ================================================================== */
+function pageSettings(c){
+  c.innerHTML=pageTitle("الإعدادات","بيانات الشركة وسجل العمليات");
+  c.appendChild(el("div","card","<h3 style='margin-bottom:12px'>سجل العمليات</h3><div id='auditWrap'></div>"));
+  renderAudit($("auditWrap"),cRef().collection("auditLog"),null,true);
+}
+function renderAudit(container,ref,title,inline){
+  if(title) container.innerHTML=pageTitle(title);
+  const card=inline?container:el("div","card");
+  if(!inline) container.appendChild(card);
+  card.innerHTML=(card.innerHTML||"")+"<table><thead><tr><th>العملية</th><th>المستخدم</th><th>التفاصيل</th><th>الوقت</th></tr></thead><tbody id='auditRows'><tr><td colspan='4' class='muted'>جارٍ التحميل…</td></tr></tbody></table>";
+  ref.orderBy("at","desc").limit(80).onSnapshot(s=>{const tb=document.getElementById("auditRows");if(!tb)return;tb.innerHTML="";
+    if(s.empty){tb.innerHTML="<tr><td colspan='4' class='muted'>لا يوجد سجل</td></tr>";return;}
+    const names={login:"تسجيل دخول",create_company:"إنشاء شركة",suspend_company:"إيقاف شركة",activate_company:"تشغيل شركة",add_branch:"إضافة فرع",edit_branch:"تعديل فرع",delete_branch:"حذف فرع",add_user:"إضافة مستخدم",edit_permissions:"تعديل صلاحيات",submit_closing:"إرسال إقفال",approve_closing:"اعتماد إقفال"};
+    s.forEach(d=>{const x=d.data();const t=x.at&&x.at.toDate?x.at.toDate().toLocaleString("ar-SA"):"—";
+      tb.appendChild(el("tr",null,"<td>"+(names[x.action]||esc(x.action))+"</td><td class='muted'>"+esc(x.userName||"")+"</td><td class='muted'>"+esc(x.details||"")+"</td><td class='muted'>"+t+"</td>"));});
+  },()=>{});
+}
+
+/* ================================================================== */
+/*  13) المودال العام                                                 */
+/* ================================================================== */
+function openModal(title,bodyHtml,okLabel,onOk,hideCancel,maxWidth){
+  closeModal();
+  const ov=el("div","overlay");
+  ov.innerHTML="<div class='modal' style='max-width:"+(maxWidth||560)+"px'><div class='head'><h3>"+esc(title)+"</h3><button class='btn ghost sm' id='mClose'>✕</button></div><div class='body'>"+bodyHtml+"</div><div class='foot'>"+(okLabel?"<button class='btn primary' id='mOk'>"+esc(okLabel)+"</button>":"")+(hideCancel?"":"<button class='btn ghost' id='mCancel'>إلغاء</button>")+"</div></div>";
+  $("modalRoot").appendChild(ov);
+  $("mClose").onclick=closeModal;
+  if($("mCancel"))$("mCancel").onclick=closeModal;
+  if($("mOk"))$("mOk").onclick=async()=>{const b=$("mOk");b.disabled=true;const keep=await onOk();b.disabled=false;if(keep!==false)closeModal();};
+  ov.addEventListener("mousedown",e=>{if(e.target===ov)closeModal();});
+}
+function closeModal(){$("modalRoot").innerHTML="";}
+window.openPage=openPage;
+</script>
+</body>
+</html>
