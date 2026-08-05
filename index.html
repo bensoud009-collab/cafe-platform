@@ -360,7 +360,7 @@ function renderSuperNav(){
 }
 function renderCompanyNav(){
   const nav=$("navList");nav.innerHTML="";
-  MODULES.forEach(m=>{ if(can(m.key,"view")) nav.appendChild(navButton(m.name,m.icon,m.key)); });
+  MODULES.forEach(m=>{ if(can(m.key,"view")||can(m.key,"add")) nav.appendChild(navButton(m.name,m.icon,m.key)); });
 }
 
 // مولّد كلمة مرور عشوائية قوية
@@ -412,7 +412,7 @@ function openPage(key){
   const c=$("pageContent"); c.innerHTML="";
   const routes={
     super_companies:pageSuperCompanies, super_subs:pageSuperSubs, super_audit:pageSuperAudit,
-    dashboard:pageDashboard, sales:pageSales, branches:pageBranches, employees:pageEmployees, settings:pageSettings
+    dashboard:pageDashboard, sales:pageSales, invoices:pageInvoices, branches:pageBranches, employees:pageEmployees, settings:pageSettings
   };
   if(routes[key]) routes[key](c);
   else pagePlaceholder(c,key);
@@ -663,7 +663,9 @@ function monthRange(offset){
 const DASH_WIDGETS = {
   closings_month:{ name:"عدد إقفالات الشهر", icon:"🧾", page:"sales", kind:"count" },
   prev_month_sales:{ name:"مبيعات الشهر الماضي", icon:"📉", page:"sales", kind:"money" },
-  avg_closing:{ name:"متوسط قيمة الإقفال", icon:"📊", page:"sales", kind:"money" }
+  avg_closing:{ name:"متوسط قيمة الإقفال", icon:"📊", page:"sales", kind:"money" },
+  invoices_count:{ name:"عدد المشتريات (الشهر)", icon:"🧾", page:"invoices", kind:"count" },
+  invoices_total:{ name:"إجمالي المشتريات (الشهر)", icon:"🛒", page:"invoices", kind:"money" }
 };
 
 function pageDashboard(c){
@@ -731,6 +733,15 @@ function pageDashboard(c){
       window.__prevMonthSales=sum;
       if($("w_prev_month_sales"))$("w_prev_month_sales").textContent=money(sum);
       if(compare) updateDelta();
+    },()=>{});
+  }
+
+  // بطاقات الفواتير (إن أُضيفت)
+  if(cards.includes("invoices_count")||cards.includes("invoices_total")){
+    cRef().collection("invoices").where("date",">=",cur.start).where("date","<",cur.next).onSnapshot(s=>{
+      let total=0,count=0; s.forEach(d=>{total+=Number(d.data().total)||0;count++;});
+      if($("w_invoices_count"))$("w_invoices_count").textContent=count;
+      if($("w_invoices_total"))$("w_invoices_total").textContent=money(total);
     },()=>{});
   }
 }
@@ -915,8 +926,161 @@ async function submitClosing(data,file){
 }
 
 /* ================================================================== */
-/*  10) الفروع                                                        */
+/*  9.ب) الفواتير (المشتريات)                                          */
 /* ================================================================== */
+// الموظف الذي يضيف الفواتير دون صلاحية عرضها → واجهة إرسال فقط
+function invoiceEmployeeView(){ return !can("invoices","view") && can("invoices","add"); }
+
+function pageInvoices(c){
+  // ===== واجهة الموظف: إضافة فقط، بدون أرقام أو جدول =====
+  if(invoiceEmployeeView()){
+    c.innerHTML=pageTitle("الفواتير","إضافة فاتورة مشتريات");
+    const bar=el("div",null,"<button class='btn primary' id='newInvBtn'>+ إضافة فاتورة</button>");
+    bar.style.marginBottom="16px"; c.appendChild(bar);
+    bar.querySelector("#newInvBtn").onclick=openInvoiceModal;
+    const temp=el("div"); temp.id="invTempWrap"; c.appendChild(temp);
+    const hint=el("div","card muted","اضغط «إضافة فاتورة» لتسجيل فاتورة مشتريات."); hint.id="invHint"; hint.style.textAlign="center"; c.appendChild(hint);
+    return;
+  }
+  // ===== واجهة المالك/المدير: بطاقتان (شهر) + جدول =====
+  c.innerHTML=pageTitle("الفواتير","مشتريات الشهر وسجلّها");
+  let head="";
+  if(can("invoices","add")){ head+="<button class='btn primary' id='newInvBtn'>+ إضافة فاتورة</button>"; }
+  c.innerHTML+="<div style='margin-bottom:16px'>"+head+"</div>";
+  c.innerHTML+="<div class='kpi-grid' style='margin-bottom:16px'>"+
+    kpi("عدد المشتريات (الشهر)","invCount","—")+
+    kpi("إجمالي المشتريات (الشهر)","invTotal","—")+
+   "</div>";
+  const card=el("div","card");
+  card.innerHTML="<table><thead><tr><th>التاريخ</th><th>المنتجات</th><th>المورد</th><th>الإجمالي</th><th>المُدخِل</th></tr></thead><tbody id='invRows'><tr><td colspan='5' class='muted'>جارٍ التحميل…</td></tr></tbody></table>";
+  c.appendChild(card);
+  if($("newInvBtn"))$("newInvBtn").onclick=openInvoiceModal;
+
+  // بطاقات الشهر
+  const cur=monthRange(0);
+  cRef().collection("invoices").where("date",">=",cur.start).where("date","<",cur.next).onSnapshot(s=>{
+    let total=0,count=0; s.forEach(d=>{total+=Number(d.data().total)||0;count++;});
+    if($("invCount"))$("invCount").textContent=count;
+    if($("invTotal"))$("invTotal").textContent=money(total);
+  },()=>{});
+  // الجدول (أحدث 100)
+  cRef().collection("invoices").orderBy("createdAt","desc").limit(100).onSnapshot(s=>{
+    const tb=$("invRows");if(!tb)return;tb.innerHTML="";
+    if(s.empty){tb.innerHTML="<tr><td colspan='5' class='muted'>لا توجد فواتير</td></tr>";return;}
+    s.forEach(d=>{const x=d.data();
+      const items=(x.items||[]).map(it=>esc(it.name)+" ×"+(it.qty||0)).join("، ");
+      const supplier=x.supplier?esc(x.supplier)+(x.supplierPhone?" ("+esc(x.supplierPhone)+")":""):"—";
+      tb.appendChild(el("tr",null,"<td>"+esc(x.date)+"</td><td>"+items+"</td><td class='muted'>"+supplier+"</td><td><b>"+money(x.total)+"</b></td><td class='muted'>"+esc(x.createdByName||"")+"</td>"));
+    });
+  },()=>{const tb=$("invRows");if(tb)tb.innerHTML="<tr><td colspan='5' style='color:var(--red)'>تعذّر التحميل</td></tr>";});
+}
+
+// صف منتج داخل الفاتورة
+function addInvItem(values){
+  const wrap=$("invItems"); if(!wrap) return;
+  const row=el("div"); row.className="inv-item";
+  row.style.cssText="display:grid;grid-template-columns:1fr 90px 70px 30px;gap:6px;margin-bottom:8px;align-items:center";
+  const v=values||{};
+  row.innerHTML=
+    "<input class='input inv-name' placeholder='اسم المنتج *' value='"+esc(v.name||"")+"'>"+
+    "<input class='input inv-val' type='number' inputmode='decimal' placeholder='القيمة *' value='"+(v.value!=null?v.value:"")+"'>"+
+    "<input class='input inv-qty' type='number' inputmode='numeric' placeholder='كمية *' value='"+(v.qty!=null?v.qty:"")+"'>"+
+    "<button type='button' class='btn sm inv-rm' style='padding:6px 8px'>×</button>";
+  row.querySelector(".inv-rm").onclick=()=>{ if(wrap.querySelectorAll(".inv-item").length>1) row.remove(); };
+  wrap.appendChild(row);
+}
+
+function openInvoiceModal(){
+  openModal("إضافة فاتورة مشتريات",
+    "<div class='muted' style='font-size:13px;margin-bottom:8px'>التاريخ والوقت يُسجّلان تلقائياً.</div>"+
+    "<div id='invItems'></div>"+
+    "<button type='button' class='btn sm' id='invAddItem' style='margin-bottom:14px'>+ إضافة منتج آخر</button>"+
+    "<div class='grid' style='grid-template-columns:1fr 1fr'>"+
+      "<label class='field'><span>المورد (اختياري)</span><input id='invSupplier' class='input'></label>"+
+      "<label class='field'><span>رقم المورد (اختياري)</span><input id='invSupPhone' class='input' inputmode='tel'></label>"+
+    "</div>"+
+    "<label class='field'><span>صورة الفاتورة (اختيارية)</span><input id='invPhoto' class='input' type='file' accept='image/*' capture='environment'></label>",
+    "مراجعة قبل الحفظ", reviewInvoice);
+  setTimeout(()=>{ addInvItem(); if($("invAddItem"))$("invAddItem").onclick=()=>addInvItem(); },30);
+}
+
+function collectInvoice(){
+  const rows=[...document.querySelectorAll("#invItems .inv-item")];
+  const items=[]; let total=0;
+  for(const r of rows){
+    const name=r.querySelector(".inv-name").value.trim();
+    const value=parseFloat(r.querySelector(".inv-val").value)||0;
+    const qty=parseFloat(r.querySelector(".inv-qty").value)||0;
+    if(!name||value<=0||qty<=0) return {error:true};
+    items.push({name,value,qty,lineTotal:value*qty}); total+=value*qty;
+  }
+  return {items,total,
+    supplier:$("invSupplier")?$("invSupplier").value.trim():"",
+    supplierPhone:$("invSupPhone")?$("invSupPhone").value.trim():""};
+}
+
+function reviewInvoice(){
+  const data=collectInvoice();
+  if(data.error||!data.items.length){toast("أكمل بيانات كل منتج (اسم، قيمة، كمية)","err");return false;}
+  const file=$("invPhoto")?$("invPhoto").files[0]:null;
+  data._file=file;
+  // الموظف: تأكيد بلا أرقام
+  if(invoiceEmployeeView()){
+    openModal("تأكيد الفاتورة",
+      "<div class='review-row'><span>عدد المنتجات</span><b>"+data.items.length+"</b></div>"+
+      "<p class='muted' style='margin-top:12px;font-size:14px'>تأكّد من البيانات قبل الحفظ. تُسجّل تلقائياً بالتاريخ والوقت واسمك.</p>",
+      "حفظ الفاتورة", ()=>submitInvoice(data));
+    return false;
+  }
+  // المالك/المدير: تفاصيل كاملة
+  openModal("مراجعة الفاتورة",
+    data.items.map(it=>"<div class='review-row'><span>"+esc(it.name)+" ("+it.value+"×"+it.qty+")</span><b>"+money(it.lineTotal)+"</b></div>").join("")+
+    "<div class='review-row'><span>المورد</span><b>"+(esc(data.supplier)||"—")+(data.supplierPhone?" · "+esc(data.supplierPhone):"")+"</b></div>"+
+    "<div class='review-row'><span>الإجمالي</span><b style='color:var(--brand-2)'>"+money(data.total)+"</b></div>"+
+    "<p class='muted' style='margin-top:10px;font-size:13px'>"+(file?"أرفقت الصورة ✅":"بدون صورة")+"</p>",
+    "حفظ الفاتورة", ()=>submitInvoice(data));
+  return false;
+}
+
+async function submitInvoice(data){
+  try{
+    const ref=cRef().collection("invoices").doc();
+    let photoUrl="",photoPath="";
+    if(data._file){
+      try{ photoPath="companies/"+state.companyId+"/invoices/"+ref.id+".jpg";
+        const snap=await storage.ref(photoPath).put(data._file); photoUrl=await snap.ref.getDownloadURL();
+      }catch(err){ photoUrl="";photoPath=""; toast("حُفظت الفاتورة بدون صورة (خدمة الصور غير مفعّلة)",""); }
+    }
+    await ref.set({
+      items:data.items.map(({name,value,qty,lineTotal})=>({name,value,qty,lineTotal})),
+      total:data.total, supplier:data.supplier||"", supplierPhone:data.supplierPhone||"",
+      photoUrl, photoPath, date:new Date().toISOString().slice(0,10),
+      createdBy:state.user.uid, createdByName:state.profile.name||state.user.email, createdAt:now()
+    });
+    logAction("add_invoice",(data.items[0]?data.items[0].name:"")+(data.items.length>1?" +"+(data.items.length-1):""));
+    if(invoiceEmployeeView()){ closeModal(); showInvoiceConfirmation(); }
+    else toast("تم حفظ الفاتورة بنجاح","ok");
+    return true;
+  }catch(e){console.error(e);toast("تعذّر حفظ الفاتورة","err");return false;}
+}
+
+// بطاقة تأكيد مؤقتة للموظف (5 دقائق) بعد حفظ الفاتورة
+function showInvoiceConfirmation(){
+  const wrap=$("invTempWrap"); if(!wrap) return;
+  const hint=$("invHint"); if(hint) hint.classList.add("hidden");
+  const card=el("div","card"); card.style.borderColor="var(--green)";
+  const until=Date.now()+5*60*1000;
+  card.innerHTML="<div style='display:flex;align-items:center;gap:10px'><span style='font-size:22px'>✅</span>"+
+    "<div><div style='font-weight:700'>تم حفظ الفاتورة</div>"+
+    "<div class='muted' style='font-size:13px'>سُجّلت وأُرسلت للإدارة. يختفي هذا التأكيد خلال <b class='cd'>5:00</b></div></div></div>";
+  wrap.prepend(card);
+  const cd=card.querySelector(".cd");
+  const t=setInterval(()=>{ const left=Math.max(0,Math.round((until-Date.now())/1000));
+    const m=Math.floor(left/60),s=String(left%60).padStart(2,"0"); if(cd)cd.textContent=m+":"+s;
+    if(left<=0){clearInterval(t);card.style.transition=".4s";card.style.opacity="0";
+      setTimeout(()=>{card.remove(); if(hint&&!wrap.children.length)hint.classList.remove("hidden");},400);}
+  },1000);
+}
 function pageBranches(c){
   c.innerHTML=pageTitle("الفروع","إدارة فروع الشركة");
   if(can("branches","add")){const bar=el("div",null,"<button class='btn primary' id='newBranchBtn'>+ فرع جديد</button>");bar.style.marginBottom="16px";c.appendChild(bar);bar.firstChild.onclick=()=>branchModal();}
@@ -1018,7 +1182,7 @@ function renderAudit(container,ref,title,inline){
   card.innerHTML=(card.innerHTML||"")+"<table><thead><tr><th>العملية</th><th>المستخدم</th><th>التفاصيل</th><th>الوقت</th></tr></thead><tbody id='auditRows'><tr><td colspan='4' class='muted'>جارٍ التحميل…</td></tr></tbody></table>";
   ref.orderBy("at","desc").limit(80).onSnapshot(s=>{const tb=document.getElementById("auditRows");if(!tb)return;tb.innerHTML="";
     if(s.empty){tb.innerHTML="<tr><td colspan='4' class='muted'>لا يوجد سجل</td></tr>";return;}
-    const names={login:"تسجيل دخول",create_company:"إنشاء شركة",suspend_company:"إيقاف شركة",activate_company:"تشغيل شركة",delete_company:"حذف شركة",update_subscription:"تعديل اشتراك",admin_enter:"دخول إداري",add_branch:"إضافة فرع",edit_branch:"تعديل فرع",delete_branch:"حذف فرع",add_user:"إضافة مستخدم",edit_permissions:"تعديل صلاحيات",submit_closing:"إرسال إقفال",approve_closing:"اعتماد إقفال"};
+    const names={login:"تسجيل دخول",create_company:"إنشاء شركة",suspend_company:"إيقاف شركة",activate_company:"تشغيل شركة",delete_company:"حذف شركة",update_subscription:"تعديل اشتراك",admin_enter:"دخول إداري",add_branch:"إضافة فرع",edit_branch:"تعديل فرع",delete_branch:"حذف فرع",add_user:"إضافة مستخدم",edit_permissions:"تعديل صلاحيات",submit_closing:"إرسال إقفال",approve_closing:"اعتماد إقفال",add_invoice:"إضافة فاتورة"};
     s.forEach(d=>{const x=d.data();const t=x.at&&x.at.toDate?x.at.toDate().toLocaleString("ar-SA"):"—";
       tb.appendChild(el("tr",null,"<td>"+(names[x.action]||esc(x.action))+"</td><td class='muted'>"+esc(x.userName||"")+"</td><td class='muted'>"+esc(x.details||"")+"</td><td class='muted'>"+t+"</td>"));});
   },()=>{});
