@@ -256,10 +256,23 @@ function can(moduleKey,action){
 // مسار بيانات الشركة الحالية
 const cRef = ()=> db.collection("companies").doc(state.companyId);
 
+// ===== أدوات الاشتراك =====
+// يحوّل قيمة تاريخ (Timestamp أو نص أو Date) إلى كائن Date
+function toDate(v){ if(!v) return null; if(v.toDate) return v.toDate(); const d=new Date(v); return isNaN(d)?null:d; }
+// تاريخ انتهاء الاشتراك
+function subEndDate(cdata){ const s=cdata&&cdata.subscription; if(!s) return null; return toDate(s.endsAt); }
+// كم يوم باقٍ (سالب = منتهٍ)
+function subDaysLeft(cdata){ const e=subEndDate(cdata); if(!e) return null; return Math.ceil((e-new Date())/(1000*60*60*24)); }
+function subExpired(cdata){ const d=subDaysLeft(cdata); return d!==null && d<0; }
+
+// ===== الدخول الإداري (Impersonation) =====
+// عند دخول مالك المنصة لشركة، نخزّن الحالة هنا للرجوع
+const impersonation = { active:false, superName:"" };
+
 // سجل العمليات
 function logAction(action,details){
   const base={action,details:details||"",at:now(),userUid:state.user.uid,userName:(state.profile&&state.profile.name)||state.user.email};
-  if(state.role==="super") db.collection("platform").doc("_").collection("auditLog").add(base).catch(()=>{});
+  if(state.role==="super"&&!impersonation.active) db.collection("platform").doc("_").collection("auditLog").add(base).catch(()=>{});
   else cRef().collection("auditLog").add(base).catch(()=>{});
 }
 
@@ -306,8 +319,14 @@ auth.onAuthStateChanged(async user=>{
       state.companyId=map.companyId;
       const [companyDoc,profDoc]=await Promise.all([cRef().get(),cRef().collection("users").doc(user.uid).get()]);
       if(!companyDoc.exists){ toast("الشركة غير موجودة","err"); return doLogout(); }
-      if(companyDoc.data().status==="suspended"){ toast("تم إيقاف اشتراك الشركة، راجع الإدارة","err"); return doLogout(); }
-      state.companyName=companyDoc.data().name;
+      const cdata=companyDoc.data();
+      // فحص انتهاء الاشتراك عند الدخول → إيقاف تلقائي
+      if(subExpired(cdata) && cdata.status!=="suspended"){
+        try{ await cRef().update({status:"suspended"}); }catch(e){}
+        cdata.status="suspended";
+      }
+      if(cdata.status==="suspended"){ toast("انتهى اشتراك الشركة أو تم إيقافه، راجع الإدارة","err"); return doLogout(); }
+      state.companyName=cdata.name;
       state.profile=profDoc.exists?profDoc.data():{name:user.email,role:map.role,permissions:{}};
       buildShell(); renderCompanyNav(); openPage("dashboard");
     }
@@ -343,6 +362,48 @@ function renderCompanyNav(){
   const nav=$("navList");nav.innerHTML="";
   MODULES.forEach(m=>{ if(can(m.key,"view")) nav.appendChild(navButton(m.name,m.icon,m.key)); });
 }
+
+// مولّد كلمة مرور عشوائية قوية
+function randomPassword(){
+  const a="ABCDEFGHJKLMNPQRSTUVWXYZ", b="abcdefghijkmnpqrstuvwxyz", n="23456789", s="!@#$%*";
+  const all=a+b+n+s; let p=a[Math.floor(Math.random()*a.length)]+b[Math.floor(Math.random()*b.length)]+n[Math.floor(Math.random()*n.length)]+s[Math.floor(Math.random()*s.length)];
+  for(let i=0;i<6;i++) p+=all[Math.floor(Math.random()*all.length)];
+  return p.split("").sort(()=>Math.random()-0.5).join("");
+}
+
+// دخول مالك المنصة لشركة بتحكم كامل (وضع إداري)
+async function enterCompanyAsAdmin(companyId,companyName){
+  try{
+    impersonation.active=true; impersonation.superName=state.profile.name||"مالك المنصة";
+    state.role="owner";               // صلاحيات كاملة داخل الشركة
+    state.companyId=companyId;
+    state.companyName=companyName;
+    state.profile={name:impersonation.superName+" (دخول إداري)",permissions:fullPermissions()};
+    buildShell(); renderCompanyNav(); renderAdminBanner(); openPage("dashboard");
+    logAction("admin_enter","دخول إداري: "+companyName);
+    show("appScreen");
+  }catch(e){ console.error(e); toast("تعذّر الدخول الإداري","err"); }
+}
+// الرجوع من الوضع الإداري للوحة المنصة
+function exitAdminMode(){
+  impersonation.active=false;
+  state.role="super"; state.companyId=null;
+  state.companyName="لوحة مالك المنصة"; state.profile={name:impersonation.superName||"مالك المنصة",permissions:{}};
+  removeAdminBanner();
+  buildShell(); renderSuperNav(); openPage("super_companies");
+}
+window.exitAdminMode=exitAdminMode;
+
+function renderAdminBanner(){
+  removeAdminBanner();
+  const b=el("div"); b.id="adminBanner";
+  b.style.cssText="background:linear-gradient(90deg,#7a4d10,#c8a15a);color:#20160a;padding:10px 16px;font-weight:700;display:flex;align-items:center;justify-content:space-between;gap:12px;position:sticky;top:0;z-index:30";
+  b.innerHTML="<span>⚠️ أنت في وضع الدخول الإداري لشركة «"+esc(state.companyName)+"»</span>";
+  const back=el("button","btn sm","← رجوع للمنصة"); back.style.cssText="background:#20160a;color:#e0be7e;border:none";
+  back.onclick=exitAdminMode; b.appendChild(back);
+  const main=document.querySelector(".main"); if(main) main.insertBefore(b,main.firstChild);
+}
+function removeAdminBanner(){ const b=$("adminBanner"); if(b) b.remove(); }
 function setActiveNav(pageKey){[...document.querySelectorAll(".nav-item")].forEach(n=>n.classList.toggle("active",n.dataset.page===pageKey));}
 
 function openPage(key){
@@ -373,63 +434,178 @@ function pagePlaceholder(c,key){
 /*  7) مالك المنصة — الشركات                                           */
 /* ================================================================== */
 function pageSuperCompanies(c){
-  c.innerHTML=pageTitle("الشركات","إنشاء وإدارة شركات العملاء")+
+  c.innerHTML=pageTitle("الشركات","إنشاء وإدارة شركات العملاء — اضغط اسم الشركة لعرض التفاصيل")+
     "<div style='margin-bottom:16px'><button class='btn primary' id='newCompanyBtn'>+ شركة جديدة</button></div>"+
-    "<div class='card'><table><thead><tr><th>الشركة</th><th>الكود</th><th>البريد</th><th>الحالة</th><th>إجراء</th></tr></thead><tbody id='compRows'><tr><td colspan='5' class='muted'>جارٍ التحميل…</td></tr></tbody></table></div>";
+    "<div class='card'><table><thead><tr><th>الشركة</th><th>الكود</th><th>الاشتراك</th><th>الحالة</th><th>إجراء</th></tr></thead><tbody id='compRows'><tr><td colspan='5' class='muted'>جارٍ التحميل…</td></tr></tbody></table></div>";
   $("newCompanyBtn").onclick=openNewCompanyModal;
   db.collection("companies").orderBy("createdAt","desc").onSnapshot(snap=>{
     const tb=$("compRows"); if(!tb) return; tb.innerHTML="";
     if(snap.empty){tb.innerHTML="<tr><td colspan='5' class='muted'>لا توجد شركات بعد</td></tr>";return;}
-    snap.forEach(d=>{const c=d.data();
-      const tag=c.status==="suspended"?"<span class='tag red'>موقوفة</span>":"<span class='tag green'>نشطة</span>";
-      const tr=el("tr",null,
-        "<td><b>"+esc(c.name)+"</b></td><td class='muted'>"+esc(c.code||"")+"</td><td class='muted'>"+esc(c.ownerEmail||"")+"</td><td>"+tag+"</td>"+
-        "<td></td>");
+    snap.forEach(d=>{const cd=d.data();
+      const tag=cd.status==="suspended"?"<span class='tag red'>موقوفة</span>":"<span class='tag green'>نشطة</span>";
+      const left=subDaysLeft(cd);
+      let subCell="<span class='muted'>—</span>";
+      if(left!==null){
+        if(left<0) subCell="<span class='tag red'>منتهٍ</span>";
+        else if(left<=15) subCell="<span class='tag amber'>باقٍ "+left+" يوم</span>";
+        else subCell="<span class='muted'>"+left+" يوم</span>";
+      }
+      const tr=el("tr",null,"<td></td><td class='muted'>"+esc(cd.code||"")+"</td><td>"+subCell+"</td><td>"+tag+"</td><td></td>");
+      // اسم الشركة قابل للضغط → التفاصيل
+      const nameTd=tr.firstChild; const nameBtn=el("b",null,esc(cd.name));
+      nameBtn.style.cssText="color:var(--brand-2);cursor:pointer"; nameBtn.onclick=()=>companyDetailsModal(d.id,cd); nameTd.appendChild(nameBtn);
+      // أزرار الإجراء
       const act=tr.lastChild;
-      const toggle=el("button","btn sm",c.status==="suspended"?"تشغيل":"إيقاف");
-      toggle.onclick=()=>{db.collection("companies").doc(d.id).update({status:c.status==="suspended"?"active":"suspended"});logAction(c.status==="suspended"?"activate_company":"suspend_company",c.name);};
+      const enter=el("button","btn sm","دخول"); enter.onclick=()=>enterCompanyAsAdmin(d.id,cd.name); act.appendChild(enter);
+      const toggle=el("button","btn sm",cd.status==="suspended"?"تشغيل":"إيقاف"); toggle.style.marginRight="6px";
+      toggle.onclick=()=>{db.collection("companies").doc(d.id).update({status:cd.status==="suspended"?"active":"suspended"});logAction(cd.status==="suspended"?"activate_company":"suspend_company",cd.name);};
       act.appendChild(toggle);
       tb.appendChild(tr);
     });
   },err=>{const tb=$("compRows");if(tb)tb.innerHTML="<tr><td colspan='5' style='color:var(--red)'>تعذّر التحميل — تحقّق من قواعد الأمان</td></tr>";});
 }
 
+// نافذة تفاصيل الشركة
+async function companyDetailsModal(id,cd){
+  let branches=0,users=0;
+  try{const[b,u]=await Promise.all([db.collection("companies").doc(id).collection("branches").get(),db.collection("companies").doc(id).collection("users").get()]);branches=b.size;users=u.size;}catch(e){}
+  const left=subDaysLeft(cd);
+  const start=subEndDate(cd)?toDate(cd.subscription.startsAt):null;
+  const end=subEndDate(cd);
+  const fmt=d=>d?d.toLocaleDateString("ar-SA"):"—";
+  const subLine = left===null?"غير محدد":(left<0?"منتهٍ":"باقٍ "+left+" يوم");
+  openModal("تفاصيل: "+esc(cd.name),
+    "<div class='review-row'><span>كود الشركة</span><b>"+esc(cd.code||"—")+"</b></div>"+
+    "<div class='review-row'><span>اسم المالك</span><b>"+esc(cd.ownerName||"صاحب "+cd.name)+"</b></div>"+
+    "<div class='review-row'><span>جوال المالك</span><b>"+esc(cd.ownerPhone||"—")+"</b></div>"+
+    "<div class='review-row'><span>بريد المالك</span><b>"+esc(cd.ownerEmail||"—")+"</b></div>"+
+    "<div class='review-row'><span>الفروع / الموظفون</span><b>"+branches+" / "+users+"</b></div>"+
+    "<div class='review-row'><span>بداية الاشتراك</span><b>"+fmt(start)+"</b></div>"+
+    "<div class='review-row'><span>نهاية الاشتراك</span><b>"+fmt(end)+"</b></div>"+
+    "<div class='review-row'><span>المتبقّي</span><b>"+subLine+"</b></div>"+
+    "<div class='review-row'><span>الحالة</span><b>"+(cd.status==="suspended"?"موقوفة":"نشطة")+"</b></div>"+
+    "<div style='display:flex;gap:8px;flex-wrap:wrap;margin-top:16px'>"+
+      "<button class='btn primary sm' id='cdEnter'>دخول إداري</button>"+
+      "<button class='btn sm' id='cdSub'>تعديل الاشتراك</button>"+
+      "<button class='btn danger sm' id='cdDel'>حذف نهائي</button>"+
+    "</div>", null, ()=>true, true, 560);
+  setTimeout(()=>{
+    if($("cdEnter"))$("cdEnter").onclick=()=>{closeModal();enterCompanyAsAdmin(id,cd.name);};
+    if($("cdSub"))$("cdSub").onclick=()=>subscriptionModal(id,cd);
+    if($("cdDel"))$("cdDel").onclick=()=>deleteCompanyModal(id,cd);
+  },30);
+}
+
+// نافذة تعديل الاشتراك (بداية + مدة أشهر → نهاية تلقائية)
+function subscriptionModal(id,cd){
+  const s=cd.subscription||{};
+  const startVal=(toDate(s.startsAt)||new Date()).toISOString().slice(0,10);
+  const months=s.months||1;
+  openModal("اشتراك: "+esc(cd.name),
+    "<label class='field'><span>تاريخ بداية الاشتراك</span><input id='subStart' class='input' type='date' value='"+startVal+"'></label>"+
+    "<label class='field'><span>مدة الاشتراك (بالأشهر)</span><input id='subMonths' class='input' type='number' min='1' value='"+months+"'></label>"+
+    "<div class='review-row'><span>تاريخ الانتهاء</span><b id='subEndPreview'>—</b></div>",
+    "حفظ الاشتراك", async ()=>{
+      const start=new Date($("subStart").value); const m=parseInt($("subMonths").value)||1;
+      if(isNaN(start)){toast("اختر تاريخ البداية","err");return false;}
+      const end=new Date(start); end.setMonth(end.getMonth()+m);
+      await db.collection("companies").doc(id).update({
+        subscription:{plan:"monthly",months:m,startsAt:start.toISOString(),endsAt:end.toISOString(),active:true},
+        status:"active"
+      });
+      logAction("update_subscription",cd.name+" ("+m+" شهر)");
+      return true;
+    });
+  const upd=()=>{const st=new Date($("subStart").value);const m=parseInt($("subMonths").value)||1;if(!isNaN(st)){const e=new Date(st);e.setMonth(e.getMonth()+m);$("subEndPreview").textContent=e.toLocaleDateString("ar-SA");}};
+  setTimeout(()=>{if($("subStart")){$("subStart").oninput=upd;$("subMonths").oninput=upd;upd();}},30);
+}
+
+// نافذة حذف الشركة نهائياً (بتأكيد كتابة الاسم)
+function deleteCompanyModal(id,cd){
+  openModal("حذف نهائي: "+esc(cd.name),
+    "<p style='color:var(--red)'>سيُحذف كل شي في هذه الشركة نهائياً: الفروع، الموظفون، الإقفالات، والسجل. لا يمكن التراجع.</p>"+
+    "<label class='field'><span>اكتب اسم الشركة للتأكيد: <b>"+esc(cd.name)+"</b></span><input id='delConfirm' class='input'></label>",
+    "حذف نهائي", async ()=>{
+      if($("delConfirm").value.trim()!==cd.name){toast("الاسم غير مطابق","err");return false;}
+      try{
+        await deleteCompanyDeep(id);
+        logAction("delete_company",cd.name);
+        toast("تم حذف الشركة نهائياً","ok");
+        return true;
+      }catch(e){console.error(e);toast("تعذّر الحذف","err");return false;}
+    });
+}
+// حذف الشركة وكل مجموعاتها الفرعية
+async function deleteCompanyDeep(id){
+  const ref=db.collection("companies").doc(id);
+  const subs=["branches","users","dailyClosings","auditLog"];
+  for(const sub of subs){
+    const snap=await ref.collection(sub).get();
+    // حذف على دفعات
+    const docs=snap.docs;
+    for(let i=0;i<docs.length;i+=400){
+      const batch=db.batch();
+      docs.slice(i,i+400).forEach(d=>{
+        batch.delete(d.ref);
+        if(sub==="users") batch.delete(db.collection("users").doc(d.id)); // إزالة الربط العلوي
+      });
+      await batch.commit();
+    }
+  }
+  await ref.delete();
+}
+
 function openNewCompanyModal(){
+  const startVal=new Date().toISOString().slice(0,10);
   openModal("إنشاء شركة جديدة",
     "<label class='field'><span>اسم الشركة *</span><input id='ncName' class='input' placeholder='مثال: مقهى نسيم'></label>"+
+    "<label class='field'><span>اسم المالك</span><input id='ncOwner' class='input' placeholder='الاسم الكامل'></label>"+
     "<label class='field'><span>بريد صاحب الشركة *</span><input id='ncEmail' class='input' type='email' placeholder='owner@company.com'></label>"+
     "<label class='field'><span>جوال صاحب الشركة</span><input id='ncPhone' class='input' placeholder='05xxxxxxxx'></label>"+
-    "<p class='muted' style='font-size:13px'>سيُنشئ النظام كود الشركة وكلمة مرور مؤقتة تلقائياً.</p>",
+    "<label class='field'><span>كلمة المرور *</span>"+
+      "<div style='display:flex;gap:8px'><input id='ncPass' class='input' placeholder='اكتبها أو ولّدها'>"+
+      "<button type='button' class='btn' id='ncDice' title='توليد عشوائي' style='padding:0 14px'>🎲</button></div></label>"+
+    "<div class='grid' style='grid-template-columns:1fr 1fr'>"+
+      "<label class='field'><span>بداية الاشتراك</span><input id='ncStart' class='input' type='date' value='"+startVal+"'></label>"+
+      "<label class='field'><span>المدة (أشهر)</span><input id='ncMonths' class='input' type='number' min='1' value='1'></label>"+
+    "</div>"+
+    "<div class='review-row'><span>تاريخ الانتهاء</span><b id='ncEndPreview'>—</b></div>",
     "إنشاء", createCompany);
+  setTimeout(()=>{
+    if($("ncDice"))$("ncDice").onclick=()=>{$("ncPass").value=randomPassword();};
+    const upd=()=>{const st=new Date($("ncStart").value);const m=parseInt($("ncMonths").value)||1;if(!isNaN(st)){const e=new Date(st);e.setMonth(e.getMonth()+m);$("ncEndPreview").textContent=e.toLocaleDateString("ar-SA");}};
+    if($("ncStart")){$("ncStart").oninput=upd;$("ncMonths").oninput=upd;upd();}
+  },30);
 }
 
 async function createCompany(){
-  const name=$("ncName").value.trim(), email=$("ncEmail").value.trim().toLowerCase(), phone=$("ncPhone").value.trim();
+  const name=$("ncName").value.trim(), owner=$("ncOwner").value.trim(), email=$("ncEmail").value.trim().toLowerCase(), phone=$("ncPhone").value.trim();
+  const pass=$("ncPass").value, start=new Date($("ncStart").value), months=parseInt($("ncMonths").value)||1;
   if(!name||!email){toast("أدخل اسم الشركة وبريد صاحبها","err");return false;}
+  if(!pass||pass.length<6){toast("كلمة المرور ٦ أحرف على الأقل (أو ولّدها 🎲)","err");return false;}
   const code="C"+Math.random().toString(36).slice(2,7).toUpperCase();
-  const tempPass=Math.random().toString(36).slice(2,6)+Math.floor(1000+Math.random()*9000);
+  const end=new Date(isNaN(start)?new Date():start); end.setMonth(end.getMonth()+months);
   try{
-    // 1) إنشاء حساب صاحب الشركة عبر النسخة الثانوية (لا يسجّل خروج المدير)
-    const cred=await secondaryAuth.createUserWithEmailAndPassword(email,tempPass);
+    const cred=await secondaryAuth.createUserWithEmailAndPassword(email,pass);
     const ownerUid=cred.user.uid;
     await secondaryAuth.signOut();
-    // 2) وثيقة الشركة
     const compRef=db.collection("companies").doc();
-    await compRef.set({name,code,ownerEmail:email,ownerPhone:phone,ownerUid,status:"active",
-      subscription:{plan:"monthly",startedAt:now(),active:true}, createdAt:now(), createdBy:state.user.uid});
-    // 3) ربط المستخدم + ملفه داخل الشركة بكامل الصلاحيات
-    await db.collection("users").doc(ownerUid).set({role:"owner",companyId:compRef.id,name:"صاحب الشركة "+name,createdAt:now()});
-    await compRef.collection("users").doc(ownerUid).set({name:"صاحب الشركة",email,phone,role:"owner",permissions:fullPermissions(),createdAt:now()});
+    await compRef.set({name,code,ownerName:owner||("صاحب "+name),ownerEmail:email,ownerPhone:phone,ownerUid,status:"active",
+      subscription:{plan:"monthly",months,startsAt:(isNaN(start)?new Date():start).toISOString(),endsAt:end.toISOString(),active:true},
+      createdAt:now(), createdBy:state.user.uid});
+    await db.collection("users").doc(ownerUid).set({role:"owner",companyId:compRef.id,name:owner||("صاحب الشركة "+name),createdAt:now()});
+    await compRef.collection("users").doc(ownerUid).set({name:owner||"صاحب الشركة",email,phone,role:"owner",permissions:fullPermissions(),createdAt:now()});
     logAction("create_company",name);
     closeModal();
     openModal("تم إنشاء الشركة ✅",
       "<div class='review-row'><span>الشركة</span><b>"+esc(name)+"</b></div>"+
       "<div class='review-row'><span>كود الشركة</span><b>"+code+"</b></div>"+
       "<div class='review-row'><span>البريد</span><b>"+esc(email)+"</b></div>"+
-      "<div class='review-row'><span>كلمة المرور المؤقتة</span><b>"+tempPass+"</b></div>"+
-      "<p class='muted' style='margin-top:14px;font-size:13px'>سلّم هذي البيانات لصاحب الشركة، ويغيّر كلمة المرور بعد أول دخول.</p>",
+      "<div class='review-row'><span>كلمة المرور</span><b>"+esc(pass)+"</b></div>"+
+      "<div class='review-row'><span>انتهاء الاشتراك</span><b>"+end.toLocaleDateString("ar-SA")+"</b></div>"+
+      "<p class='muted' style='margin-top:14px;font-size:13px'>سلّم هذي البيانات لصاحب الشركة.</p>",
       "تم", ()=>true, true);
-    return false; // نتحكم بالإغلاق يدوياً
+    return false;
   }catch(e){
     console.error(e);
     toast(e.code==="auth/email-already-in-use"?"البريد مستخدم مسبقاً":"تعذّر إنشاء الشركة","err");
@@ -441,10 +617,33 @@ function fullPermissions(){const p={};MODULES.forEach(m=>{p[m.key]={};ACTIONS.fo
 function emptyPermissions(){const p={};MODULES.forEach(m=>{p[m.key]={};ACTIONS.forEach(a=>p[m.key][a.key]=false);});return p;}
 
 function pageSuperSubs(c){
-  c.innerHTML=pageTitle("الاشتراكات","إدارة اشتراكات الشركات")+
-   "<div class='card'><table><thead><tr><th>الشركة</th><th>الخطة</th><th>الحالة</th></tr></thead><tbody id='subRows'></tbody></table></div>";
-  db.collection("companies").onSnapshot(s=>{const tb=$("subRows");if(!tb)return;tb.innerHTML="";
-    s.forEach(d=>{const c=d.data();tb.appendChild(el("tr",null,"<td>"+esc(c.name)+"</td><td>"+esc((c.subscription&&c.subscription.plan)||"شهري")+"</td><td>"+(c.status==="suspended"?"<span class='tag red'>موقوفة</span>":"<span class='tag green'>نشطة</span>")+"</td>"));});
+  c.innerHTML=pageTitle("الاشتراكات","متابعة اشتراكات الشركات")+
+   "<div id='subAlerts'></div>"+
+   "<div class='card'><table><thead><tr><th>الشركة</th><th>البداية</th><th>النهاية</th><th>المدة</th><th>المتبقّي</th><th>الحالة</th></tr></thead><tbody id='subRows'></tbody></table></div>";
+  db.collection("companies").orderBy("createdAt","desc").onSnapshot(s=>{
+    const tb=$("subRows");if(!tb)return;tb.innerHTML="";
+    const alerts=[];
+    s.forEach(d=>{const cd=d.data();
+      const start=toDate(cd.subscription&&cd.subscription.startsAt), end=subEndDate(cd), left=subDaysLeft(cd);
+      const fmt=x=>x?x.toLocaleDateString("ar-SA"):"—";
+      let leftCell="<span class='muted'>—</span>";
+      if(left!==null){
+        if(left<0) leftCell="<span class='tag red'>منتهٍ</span>";
+        else if(left<=15){ leftCell="<span class='tag amber'>"+left+" يوم</span>"; alerts.push({name:cd.name,left}); }
+        else leftCell=left+" يوم";
+      }
+      const stTag=cd.status==="suspended"?"<span class='tag red'>موقوفة</span>":"<span class='tag green'>نشطة</span>";
+      tb.appendChild(el("tr",null,"<td><b>"+esc(cd.name)+"</b></td><td class='muted'>"+fmt(start)+"</td><td class='muted'>"+fmt(end)+"</td><td>"+((cd.subscription&&cd.subscription.months)||"—")+" شهر</td><td>"+leftCell+"</td><td>"+stTag+"</td>"));
+    });
+    // إشعارات قبل الانتهاء بـ15 يوم
+    const aw=$("subAlerts"); if(aw){ aw.innerHTML="";
+      if(alerts.length){
+        const box=el("div","card"); box.style.borderColor="var(--amber)"; box.style.marginBottom="16px";
+        box.innerHTML="<div style='font-weight:700;margin-bottom:8px'>🔔 اشتراكات قاربت على الانتهاء</div>"+
+          alerts.map(a=>"<div class='review-row'><span>"+esc(a.name)+"</span><b class='tag amber'>باقٍ "+a.left+" يوم</b></div>").join("");
+        aw.appendChild(box);
+      }
+    }
   });
 }
 function pageSuperAudit(c){ renderAudit(c,db.collection("platform").doc("_").collection("auditLog"),"سجل عمليات المنصة"); }
@@ -474,13 +673,24 @@ function kpi(label,id,val){return "<div class='kpi'><div class='l'>"+esc(label)+
 /* ================================================================== */
 /*  9) الإقفال اليومي — القسم المكتمل (النموذج للباقي)                 */
 /* ================================================================== */
+// الموظف = يستطيع الإضافة لكن لا يعتمد (لا يرى الأرقام ولا سجل الإقفالات)
+function isEmployeeView(){ return state.role==="employee" || (can("sales","add") && !can("sales","approve")); }
+
 function pageSales(c){
-  c.innerHTML=pageTitle("الإقفال اليومي","إرسال ومراجعة إقفالات المبيعات");
-  if(can("sales","add")){
+  // ===== واجهة الموظف: إرسال فقط، بدون أي أرقام أو سجل =====
+  if(isEmployeeView()){
+    c.innerHTML=pageTitle("الإقفال اليومي","إرسال إقفال المبيعات");
     const bar=el("div",null,"<button class='btn primary' id='newClosingBtn'>+ إرسال إقفال جديد</button>");
     bar.style.marginBottom="16px"; c.appendChild(bar);
     bar.querySelector("#newClosingBtn").onclick=openClosingModal;
+    // منطقة البطاقات المؤقتة (تظهر بعد الإرسال وتختفي بعد 5 دقائق)
+    const temp=el("div"); temp.id="empTempWrap"; c.appendChild(temp);
+    const note=el("div","card muted","لا توجد إقفالات معلّقة. اضغط «إرسال إقفال جديد» لتسجيل إقفال اليوم.");
+    note.id="empHint"; note.style.textAlign="center"; c.appendChild(note);
+    return;
   }
+  // ===== واجهة المالك/المدير: سجل كامل بكل التفاصيل =====
+  c.innerHTML=pageTitle("الإقفال اليومي","مراجعة واعتماد إقفالات المبيعات");
   const card=el("div","card");
   card.innerHTML="<table><thead><tr><th>التاريخ</th><th>الفرع</th><th>الموظف</th><th>مبيعات فعلية</th><th>مبيعات النظام</th><th>الفرق</th><th>الحالة</th></tr></thead><tbody id='clRows'><tr><td colspan='7' class='muted'>جارٍ التحميل…</td></tr></tbody></table>";
   c.appendChild(card);
@@ -500,6 +710,27 @@ function pageSales(c){
       tb.appendChild(tr);
     });
   },()=>{const tb=$("clRows");if(tb)tb.innerHTML="<tr><td colspan='7' style='color:var(--red)'>تعذّر التحميل</td></tr>";});
+}
+
+// بطاقة تأكيد مؤقتة تظهر للموظف بعد الإرسال وتختفي بعد 5 دقائق
+function showEmployeeConfirmation(){
+  const wrap=$("empTempWrap"); if(!wrap) return;
+  const hint=$("empHint"); if(hint) hint.classList.add("hidden");
+  const card=el("div","card");
+  card.style.borderColor="var(--green)";
+  const until=Date.now()+5*60*1000;
+  card.innerHTML="<div style='display:flex;align-items:center;gap:10px'><span style='font-size:22px'>✅</span>"+
+    "<div><div style='font-weight:700'>تم إرسال الإقفال بنجاح</div>"+
+    "<div class='muted' style='font-size:13px'>سُجّل الإقفال وأُرسل للإدارة. هذا التأكيد يختفي خلال <b class='cd'>5:00</b></div></div></div>";
+  wrap.prepend(card);
+  const cd=card.querySelector(".cd");
+  const timer=setInterval(()=>{
+    const left=Math.max(0,Math.round((until-Date.now())/1000));
+    const m=Math.floor(left/60), s=String(left%60).padStart(2,"0");
+    if(cd) cd.textContent=m+":"+s;
+    if(left<=0){ clearInterval(timer); card.style.transition=".4s"; card.style.opacity="0";
+      setTimeout(()=>{ card.remove(); if(hint && !wrap.children.length) hint.classList.remove("hidden"); },400); }
+  },1000);
 }
 
 async function openClosingModal(){
@@ -533,7 +764,14 @@ function reviewClosing(){
   if(!g("clActual")||!g("clSystem")){toast("أدخل المبيعات الفعلية ومبيعات النظام","err");return false;}
   const paySum=data.cash+data.mada+data.visa+data.mastercard;
   const diff=data.actualSales-data.systemSales;
-  // شاشة المراجعة
+  // شاشة المراجعة — الموظف بلا أرقام، المالك/المدير بالتفاصيل الكاملة
+  if(isEmployeeView()){
+    openModal("تأكيد الإرسال",
+      "<div class='review-row'><span>الفرع</span><b>"+esc(branchName)+"</b></div>"+
+      "<p class='muted' style='margin-top:12px;font-size:14px'>تأكّد من صحة البيانات قبل الإرسال. بعد الإرسال تُسجّل تلقائياً بالتاريخ والوقت واسمك، وتُرسل للإدارة.</p>",
+      "إرسال الإقفال", ()=>submitClosing(data,file));
+    return false;
+  }
   openModal("مراجعة الإقفال",
     "<div class='review-row'><span>الفرع</span><b>"+esc(branchName)+"</b></div>"+
     "<div class='review-row'><span>المبيعات الفعلية</span><b>"+money(data.actualSales)+"</b></div>"+
@@ -567,7 +805,8 @@ async function submitClosing(data,file){
       employeeUid:state.user.uid, employeeName:state.profile.name||state.user.email,
       status:"submitted", createdAt:now()});
     logAction("submit_closing",data.date+" / "+data.branchName);
-    toast("تم إرسال الإقفال بنجاح","ok");
+    if(isEmployeeView()){ closeModal(); showEmployeeConfirmation(); }
+    else toast("تم إرسال الإقفال بنجاح","ok");
     return true;
   }catch(e){console.error(e);toast("تعذّر الإرسال","err");return false;}
 }
@@ -676,7 +915,7 @@ function renderAudit(container,ref,title,inline){
   card.innerHTML=(card.innerHTML||"")+"<table><thead><tr><th>العملية</th><th>المستخدم</th><th>التفاصيل</th><th>الوقت</th></tr></thead><tbody id='auditRows'><tr><td colspan='4' class='muted'>جارٍ التحميل…</td></tr></tbody></table>";
   ref.orderBy("at","desc").limit(80).onSnapshot(s=>{const tb=document.getElementById("auditRows");if(!tb)return;tb.innerHTML="";
     if(s.empty){tb.innerHTML="<tr><td colspan='4' class='muted'>لا يوجد سجل</td></tr>";return;}
-    const names={login:"تسجيل دخول",create_company:"إنشاء شركة",suspend_company:"إيقاف شركة",activate_company:"تشغيل شركة",add_branch:"إضافة فرع",edit_branch:"تعديل فرع",delete_branch:"حذف فرع",add_user:"إضافة مستخدم",edit_permissions:"تعديل صلاحيات",submit_closing:"إرسال إقفال",approve_closing:"اعتماد إقفال"};
+    const names={login:"تسجيل دخول",create_company:"إنشاء شركة",suspend_company:"إيقاف شركة",activate_company:"تشغيل شركة",delete_company:"حذف شركة",update_subscription:"تعديل اشتراك",admin_enter:"دخول إداري",add_branch:"إضافة فرع",edit_branch:"تعديل فرع",delete_branch:"حذف فرع",add_user:"إضافة مستخدم",edit_permissions:"تعديل صلاحيات",submit_closing:"إرسال إقفال",approve_closing:"اعتماد إقفال"};
     s.forEach(d=>{const x=d.data();const t=x.at&&x.at.toDate?x.at.toDate().toLocaleString("ar-SA"):"—";
       tb.appendChild(el("tr",null,"<td>"+(names[x.action]||esc(x.action))+"</td><td class='muted'>"+esc(x.userName||"")+"</td><td class='muted'>"+esc(x.details||"")+"</td><td class='muted'>"+t+"</td>"));});
   },()=>{});
