@@ -516,7 +516,7 @@ async function openClosingModal(){
       "<label class='field'><span>فيزا</span><input id='clVisa' class='input' type='number' placeholder='0.00'></label>"+
       "<label class='field'><span>ماستركارد</span><input id='clMaster' class='input' type='number' placeholder='0.00'></label>"+
     "</div>"+
-    "<label class='field'><span>صورة الإقفال (إلزامية) *</span><input id='clPhoto' class='input' type='file' accept='image/*' capture='environment'></label>"+
+    "<label class='field'><span>صورة الإقفال (اختيارية)</span><input id='clPhoto' class='input' type='file' accept='image/*' capture='environment'></label>"+
     "<img id='clPrev' class='photo-prev hidden'>",
     "مراجعة قبل الإرسال", reviewClosing);
   const ph=$("clPhoto");ph.onchange=()=>{const f=ph.files[0];if(f){const u=URL.createObjectURL(f);$("clPrev").src=u;$("clPrev").classList.remove("hidden");}};
@@ -531,7 +531,6 @@ function reviewClosing(){
   const file=$("clPhoto").files[0];
   if(!data.branchId){toast("اختر الفرع","err");return false;}
   if(!g("clActual")||!g("clSystem")){toast("أدخل المبيعات الفعلية ومبيعات النظام","err");return false;}
-  if(!file){toast("الصورة إلزامية","err");return false;}
   const paySum=data.cash+data.mada+data.visa+data.mastercard;
   const diff=data.actualSales-data.systemSales;
   // شاشة المراجعة
@@ -542,7 +541,7 @@ function reviewClosing(){
     "<div class='review-row'><span>الفرق (فعلي − نظام)</span><b style='color:"+(diff===0?"var(--green)":"var(--amber)")+"'>"+money(diff)+"</b></div>"+
     "<div class='review-row'><span>الكاش / مدى / فيزا / ماستر</span><b>"+money(data.cash)+" · "+money(data.mada)+" · "+money(data.visa)+" · "+money(data.mastercard)+"</b></div>"+
     "<div class='review-row'><span>مجموع طرق الدفع</span><b style='color:"+(Math.abs(paySum-data.actualSales)<0.01?"var(--green)":"var(--red)")+"'>"+money(paySum)+"</b></div>"+
-    "<p class='muted' style='margin-top:10px;font-size:13px'>التاريخ والوقت واسم الموظف تُسجّل تلقائياً. أرفقت الصورة ✅</p>",
+    "<p class='muted' style='margin-top:10px;font-size:13px'>التاريخ والوقت واسم الموظف تُسجّل تلقائياً."+(file?" أرفقت الصورة ✅":" (بدون صورة)")+"</p>",
     "اعتماد الإرسال", ()=>submitClosing(data,file));
   return false;
 }
@@ -550,11 +549,20 @@ function reviewClosing(){
 async function submitClosing(data,file){
   try{
     const ref=cRef().collection("dailyClosings").doc();
-    // رفع الصورة الإلزامية إلى Storage
-    const path="companies/"+state.companyId+"/closings/"+ref.id+".jpg";
-    const snap=await storage.ref(path).put(file);
-    const url=await snap.ref.getDownloadURL();
-    await ref.set({...data, photoUrl:url, photoPath:path,
+    let photoUrl="", photoPath="";
+    // الصورة اختيارية: نرفعها فقط إذا وُجدت وكانت خدمة Storage مفعّلة
+    if(file){
+      try{
+        photoPath="companies/"+state.companyId+"/closings/"+ref.id+".jpg";
+        const snap=await storage.ref(photoPath).put(file);
+        photoUrl=await snap.ref.getDownloadURL();
+      }catch(err){
+        console.warn("تعذّر رفع الصورة (Storage غير مفعّل) — سيُحفظ الإقفال بدون صورة",err);
+        photoUrl=""; photoPath="";
+        toast("حُفظ الإقفال بدون صورة (خدمة الصور غير مفعّلة)","");
+      }
+    }
+    await ref.set({...data, photoUrl, photoPath,
       date:new Date().toISOString().slice(0,10),
       employeeUid:state.user.uid, employeeName:state.profile.name||state.user.email,
       status:"submitted", createdAt:now()});
