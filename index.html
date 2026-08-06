@@ -412,7 +412,7 @@ function openPage(key){
   const c=$("pageContent"); c.innerHTML="";
   const routes={
     super_companies:pageSuperCompanies, super_subs:pageSuperSubs, super_audit:pageSuperAudit,
-    dashboard:pageDashboard, sales:pageSales, invoices:pageInvoices, inventory:pageInventory, branches:pageBranches, employees:pageEmployees, settings:pageSettings
+    dashboard:pageDashboard, sales:pageSales, invoices:pageInvoices, inventory:pageInventory, suppliers:pageSuppliers, branches:pageBranches, employees:pageEmployees, settings:pageSettings
   };
   if(routes[key]) routes[key](c);
   else pagePlaceholder(c,key);
@@ -1201,6 +1201,127 @@ async function productModal(id,x){
     });
 }
 
+/* ================================================================== */
+/*  9.د) الموردين (بطاقات + سجل أسعار)                                 */
+/* ================================================================== */
+// رابط واتساب من رقم سعودي/دولي
+function waLink(phone){ let p=(phone||"").replace(/[^0-9]/g,""); if(p.startsWith("00"))p=p.slice(2); if(p.startsWith("0"))p="966"+p.slice(1); if(p.length===9)p="966"+p; return "https://wa.me/"+p; }
+function normUrl(u){ u=(u||"").trim(); if(u&&!/^https?:\/\//i.test(u))u="https://"+u; return u; }
+
+function pageSuppliers(c){
+  c.innerHTML=pageTitle("الموردين","متابعة الموردين وأسعار منتجاتهم");
+  if(can("suppliers","add")){const bar=el("div",null,"<button class='btn primary' id='newSupBtn'>+ إضافة مورد</button>");bar.style.marginBottom="16px";c.appendChild(bar);bar.firstChild.onclick=()=>supplierModal();}
+  const grid=el("div"); grid.id="supGrid";
+  grid.style.cssText="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:14px";
+  c.appendChild(grid);
+  cRef().collection("suppliers").orderBy("company").onSnapshot(s=>{
+    const g=$("supGrid"); if(!g) return; g.innerHTML="";
+    if(s.empty){ g.innerHTML="<div class='card muted' style='grid-column:1/-1;text-align:center'>لا يوجد موردون بعد</div>"; return; }
+    s.forEach(d=>{const x=d.data();
+      const prods=(x.products||[]).map(p=>esc(p.name)).slice(0,4).join("، ")||"لا منتجات";
+      const card=el("div","card");
+      card.style.cssText="cursor:pointer;min-height:130px;display:flex;flex-direction:column;gap:8px";
+      card.innerHTML="<div style='font-size:26px'>🚚</div><div style='font-weight:800'>"+esc(x.company)+"</div>"+
+        "<div class='muted' style='font-size:13px;flex:1'>"+prods+"</div>"+
+        "<div class='tag amber' style='align-self:flex-start'>"+((x.products||[]).length)+" منتج</div>";
+      card.onclick=()=>renderSupplierDetail(c,d.id);
+      g.appendChild(card);
+    });
+  },()=>{const g=$("supGrid");if(g)g.innerHTML="<div class='card' style='grid-column:1/-1;color:var(--red)'>تعذّر التحميل</div>";});
+}
+
+async function renderSupplierDetail(c,id){
+  const doc=await cRef().collection("suppliers").doc(id).get();
+  if(!doc.exists){ toast("المورد غير موجود","err"); return openPage("suppliers"); }
+  const x=doc.data();
+  c.innerHTML="";
+  const back=el("button","btn sm","← رجوع للموردين"); back.style.marginBottom="14px"; back.onclick=()=>openPage("suppliers"); c.appendChild(back);
+  // بطاقة بيانات المورد
+  const head=el("div","card"); head.style.marginBottom="16px";
+  let contact="";
+  if(x.phone) contact+="<a class='btn sm' style='background:#25D366;color:#fff;border:none' href='"+waLink(x.phone)+"' target='_blank'>واتساب</a> <a class='btn sm' href='tel:"+esc(x.phone)+"'>اتصال</a> ";
+  if(x.url) contact+="<a class='btn sm' href='"+esc(normUrl(x.url))+"' target='_blank'>🔗 الموقع</a>";
+  head.innerHTML="<div style='display:flex;justify-content:space-between;align-items:start;gap:10px;flex-wrap:wrap'>"+
+    "<div><h2 style='font-size:22px'>"+esc(x.company)+"</h2>"+
+    "<div class='muted' style='margin-top:4px'>المندوب: "+esc(x.rep||"—")+(x.phone?" · "+esc(x.phone):"")+"</div></div>"+
+    "<div style='display:flex;gap:6px;flex-wrap:wrap'>"+contact+"</div></div>";
+  const actions=el("div"); actions.style.marginTop="12px";
+  if(can("suppliers","edit")){ const e=el("button","btn sm","تعديل بيانات المورد"); e.onclick=()=>supplierModal(id,x); actions.appendChild(e); }
+  if(can("suppliers","delete")){ const dl=el("button","btn sm danger","حذف المورد"); dl.style.marginRight="6px"; dl.onclick=()=>{if(confirm("حذف المورد؟")){cRef().collection("suppliers").doc(id).delete();logAction("delete_supplier",x.company);openPage("suppliers");}}; actions.appendChild(dl); }
+  head.appendChild(actions);
+  c.appendChild(head);
+
+  // منتجات المورد
+  const pbar=el("div"); pbar.style.cssText="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px";
+  pbar.innerHTML="<h3>المنتجات والأسعار</h3>";
+  if(can("suppliers","edit")){ const add=el("button","btn primary sm","+ منتج"); add.onclick=()=>productPriceModal(id,x,null); pbar.appendChild(add); }
+  c.appendChild(pbar);
+
+  const list=el("div","card");
+  const prods=x.products||[];
+  if(!prods.length){ list.innerHTML="<p class='muted'>لا توجد منتجات. أضف منتجاً لتتبّع سعره.</p>"; }
+  else{
+    let html="<table><thead><tr><th>المنتج</th><th>السعر الحالي</th><th>أعلى</th><th>أقل</th><th>التغيّر</th><th>إجراء</th></tr></thead><tbody>";
+    prods.forEach((p,i)=>{
+      const hist=p.history||[]; const prices=hist.map(h=>Number(h.price));
+      const high=prices.length?Math.max(...prices):Number(p.price)||0;
+      const low=prices.length?Math.min(...prices):Number(p.price)||0;
+      let change="—",col="var(--muted)";
+      if(hist.length>=2){ const cur=Number(hist[hist.length-1].price), prev=Number(hist[hist.length-2].price);
+        if(prev>0){ const pct=((cur-prev)/prev)*100; const up=pct>=0; change=(up?"▲ ":"▼ ")+Math.abs(pct).toFixed(1)+"%"; col=up?"var(--red)":"var(--green)"; } }
+      html+="<tr><td><b>"+esc(p.name)+"</b></td><td>"+money(p.price)+"</td><td class='muted'>"+money(high)+"</td><td class='muted'>"+money(low)+"</td>"+
+        "<td style='color:"+col+"'>"+change+"</td><td><button class='btn sm' data-up='"+i+"'>تحديث السعر</button></td></tr>";
+    });
+    html+="</tbody></table>"; list.innerHTML=html;
+  }
+  c.appendChild(list);
+  list.querySelectorAll("[data-up]").forEach(b=>{ b.onclick=()=>productPriceModal(id,x,parseInt(b.dataset.up)); });
+}
+
+// إضافة/تعديل مورد
+function supplierModal(id,x){ x=x||{};
+  openModal(id?"تعديل مورد":"إضافة مورد",
+    "<label class='field'><span>اسم الشركة/المورد *</span><input id='sCompany' class='input' value='"+esc(x.company||"")+"'></label>"+
+    "<label class='field'><span>اسم المندوب</span><input id='sRep' class='input' value='"+esc(x.rep||"")+"'></label>"+
+    "<label class='field'><span>رقم الجوال</span><input id='sPhone' class='input' inputmode='tel' value='"+esc(x.phone||"")+"'></label>"+
+    "<label class='field'><span>رابط الموقع (اختياري)</span><input id='sUrl' class='input' inputmode='url' placeholder='https://...' value='"+esc(x.url||"")+"'></label>",
+    "حفظ", async ()=>{
+      const company=$("sCompany").value.trim(); if(!company){toast("أدخل اسم المورد","err");return false;}
+      const data={company,rep:$("sRep").value.trim(),phone:$("sPhone").value.trim(),url:normUrl($("sUrl").value)};
+      if(id){ await cRef().collection("suppliers").doc(id).update(data); logAction("edit_supplier",company); }
+      else{ data.products=[]; data.createdAt=now(); await cRef().collection("suppliers").add(data); logAction("add_supplier",company); }
+      openPage("suppliers"); return true;
+    });
+}
+
+// إضافة منتج جديد أو تحديث سعر منتج قائم (يُسجّل في السجل تلقائياً)
+function productPriceModal(supId,supData,index){
+  const isNew = index===null || index===undefined;
+  const prod = isNew?null:(supData.products||[])[index];
+  openModal(isNew?"إضافة منتج":"تحديث سعر: "+esc(prod?prod.name:""),
+    (isNew?"<label class='field'><span>اسم المنتج *</span><input id='ppName' class='input'></label>":"")+
+    "<label class='field'><span>"+(isNew?"السعر الحالي *":"السعر الجديد *")+"</span><input id='ppPrice' class='input' type='number' inputmode='decimal'></label>"+
+    (isNew?"":"<p class='muted' style='font-size:13px'>يُضاف السعر للسجل ويُعاد حساب أعلى/أقل ونسبة التغيّر تلقائياً.</p>"),
+    "حفظ", async ()=>{
+      const price=parseFloat($("ppPrice").value);
+      if(isNaN(price)||price<=0){toast("أدخل سعراً صحيحاً","err");return false;}
+      const today=new Date().toISOString().slice(0,10);
+      const ref=cRef().collection("suppliers").doc(supId);
+      const fresh=(await ref.get()).data(); const products=fresh.products||[];
+      if(isNew){
+        const name=$("ppName").value.trim(); if(!name){toast("أدخل اسم المنتج","err");return false;}
+        products.push({name,price,history:[{price,date:today}]});
+        logAction("add_supplier_product",supData.company+" / "+name);
+      }else{
+        const p=products[index]; p.price=price; p.history=(p.history||[]); p.history.push({price,date:today});
+        logAction("update_price",supData.company+" / "+p.name+" = "+price);
+      }
+      await ref.update({products});
+      const c=$("pageContent"); renderSupplierDetail(c,supId);
+      return true;
+    });
+}
+
 function pageBranches(c){
   c.innerHTML=pageTitle("الفروع","إدارة فروع الشركة");
   if(can("branches","add")){const bar=el("div",null,"<button class='btn primary' id='newBranchBtn'>+ فرع جديد</button>");bar.style.marginBottom="16px";c.appendChild(bar);bar.firstChild.onclick=()=>branchModal();}
@@ -1302,7 +1423,7 @@ function renderAudit(container,ref,title,inline){
   card.innerHTML=(card.innerHTML||"")+"<table><thead><tr><th>العملية</th><th>المستخدم</th><th>التفاصيل</th><th>الوقت</th></tr></thead><tbody id='auditRows'><tr><td colspan='4' class='muted'>جارٍ التحميل…</td></tr></tbody></table>";
   ref.orderBy("at","desc").limit(80).onSnapshot(s=>{const tb=document.getElementById("auditRows");if(!tb)return;tb.innerHTML="";
     if(s.empty){tb.innerHTML="<tr><td colspan='4' class='muted'>لا يوجد سجل</td></tr>";return;}
-    const names={login:"تسجيل دخول",create_company:"إنشاء شركة",suspend_company:"إيقاف شركة",activate_company:"تشغيل شركة",delete_company:"حذف شركة",update_subscription:"تعديل اشتراك",admin_enter:"دخول إداري",add_branch:"إضافة فرع",edit_branch:"تعديل فرع",delete_branch:"حذف فرع",add_user:"إضافة مستخدم",edit_permissions:"تعديل صلاحيات",submit_closing:"إرسال إقفال",approve_closing:"اعتماد إقفال",add_invoice:"إضافة فاتورة",add_product:"إضافة منتج",edit_product:"تعديل منتج",delete_product:"حذف منتج",add_category:"إضافة تصنيف"};
+    const names={login:"تسجيل دخول",create_company:"إنشاء شركة",suspend_company:"إيقاف شركة",activate_company:"تشغيل شركة",delete_company:"حذف شركة",update_subscription:"تعديل اشتراك",admin_enter:"دخول إداري",add_branch:"إضافة فرع",edit_branch:"تعديل فرع",delete_branch:"حذف فرع",add_user:"إضافة مستخدم",edit_permissions:"تعديل صلاحيات",submit_closing:"إرسال إقفال",approve_closing:"اعتماد إقفال",add_invoice:"إضافة فاتورة",add_product:"إضافة منتج",edit_product:"تعديل منتج",delete_product:"حذف منتج",add_category:"إضافة تصنيف",add_supplier:"إضافة مورد",edit_supplier:"تعديل مورد",delete_supplier:"حذف مورد",add_supplier_product:"إضافة منتج لمورد",update_price:"تحديث سعر"};
     s.forEach(d=>{const x=d.data();const t=x.at&&x.at.toDate?x.at.toDate().toLocaleString("ar-SA"):"—";
       tb.appendChild(el("tr",null,"<td>"+(names[x.action]||esc(x.action))+"</td><td class='muted'>"+esc(x.userName||"")+"</td><td class='muted'>"+esc(x.details||"")+"</td><td class='muted'>"+t+"</td>"));});
   },()=>{});
@@ -1326,3 +1447,4 @@ window.openPage=openPage;
 </script>
 </body>
 </html>
+
