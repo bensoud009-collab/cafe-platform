@@ -412,7 +412,7 @@ function openPage(key){
   const c=$("pageContent"); c.innerHTML="";
   const routes={
     super_companies:pageSuperCompanies, super_subs:pageSuperSubs, super_audit:pageSuperAudit,
-    dashboard:pageDashboard, sales:pageSales, invoices:pageInvoices, branches:pageBranches, employees:pageEmployees, settings:pageSettings
+    dashboard:pageDashboard, sales:pageSales, invoices:pageInvoices, inventory:pageInventory, branches:pageBranches, employees:pageEmployees, settings:pageSettings
   };
   if(routes[key]) routes[key](c);
   else pagePlaceholder(c,key);
@@ -665,7 +665,9 @@ const DASH_WIDGETS = {
   prev_month_sales:{ name:"مبيعات الشهر الماضي", icon:"📉", page:"sales", kind:"money" },
   avg_closing:{ name:"متوسط قيمة الإقفال", icon:"📊", page:"sales", kind:"money" },
   invoices_count:{ name:"عدد المشتريات (الشهر)", icon:"🧾", page:"invoices", kind:"count" },
-  invoices_total:{ name:"إجمالي المشتريات (الشهر)", icon:"🛒", page:"invoices", kind:"money" }
+  invoices_total:{ name:"إجمالي المشتريات (الشهر)", icon:"🛒", page:"invoices", kind:"money" },
+  inventory_count:{ name:"عدد المنتجات", icon:"📦", page:"inventory", kind:"count" },
+  inventory_value:{ name:"قيمة المخزون", icon:"💰", page:"inventory", kind:"money" }
 };
 
 function pageDashboard(c){
@@ -742,6 +744,14 @@ function pageDashboard(c){
       let total=0,count=0; s.forEach(d=>{total+=Number(d.data().total)||0;count++;});
       if($("w_invoices_count"))$("w_invoices_count").textContent=count;
       if($("w_invoices_total"))$("w_invoices_total").textContent=money(total);
+    },()=>{});
+  }
+  // بطاقات المخزون (إن أُضيفت)
+  if(cards.includes("inventory_count")||cards.includes("inventory_value")){
+    cRef().collection("products").onSnapshot(s=>{
+      let val=0; s.forEach(d=>{const x=d.data();val+=(Number(x.price)||0)*(Number(x.qty)||0);});
+      if($("w_inventory_count"))$("w_inventory_count").textContent=s.size;
+      if($("w_inventory_value"))$("w_inventory_value").textContent=money(val);
     },()=>{});
   }
 }
@@ -1081,6 +1091,116 @@ function showInvoiceConfirmation(){
       setTimeout(()=>{card.remove(); if(hint&&!wrap.children.length)hint.classList.remove("hidden");},400);}
   },1000);
 }
+
+/* ================================================================== */
+/*  9.ج) المخزون (سجل المنتجات — المرحلة أ)                            */
+/* ================================================================== */
+function canSeeCost(){ return state.role==="super"||state.role==="owner"||state.role==="manager"; }
+
+function pageInventory(c){
+  const manage = can("inventory","add")||can("inventory","edit");
+  c.innerHTML=pageTitle("المخزون","سجل المنتجات وكمياتها");
+  // شريط الأدوات
+  let bar="";
+  if(can("inventory","add")) bar+="<button class='btn primary' id='newProdBtn'>+ إضافة منتج</button> ";
+  if(manage) bar+="<button class='btn sm' id='catBtn'>إدارة التصنيفات</button>";
+  c.innerHTML+="<div style='margin-bottom:16px'>"+bar+"</div>";
+  // بطاقات
+  c.innerHTML+="<div class='kpi-grid' style='margin-bottom:16px'>"+
+    kpi("عدد المنتجات","prodCount","—")+
+    (canSeeCost()?kpi("قيمة المخزون","prodValue","—"):"")+
+    kpi("منتجات تحتاج طلب","prodLow","—")+
+   "</div>";
+  const card=el("div","card");
+  const costCols=canSeeCost()?"<th>سعر الوحدة</th><th>قيمة</th>":"";
+  card.innerHTML="<table><thead><tr><th>المنتج</th><th>التصنيف</th><th>الكمية</th><th>الحد الأدنى</th>"+costCols+"<th>المورد</th><th>إجراء</th></tr></thead><tbody id='prodRows'><tr><td colspan='8' class='muted'>جارٍ التحميل…</td></tr></tbody></table>";
+  c.appendChild(card);
+  if($("newProdBtn"))$("newProdBtn").onclick=()=>productModal();
+  if($("catBtn"))$("catBtn").onclick=categoriesModal;
+
+  cRef().collection("products").orderBy("name").onSnapshot(s=>{
+    const tb=$("prodRows");if(!tb)return;tb.innerHTML="";
+    let val=0,low=0;
+    if(s.empty){tb.innerHTML="<tr><td colspan='8' class='muted'>لا توجد منتجات</td></tr>";}
+    s.forEach(d=>{const x=d.data();
+      const qty=Number(x.qty)||0, min=Number(x.min)||0, price=Number(x.price)||0;
+      val+=qty*price; const isLow=min>0&&qty<=min; if(isLow) low++;
+      const qtyCell="<b style='color:"+(isLow?"var(--red)":"inherit")+"'>"+qty+" "+esc(x.unit||"")+"</b>"+(isLow?" ⚠️":"");
+      const costCells=canSeeCost()?"<td>"+money(price)+"</td><td class='muted'>"+money(qty*price)+"</td>":"";
+      let supplier=x.supplier?esc(x.supplier):"—";
+      const tr=el("tr",null,"<td><b>"+esc(x.name)+"</b>"+(x.expiry?"<div class='muted' style='font-size:12px'>ينتهي: "+esc(x.expiry)+"</div>":"")+"</td>"+
+        "<td class='muted'>"+esc(x.category||"—")+"</td><td>"+qtyCell+"</td><td class='muted'>"+min+"</td>"+costCells+"<td class='muted'>"+supplier+"</td><td></td>");
+      const act=tr.lastChild;
+      if(x.url){ const open=el("button","btn sm","🔗 طلب"); open.onclick=()=>window.open(x.url,"_blank"); act.appendChild(open); }
+      if(can("inventory","edit")){ const e=el("button","btn sm","تعديل"); e.style.marginRight="6px"; e.onclick=()=>productModal(d.id,x); act.appendChild(e); }
+      if(can("inventory","delete")){ const dl=el("button","btn sm danger","حذف"); dl.style.marginRight="6px"; dl.onclick=()=>{if(confirm("حذف المنتج؟")){cRef().collection("products").doc(d.id).delete();logAction("delete_product",x.name);}}; act.appendChild(dl); }
+      tb.appendChild(tr);
+    });
+    if($("prodCount"))$("prodCount").textContent=s.size;
+    if($("prodValue"))$("prodValue").textContent=money(val);
+    if($("prodLow"))$("prodLow").textContent=low;
+  },()=>{const tb=$("prodRows");if(tb)tb.innerHTML="<tr><td colspan='8' style='color:var(--red)'>تعذّر التحميل</td></tr>";});
+}
+
+// جلب التصنيفات المحفوظة للشركة
+async function loadCategories(){
+  try{ const d=await cRef().collection("meta").doc("categories").get(); return (d.exists&&d.data().list)||[]; }catch(e){ return []; }
+}
+async function saveCategories(list){
+  await cRef().collection("meta").doc("categories").set({list});
+}
+
+// نافذة إدارة التصنيفات
+async function categoriesModal(){
+  const cats=await loadCategories();
+  openModal("إدارة التصنيفات",
+    "<div style='display:flex;gap:8px;margin-bottom:12px'><input id='newCat' class='input' placeholder='اسم تصنيف جديد'><button type='button' class='btn' id='addCatBtn'>إضافة</button></div>"+
+    "<div id='catList'></div>",
+    null, ()=>true, true);
+  const render=(list)=>{ const w=$("catList"); if(!w) return; w.innerHTML=list.length?"":"<p class='muted'>لا توجد تصنيفات بعد</p>";
+    list.forEach((cat,i)=>{ const row=el("div","review-row"); row.innerHTML="<span>"+esc(cat)+"</span>";
+      const del=el("button","btn sm danger","حذف"); del.onclick=async()=>{ const nl=list.filter((_,j)=>j!==i); await saveCategories(nl); render(nl); }; row.appendChild(del); w.appendChild(row); });
+  };
+  setTimeout(()=>{ let list=cats.slice(); render(list);
+    if($("addCatBtn"))$("addCatBtn").onclick=async()=>{ const v=$("newCat").value.trim(); if(!v)return; if(list.includes(v)){toast("موجود مسبقاً","");return;} list=list.concat(v); await saveCategories(list); $("newCat").value=""; render(list); logAction("add_category",v); };
+  },30);
+}
+
+// نافذة إضافة/تعديل منتج
+async function productModal(id,x){
+  x=x||{};
+  const cats=await loadCategories();
+  const catOpts="<option value=''>— بدون —</option>"+cats.map(cc=>"<option value='"+esc(cc)+"' "+(x.category===cc?"selected":"")+">"+esc(cc)+"</option>").join("");
+  openModal(id?"تعديل منتج":"إضافة منتج",
+    "<label class='field'><span>اسم المنتج *</span><input id='pName' class='input' value='"+esc(x.name||"")+"'></label>"+
+    "<div class='grid' style='grid-template-columns:1fr 1fr'>"+
+      "<label class='field'><span>سعر/تكلفة الوحدة *</span><input id='pPrice' class='input' type='number' inputmode='decimal' value='"+(x.price!=null?x.price:"")+"'></label>"+
+      "<label class='field'><span>الكمية الحالية *</span><input id='pQty' class='input' type='number' inputmode='decimal' value='"+(x.qty!=null?x.qty:"")+"'></label>"+
+      "<label class='field'><span>وحدة القياس</span><input id='pUnit' class='input' placeholder='كيلو/لتر/حبة' value='"+esc(x.unit||"")+"'></label>"+
+      "<label class='field'><span>الحد الأدنى</span><input id='pMin' class='input' type='number' inputmode='decimal' value='"+(x.min!=null?x.min:"")+"'></label>"+
+    "</div>"+
+    "<label class='field'><span>التصنيف</span><select id='pCat'>"+catOpts+"</select></label>"+
+    "<label class='field'><span>تاريخ الصلاحية (اختياري)</span><input id='pExpiry' class='input' type='date' value='"+esc(x.expiry||"")+"'></label>"+
+    "<div class='grid' style='grid-template-columns:1fr 1fr'>"+
+      "<label class='field'><span>المورد (اختياري)</span><input id='pSupplier' class='input' value='"+esc(x.supplier||"")+"'></label>"+
+      "<label class='field'><span>رقم المورد (اختياري)</span><input id='pSupPhone' class='input' inputmode='tel' value='"+esc(x.supplierPhone||"")+"'></label>"+
+    "</div>"+
+    "<label class='field'><span>رابط موقع الشراء (اختياري)</span><input id='pUrl' class='input' inputmode='url' placeholder='https://...' value='"+esc(x.url||"")+"'></label>",
+    "حفظ", async ()=>{
+      const name=$("pName").value.trim();
+      const price=parseFloat($("pPrice").value), qty=parseFloat($("pQty").value);
+      if(!name){toast("أدخل اسم المنتج","err");return false;}
+      if(isNaN(price)||isNaN(qty)){toast("أدخل السعر والكمية","err");return false;}
+      let url=$("pUrl").value.trim(); if(url&&!/^https?:\/\//i.test(url)) url="https://"+url;
+      const data={name,price,qty,unit:$("pUnit").value.trim(),min:parseFloat($("pMin").value)||0,
+        category:$("pCat").value,expiry:$("pExpiry").value,
+        supplier:$("pSupplier").value.trim(),supplierPhone:$("pSupPhone").value.trim(),url};
+      if(id){ await cRef().collection("products").doc(id).update(data); logAction("edit_product",name); }
+      else{ data.createdAt=now(); await cRef().collection("products").add(data); logAction("add_product",name); }
+      return true;
+    });
+}
+
 function pageBranches(c){
   c.innerHTML=pageTitle("الفروع","إدارة فروع الشركة");
   if(can("branches","add")){const bar=el("div",null,"<button class='btn primary' id='newBranchBtn'>+ فرع جديد</button>");bar.style.marginBottom="16px";c.appendChild(bar);bar.firstChild.onclick=()=>branchModal();}
@@ -1182,7 +1302,7 @@ function renderAudit(container,ref,title,inline){
   card.innerHTML=(card.innerHTML||"")+"<table><thead><tr><th>العملية</th><th>المستخدم</th><th>التفاصيل</th><th>الوقت</th></tr></thead><tbody id='auditRows'><tr><td colspan='4' class='muted'>جارٍ التحميل…</td></tr></tbody></table>";
   ref.orderBy("at","desc").limit(80).onSnapshot(s=>{const tb=document.getElementById("auditRows");if(!tb)return;tb.innerHTML="";
     if(s.empty){tb.innerHTML="<tr><td colspan='4' class='muted'>لا يوجد سجل</td></tr>";return;}
-    const names={login:"تسجيل دخول",create_company:"إنشاء شركة",suspend_company:"إيقاف شركة",activate_company:"تشغيل شركة",delete_company:"حذف شركة",update_subscription:"تعديل اشتراك",admin_enter:"دخول إداري",add_branch:"إضافة فرع",edit_branch:"تعديل فرع",delete_branch:"حذف فرع",add_user:"إضافة مستخدم",edit_permissions:"تعديل صلاحيات",submit_closing:"إرسال إقفال",approve_closing:"اعتماد إقفال",add_invoice:"إضافة فاتورة"};
+    const names={login:"تسجيل دخول",create_company:"إنشاء شركة",suspend_company:"إيقاف شركة",activate_company:"تشغيل شركة",delete_company:"حذف شركة",update_subscription:"تعديل اشتراك",admin_enter:"دخول إداري",add_branch:"إضافة فرع",edit_branch:"تعديل فرع",delete_branch:"حذف فرع",add_user:"إضافة مستخدم",edit_permissions:"تعديل صلاحيات",submit_closing:"إرسال إقفال",approve_closing:"اعتماد إقفال",add_invoice:"إضافة فاتورة",add_product:"إضافة منتج",edit_product:"تعديل منتج",delete_product:"حذف منتج",add_category:"إضافة تصنيف"};
     s.forEach(d=>{const x=d.data();const t=x.at&&x.at.toDate?x.at.toDate().toLocaleString("ar-SA"):"—";
       tb.appendChild(el("tr",null,"<td>"+(names[x.action]||esc(x.action))+"</td><td class='muted'>"+esc(x.userName||"")+"</td><td class='muted'>"+esc(x.details||"")+"</td><td class='muted'>"+t+"</td>"));});
   },()=>{});
