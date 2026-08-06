@@ -193,7 +193,7 @@ const MODULES = [
   {key:"inventory",  name:"المخزون والجرد", icon:"📦"},
   {key:"suppliers",  name:"الموردين", icon:"🚚"},
   {key:"staff",      name:"شؤون الموظفين", icon:"👥"},
-  {key:"checklist",  name:"التشيك ليست", icon:"✅"},
+  {key:"checklist",  name:"قوائم التحقّق التشغيلي", icon:"✅"},
   {key:"reports",    name:"التقارير", icon:"📈"},
   {key:"branches",   name:"الفروع", icon:"🏬"},
   {key:"settings",   name:"الإعدادات", icon:"⚙️"}
@@ -410,7 +410,7 @@ function openPage(key){
   const c=$("pageContent"); c.innerHTML="";
   const routes={
     super_companies:pageSuperCompanies, super_subs:pageSuperSubs, super_audit:pageSuperAudit,
-    dashboard:pageDashboard, sales:pageSales, invoices:pageInvoices, inventory:pageInventory, suppliers:pageSuppliers, staff:pageStaff, branches:pageBranches, employees:pageStaff, settings:pageSettings
+    dashboard:pageDashboard, sales:pageSales, invoices:pageInvoices, inventory:pageInventory, suppliers:pageSuppliers, staff:pageStaff, checklist:pageChecklist, branches:pageBranches, employees:pageStaff, settings:pageSettings
   };
   if(routes[key]) routes[key](c);
   else pagePlaceholder(c,key);
@@ -1696,6 +1696,144 @@ function permMatrixModal(uid,x){
 }
 
 /* ================================================================== */
+/*  11.ب) قوائم التحقّق التشغيلي                                       */
+/* ================================================================== */
+function clCanManage(){ return state.role==="owner"||state.role==="manager"; }
+function todayStr(){ return new Date().toISOString().slice(0,10); }
+
+function pageChecklist(c){
+  c.innerHTML=pageTitle("قوائم التحقّق التشغيلي","قوائم المهام اليومية ومتابعتها");
+  if(clCanManage()){const bar=el("div",null,"<button class='btn primary' id='newClBtn'>+ إضافة قائمة</button>");bar.style.marginBottom="16px";c.appendChild(bar);bar.firstChild.onclick=()=>checklistModal();}
+  const grid=el("div"); grid.style.cssText="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:16px"; grid.id="clGrid";
+  c.appendChild(grid);
+  cRef().collection("checklists").orderBy("name").onSnapshot(s=>{
+    const g=$("clGrid");if(!g)return;g.innerHTML="";
+    if(s.empty){g.innerHTML="<div class='card muted' style='grid-column:1/-1;text-align:center'>لا توجد قوائم بعد"+(clCanManage()?" — اضغط «إضافة قائمة»":"")+"</div>";return;}
+    s.forEach(d=>{const x=d.data();const card=el("div","card");card.style.cssText="cursor:pointer;min-height:120px";
+      card.innerHTML="<div style='font-size:30px'>📋</div><div style='font-weight:800;margin-top:8px'>"+esc(x.name)+"</div><div class='muted' style='font-size:13px;margin-top:4px'>"+((x.tasks||[]).length)+" مهمة</div>";
+      card.onclick=()=>checklistDetail(c,d.id,x);
+      g.appendChild(card);
+    });
+  },()=>{const g=$("clGrid");if(g)g.innerHTML="<div class='card' style='grid-column:1/-1;color:var(--red)'>تعذّر التحميل</div>";});
+}
+
+function checklistModal(id,x){ x=x||{};
+  openModal(id?"تعديل قائمة":"إضافة قائمة",
+    "<label class='field'><span>اسم القائمة *</span><input id='clName' class='input' placeholder='مثال: فتح الفرع' value='"+esc(x.name||"")+"'></label>",
+    "حفظ", async ()=>{
+      const name=$("clName").value.trim(); if(!name){toast("أدخل اسم القائمة","err");return false;}
+      if(id){await cRef().collection("checklists").doc(id).update({name});logAction("edit_checklist",name);}
+      else{await cRef().collection("checklists").add({name,tasks:[],createdAt:now()});logAction("add_checklist",name);}
+      return true;
+    });
+}
+
+async function checklistDetail(c,id){
+  const doc=await cRef().collection("checklists").doc(id).get();
+  if(!doc.exists){toast("القائمة غير موجودة","err");return openPage("checklist");}
+  const x=doc.data();
+  c.innerHTML=""; const back=el("button","btn sm","← رجوع للقوائم"); back.style.marginBottom="14px"; back.onclick=()=>openPage("checklist"); c.appendChild(back);
+  const head=el("div","card"); head.style.marginBottom="16px";
+  head.innerHTML="<div style='display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap'><h2 style='font-size:22px'>📋 "+esc(x.name)+"</h2><div style='display:flex;gap:6px;flex-wrap:wrap'></div></div>";
+  const btns=head.querySelector("div>div");
+  const start=el("button","btn primary sm","بدء مهام اليوم"); start.onclick=()=>runChecklistModal(id,x); btns.appendChild(start);
+  if(clCanManage()){ const mg=el("button","btn sm","إدارة المهام"); mg.onclick=()=>manageTasksModal(id,x); btns.appendChild(mg);
+    const ed=el("button","btn sm","تعديل الاسم"); ed.onclick=()=>checklistModal(id,x); btns.appendChild(ed);
+    const dl=el("button","btn sm danger","حذف"); dl.onclick=()=>{if(confirm("حذف القائمة؟")){cRef().collection("checklists").doc(id).delete();logAction("delete_checklist",x.name);openPage("checklist");}}; btns.appendChild(dl); }
+  c.appendChild(head);
+  // سجل التنفيذ
+  c.appendChild(el("div",null,"<h3 style='margin-bottom:10px'>سجل التنفيذ</h3>"));
+  const card=el("div","card");
+  card.innerHTML="<table><thead><tr><th>التاريخ</th><th>المنفّذ</th><th>الإنجاز</th><th>الحالة</th><th>إجراء</th></tr></thead><tbody id='runRows'><tr><td colspan='5' class='muted'>جارٍ التحميل…</td></tr></tbody></table>";
+  c.appendChild(card);
+  let q=cRef().collection("checklistRuns").where("checklistId","==",id);
+  q.onSnapshot(s=>{
+    const tb=$("runRows");if(!tb)return;tb.innerHTML="";
+    const runs=[]; s.forEach(d=>runs.push({id:d.id,...d.data()}));
+    runs.sort((a,b)=>((b.at&&b.at.seconds)||0)-((a.at&&a.at.seconds)||0));
+    if(!runs.length){tb.innerHTML="<tr><td colspan='5' class='muted'>لا يوجد تنفيذ بعد</td></tr>";return;}
+    runs.forEach(r=>{
+      const stTag=r.status==="approved"?"<span class='tag green'>معتمد</span>":r.status==="rejected"?"<span class='tag red'>مرفوض</span>":"<span class='tag amber'>بانتظار</span>";
+      const tr=el("tr",null,"<td>"+esc(r.date)+"</td><td>"+esc(r.byName||"")+"</td><td>"+(r.pct||0)+"%</td><td>"+stTag+"</td><td></td>");
+      const view=el("button","btn sm","عرض"); view.onclick=()=>viewRunModal(id,r); tr.lastChild.appendChild(view);
+      tb.appendChild(tr);
+    });
+  },()=>{const tb=$("runRows");if(tb)tb.innerHTML="<tr><td colspan='5' style='color:var(--red)'>تعذّر التحميل</td></tr>";});
+}
+
+// إدارة المهام (المالك/المدير)
+function manageTasksModal(id,x){
+  const render=(tasks)=> tasks.length? tasks.map((t,i)=>"<div class='review-row'><span>"+(i+1)+". "+esc(t.text)+"</span><button class='btn sm danger' data-del='"+i+"'>حذف</button></div>").join("") : "<p class='muted'>لا مهام بعد</p>";
+  openModal("إدارة مهام: "+esc(x.name),
+    "<div style='display:flex;gap:8px;margin-bottom:12px'><input id='taskText' class='input' placeholder='نص المهمة'><button type='button' class='btn' id='addTask'>إضافة</button></div>"+
+    "<div id='taskList'></div>", null, ()=>true, true);
+  setTimeout(()=>{ let tasks=(x.tasks||[]).slice();
+    const paint=()=>{ const w=$("taskList"); if(!w)return; w.innerHTML=render(tasks);
+      w.querySelectorAll("[data-del]").forEach(b=>b.onclick=async()=>{ tasks.splice(parseInt(b.dataset.del),1); await cRef().collection("checklists").doc(id).update({tasks}); paint(); }); };
+    paint();
+    if($("addTask"))$("addTask").onclick=async()=>{ const v=$("taskText").value.trim(); if(!v)return; tasks.push({id:"t"+Date.now(),text:v}); await cRef().collection("checklists").doc(id).update({tasks}); $("taskText").value=""; logAction("add_task",x.name+": "+v); paint(); };
+  },30);
+}
+
+// تنفيذ القائمة (الموظف/المدير/المالك) — يومي
+function runChecklistModal(id,x){
+  const tasks=x.tasks||[];
+  if(!tasks.length){toast("لا توجد مهام في هذه القائمة","err");return;}
+  const body=tasks.map((t,i)=>
+    "<div class='card' style='margin-bottom:10px;padding:12px'>"+
+      "<div style='font-weight:600;margin-bottom:8px'>"+(i+1)+". "+esc(t.text)+"</div>"+
+      "<div style='display:flex;gap:8px;margin-bottom:8px'>"+
+        "<button type='button' class='btn sm okbtn' data-i='"+i+"' data-v='1'>✓ صح</button>"+
+        "<button type='button' class='btn sm nobtn' data-i='"+i+"' data-v='0'>✗ خطأ</button></div>"+
+      "<input class='input note' data-i='"+i+"' placeholder='ملاحظة (اختياري)' style='margin-bottom:8px'>"+
+      "<input class='input photo' data-i='"+i+"' type='file' accept='image/*' capture='environment'>"+
+    "</div>").join("");
+  openModal("تنفيذ: "+esc(x.name),
+    "<div class='muted' style='font-size:13px;margin-bottom:10px'>حدّد لكل مهمة صح/خطأ، مع ملاحظة أو صورة إن رغبت.</div>"+body,
+    "حفظ التنفيذ", ()=>submitRun(id,x,tasks));
+  window.__runVals={};
+  setTimeout(()=>{ document.querySelectorAll("#modalRoot .okbtn,#modalRoot .nobtn").forEach(b=>{
+    b.onclick=()=>{ const i=b.dataset.i; window.__runVals[i]=b.dataset.v==="1";
+      document.querySelectorAll("#modalRoot [data-i='"+i+"'].okbtn,#modalRoot [data-i='"+i+"'].nobtn").forEach(x2=>x2.style.opacity="0.4");
+      b.style.opacity="1"; }; }); },30);
+}
+async function submitRun(id,x,tasks){
+  const vals=window.__runVals||{};
+  for(let i=0;i<tasks.length;i++){ if(vals[i]===undefined){toast("حدّد صح/خطأ لكل المهام","err");return false;} }
+  const notes={}, files={};
+  document.querySelectorAll("#modalRoot .note").forEach(n=>notes[n.dataset.i]=n.value.trim());
+  document.querySelectorAll("#modalRoot .photo").forEach(p=>{ if(p.files[0]) files[p.dataset.i]=p.files[0]; });
+  try{
+    const ref=cRef().collection("checklistRuns").doc();
+    const results=[];
+    for(let i=0;i<tasks.length;i++){
+      let photoUrl="";
+      if(files[i]){ try{ const path="companies/"+state.companyId+"/checklist/"+ref.id+"_"+i+".jpg";
+        const snap=await storage.ref(path).put(files[i]); photoUrl=await snap.ref.getDownloadURL(); }catch(e){ photoUrl=""; } }
+      results.push({taskId:tasks[i].id,text:tasks[i].text,ok:!!vals[i],note:notes[i]||"",photoUrl});
+    }
+    const okCount=results.filter(r=>r.ok).length; const pct=Math.round(okCount/results.length*100);
+    await ref.set({checklistId:id,checklistName:x.name,date:todayStr(),byUid:state.user.uid,byName:state.profile.name||state.user.email,
+      results,pct,status:"submitted",at:now()});
+    logAction("submit_checklist",x.name+" "+pct+"%");
+    toast("تم حفظ التنفيذ","ok"); return true;
+  }catch(e){console.error(e);toast("تعذّر الحفظ","err");return false;}
+}
+
+// عرض تنفيذ + اعتماد/رفض
+function viewRunModal(clId,r){
+  const rows=(r.results||[]).map(t=>"<div class='review-row'><span>"+(t.ok?"✅":"❌")+" "+esc(t.text)+(t.note?" — <span class='muted'>"+esc(t.note)+"</span>":"")+"</span>"+(t.photoUrl?"<a class='btn sm' href='"+t.photoUrl+"' target='_blank'>صورة</a>":"")+"</div>").join("");
+  const canApprove=clCanManage()&&r.status==="submitted";
+  openModal("تنفيذ "+esc(r.checklistName)+" — "+esc(r.date),
+    "<div class='review-row'><span>المنفّذ</span><b>"+esc(r.byName)+"</b></div>"+
+    "<div class='review-row'><span>نسبة الإنجاز</span><b>"+(r.pct||0)+"%</b></div>"+
+    "<div style='margin:12px 0'>"+rows+"</div>",
+    canApprove?"اعتماد":null, canApprove?async()=>{ await cRef().collection("checklistRuns").doc(r.id).update({status:"approved",reviewedBy:state.user.uid,reviewedAt:now()}); logAction("approve_checklist",r.checklistName); openPage("checklist"); return true; }:()=>true,
+    !canApprove, 560);
+  if(canApprove) setTimeout(()=>{ const foot=document.querySelector("#modalRoot .foot"); if(foot){ const rej=el("button","btn danger","رفض"); rej.onclick=async()=>{ await cRef().collection("checklistRuns").doc(r.id).update({status:"rejected",reviewedBy:state.user.uid,reviewedAt:now()}); logAction("reject_checklist",r.checklistName); closeModal(); openPage("checklist"); }; foot.appendChild(rej); } },40);
+}
+
+/* ================================================================== */
 /*  12) الإعدادات + سجل العمليات                                       */
 /* ================================================================== */
 function pageSettings(c){
@@ -1710,7 +1848,7 @@ function renderAudit(container,ref,title,inline){
   card.innerHTML=(card.innerHTML||"")+"<table><thead><tr><th>العملية</th><th>المستخدم</th><th>التفاصيل</th><th>الوقت</th></tr></thead><tbody id='auditRows'><tr><td colspan='4' class='muted'>جارٍ التحميل…</td></tr></tbody></table>";
   ref.orderBy("at","desc").limit(80).onSnapshot(s=>{const tb=document.getElementById("auditRows");if(!tb)return;tb.innerHTML="";
     if(s.empty){tb.innerHTML="<tr><td colspan='4' class='muted'>لا يوجد سجل</td></tr>";return;}
-    const names={login:"تسجيل دخول",create_company:"إنشاء شركة",suspend_company:"إيقاف شركة",activate_company:"تشغيل شركة",delete_company:"حذف شركة",update_subscription:"تعديل اشتراك",admin_enter:"دخول إداري",add_branch:"إضافة فرع",edit_branch:"تعديل فرع",delete_branch:"حذف فرع",add_user:"إضافة مستخدم",edit_permissions:"تعديل صلاحيات",submit_closing:"إرسال إقفال",approve_closing:"اعتماد إقفال",add_invoice:"إضافة فاتورة",add_product:"إضافة منتج",edit_product:"تعديل منتج",delete_product:"حذف منتج",add_category:"إضافة تصنيف",add_supplier:"إضافة مورد",edit_supplier:"تعديل مورد",delete_supplier:"حذف مورد",add_supplier_product:"إضافة منتج لمورد",update_price:"تحديث سعر",add_employee:"إضافة موظف",edit_employee:"تعديل موظف",save_payroll:"حفظ كشف رواتب",add_evaluation:"تقييم موظف"};
+    const names={login:"تسجيل دخول",create_company:"إنشاء شركة",suspend_company:"إيقاف شركة",activate_company:"تشغيل شركة",delete_company:"حذف شركة",update_subscription:"تعديل اشتراك",admin_enter:"دخول إداري",add_branch:"إضافة فرع",edit_branch:"تعديل فرع",delete_branch:"حذف فرع",add_user:"إضافة مستخدم",edit_permissions:"تعديل صلاحيات",submit_closing:"إرسال إقفال",approve_closing:"اعتماد إقفال",add_invoice:"إضافة فاتورة",add_product:"إضافة منتج",edit_product:"تعديل منتج",delete_product:"حذف منتج",add_category:"إضافة تصنيف",add_supplier:"إضافة مورد",edit_supplier:"تعديل مورد",delete_supplier:"حذف مورد",add_supplier_product:"إضافة منتج لمورد",update_price:"تحديث سعر",add_employee:"إضافة موظف",edit_employee:"تعديل موظف",save_payroll:"حفظ كشف رواتب",add_evaluation:"تقييم موظف",add_checklist:"إضافة قائمة",edit_checklist:"تعديل قائمة",delete_checklist:"حذف قائمة",add_task:"إضافة مهمة",submit_checklist:"تنفيذ قائمة",approve_checklist:"اعتماد تنفيذ",reject_checklist:"رفض تنفيذ"};
     s.forEach(d=>{const x=d.data();const t=x.at&&x.at.toDate?x.at.toDate().toLocaleString("ar-SA"):"—";
       tb.appendChild(el("tr",null,"<td>"+(names[x.action]||esc(x.action))+"</td><td class='muted'>"+esc(x.userName||"")+"</td><td class='muted'>"+esc(x.details||"")+"</td><td class='muted'>"+t+"</td>"));});
   },()=>{});
