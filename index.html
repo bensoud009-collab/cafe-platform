@@ -192,12 +192,10 @@ const MODULES = [
   {key:"invoices",   name:"الفواتير", icon:"🧾"},
   {key:"inventory",  name:"المخزون والجرد", icon:"📦"},
   {key:"suppliers",  name:"الموردين", icon:"🚚"},
-  {key:"payroll",    name:"الرواتب", icon:"💵"},
-  {key:"evaluation", name:"تقييم الموظفين", icon:"⭐"},
+  {key:"staff",      name:"شؤون الموظفين", icon:"👥"},
   {key:"checklist",  name:"التشيك ليست", icon:"✅"},
   {key:"reports",    name:"التقارير", icon:"📈"},
   {key:"branches",   name:"الفروع", icon:"🏬"},
-  {key:"employees",  name:"الموظفون والصلاحيات", icon:"👥"},
   {key:"settings",   name:"الإعدادات", icon:"⚙️"}
 ];
 const ACTIONS = [
@@ -412,7 +410,7 @@ function openPage(key){
   const c=$("pageContent"); c.innerHTML="";
   const routes={
     super_companies:pageSuperCompanies, super_subs:pageSuperSubs, super_audit:pageSuperAudit,
-    dashboard:pageDashboard, sales:pageSales, invoices:pageInvoices, inventory:pageInventory, suppliers:pageSuppliers, branches:pageBranches, employees:pageEmployees, settings:pageSettings
+    dashboard:pageDashboard, sales:pageSales, invoices:pageInvoices, inventory:pageInventory, suppliers:pageSuppliers, staff:pageStaff, branches:pageBranches, employees:pageStaff, settings:pageSettings
   };
   if(routes[key]) routes[key](c);
   else pagePlaceholder(c,key);
@@ -1352,44 +1350,253 @@ function branchModal(id,x){x=x||{};
 /* ================================================================== */
 /*  11) الموظفون والصلاحيات                                            */
 /* ================================================================== */
-function pageEmployees(c){
-  c.innerHTML=pageTitle("الموظفون والصلاحيات","إضافة المستخدمين وتحديد صلاحياتهم لكل قسم");
-  if(can("employees","add")){const bar=el("div",null,"<button class='btn primary' id='newUserBtn'>+ مستخدم جديد</button>");bar.style.marginBottom="16px";c.appendChild(bar);bar.firstChild.onclick=userModal;}
-  const card=el("div","card","<table><thead><tr><th>الاسم</th><th>البريد</th><th>الدور</th><th>إجراء</th></tr></thead><tbody id='usRows'></tbody></table>");
-  c.appendChild(card);
-  cRef().collection("users").onSnapshot(s=>{const tb=$("usRows");if(!tb)return;tb.innerHTML="";
-    s.forEach(d=>{const x=d.data();const role={owner:"صاحب الشركة",manager:"مدير فرع",employee:"موظف"}[x.role]||x.role;
-      const tr=el("tr",null,"<td><b>"+esc(x.name||"")+"</b></td><td class='muted'>"+esc(x.email||"")+"</td><td>"+role+"</td><td></td>");
-      if(x.role!=="owner"&&can("employees","edit")){const p=el("button","btn sm","الصلاحيات");p.onclick=()=>permMatrixModal(d.id,x);tr.lastChild.appendChild(p);}
-      tb.appendChild(tr);});
-  },()=>{});
+/* ================================================================== */
+/*  11) شؤون الموظفين (موظفون + رواتب + تقييم)                         */
+/* ================================================================== */
+function staffCanManage(){ return can("staff","add")||can("staff","edit")||state.role==="owner"||state.role==="manager"; }
+
+function pageStaff(c){
+  c.innerHTML=pageTitle("شؤون الموظفين","الموظفون والرواتب والتقييم");
+  const grid=el("div"); grid.style.cssText="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:16px";
+  const cards=[
+    {k:"emp",  t:"الموظفون",       ic:"👥", d:"بيانات الموظفين وحساباتهم"},
+    {k:"pay",  t:"الرواتب",         ic:"💵", d:"كشوف شهرية وصافي الرواتب"},
+    {k:"eval", t:"التقييم اليومي",  ic:"⭐", d:"تقييم أداء الموظفين يومياً"}
+  ];
+  cards.forEach(x=>{ const card=el("div","card"); card.style.cssText="cursor:pointer;min-height:120px";
+    card.innerHTML="<div style='font-size:30px'>"+x.ic+"</div><div style='font-weight:800;margin-top:8px'>"+x.t+"</div><div class='muted' style='font-size:13px;margin-top:4px'>"+x.d+"</div>";
+    card.onclick=()=>{ if(x.k==="emp")staffEmployees(c); else if(x.k==="pay")staffPayroll(c); else staffEvaluation(c); };
+    grid.appendChild(card);
+  });
+  c.appendChild(grid);
 }
-function userModal(){
-  openModal("مستخدم جديد",
-    "<label class='field'><span>الاسم *</span><input id='usName' class='input'></label>"+
-    "<label class='field'><span>البريد *</span><input id='usEmail' class='input' type='email'></label>"+
-    "<label class='field'><span>الدور *</span><select id='usRole'><option value='employee'>موظف</option><option value='manager'>مدير فرع</option></select></label>"+
-    "<p class='muted' style='font-size:13px'>تُنشأ كلمة مرور مؤقتة تلقائياً.</p>",
-    "إنشاء", async ()=>{
-      const name=$("usName").value.trim(),email=$("usEmail").value.trim().toLowerCase(),role=$("usRole").value;
-      if(!name||!email){toast("أكمل البيانات","err");return false;}
-      const tempPass=Math.random().toString(36).slice(2,6)+Math.floor(1000+Math.random()*9000);
+function staffBack(c){ const b=el("button","btn sm","← رجوع لشؤون الموظفين"); b.style.marginBottom="14px"; b.onclick=()=>pageStaff(c); return b; }
+
+/* ---------- (1) الموظفون ---------- */
+function workDuration(start){
+  if(!start) return "—"; const s=new Date(start), n=new Date(); if(isNaN(s)) return "—";
+  let months=(n.getFullYear()-s.getFullYear())*12+(n.getMonth()-s.getMonth());
+  if(n.getDate()<s.getDate()) months--; if(months<0) return "—";
+  const y=Math.floor(months/12), m=months%12;
+  return (y?y+" سنة ":"")+(m?m+" شهر":(y?"":"أقل من شهر"));
+}
+async function staffEmployees(c){
+  c.innerHTML=""; c.appendChild(staffBack(c));
+  c.appendChild(el("div",null,pageTitle("الموظفون","سجل الموظفين وحساباتهم")));
+  if(can("staff","add")){const bar=el("div",null,"<button class='btn primary' id='newEmpBtn'>+ إضافة موظف</button>");bar.style.marginBottom="16px";c.appendChild(bar);bar.firstChild.onclick=()=>employeeModal();}
+  const card=el("div","card");
+  const salaryCol=staffCanManage()?"<th>الراتب</th>":"";
+  card.innerHTML="<table><thead><tr><th>الاسم</th><th>الرقم الوظيفي</th><th>الفرع</th><th>المباشرة</th><th>مدة العمل</th>"+salaryCol+"<th>حساب</th><th>إجراء</th></tr></thead><tbody id='empRows'><tr><td colspan='8' class='muted'>جارٍ التحميل…</td></tr></tbody></table>";
+  c.appendChild(card);
+  cRef().collection("employees").orderBy("name").onSnapshot(s=>{
+    const tb=$("empRows");if(!tb)return;tb.innerHTML="";
+    if(s.empty){tb.innerHTML="<tr><td colspan='8' class='muted'>لا يوجد موظفون</td></tr>";return;}
+    s.forEach(d=>{const x=d.data();
+      const sal=staffCanManage()?"<td>"+money(x.salary)+"</td>":"";
+      const acc=x.hasAccount?"<span class='tag green'>مفعّل</span>":"<span class='muted'>—</span>";
+      const tr=el("tr",null,"<td><b>"+esc(x.name)+"</b></td><td class='muted'>"+esc(x.jobNo||"—")+"</td><td class='muted'>"+esc(x.branchName||"—")+"</td><td class='muted'>"+esc(x.startDate||"—")+"</td><td class='muted'>"+workDuration(x.startDate)+"</td>"+sal+"<td>"+acc+"</td><td></td>");
+      tr.style.cursor="pointer"; tr.onclick=(e)=>{ if(e.target.tagName==="BUTTON")return; employeeDetail(d.id,x); };
+      const act=tr.lastChild;
+      if(can("staff","edit")){const e=el("button","btn sm","تعديل");e.onclick=()=>employeeModal(d.id,x);act.appendChild(e);}
+      tb.appendChild(tr);
+    });
+  },()=>{const tb=$("empRows");if(tb)tb.innerHTML="<tr><td colspan='8' style='color:var(--red)'>تعذّر التحميل</td></tr>";});
+}
+
+async function employeeModal(id,x){ x=x||{};
+  let branches=[];try{const bs=await cRef().collection("branches").get();bs.forEach(b=>branches.push({id:b.id,...b.data()}));}catch(e){}
+  const brOpts="<option value=''>— بدون —</option>"+branches.map(b=>"<option value='"+b.id+"' "+(x.branchId===b.id?"selected":"")+">"+esc(b.name)+"</option>").join("");
+  openModal(id?"تعديل موظف":"إضافة موظف",
+    "<label class='field'><span>اسم الموظف *</span><input id='eName' class='input' value='"+esc(x.name||"")+"'></label>"+
+    "<div class='grid' style='grid-template-columns:1fr 1fr'>"+
+      (staffCanManage()?"<label class='field'><span>الراتب الأساسي *</span><input id='eSalary' class='input' type='number' inputmode='decimal' value='"+(x.salary!=null?x.salary:"")+"'></label>":"<input id='eSalary' type='hidden' value='"+(x.salary||0)+"'>")+
+      "<label class='field'><span>الرقم الوظيفي</span><input id='eJobNo' class='input' value='"+esc(x.jobNo||"")+"'></label>"+
+      "<label class='field'><span>رقم الجوال</span><input id='ePhone' class='input' inputmode='tel' value='"+esc(x.phone||"")+"'></label>"+
+      "<label class='field'><span>ساعات العمل</span><input id='eHours' class='input' value='"+esc(x.hours||"")+"' placeholder='مثال: 8'></label>"+
+      "<label class='field'><span>فرع العمل</span><select id='eBranch'>"+brOpts+"</select></label>"+
+      "<label class='field'><span>تاريخ المباشرة</span><input id='eStart' class='input' type='date' value='"+esc(x.startDate||"")+"'></label>"+
+    "</div>",
+    "حفظ", async ()=>{
+      const name=$("eName").value.trim(); if(!name){toast("أدخل اسم الموظف","err");return false;}
+      const brSel=$("eBranch");
+      const data={name,salary:parseFloat($("eSalary").value)||0,jobNo:$("eJobNo").value.trim(),phone:$("ePhone").value.trim(),
+        hours:$("eHours").value.trim(),branchId:brSel.value,branchName:brSel.selectedOptions[0]?brSel.selectedOptions[0].textContent.trim():"",
+        startDate:$("eStart").value};
+      if(id){await cRef().collection("employees").doc(id).update(data);logAction("edit_employee",name);}
+      else{data.hasAccount=false;data.createdAt=now();await cRef().collection("employees").add(data);logAction("add_employee",name);}
+      return true;
+    });
+}
+
+// تفاصيل الموظف + إنشاء حساب/صلاحيات
+function employeeDetail(id,x){
+  const accBlock = x.hasAccount
+    ? "<div class='review-row'><span>حساب المنصة</span><b class='tag green'>مفعّل</b></div>"+
+      "<div class='review-row'><span>البريد</span><b>"+esc(x.email||"—")+"</b></div>"
+    : "<div class='review-row'><span>حساب المنصة</span><b class='muted'>غير مفعّل</b></div>";
+  openModal("الموظف: "+esc(x.name),
+    "<div class='review-row'><span>الرقم الوظيفي</span><b>"+esc(x.jobNo||"—")+"</b></div>"+
+    "<div class='review-row'><span>الجوال</span><b>"+esc(x.phone||"—")+"</b></div>"+
+    "<div class='review-row'><span>الفرع</span><b>"+esc(x.branchName||"—")+"</b></div>"+
+    "<div class='review-row'><span>ساعات العمل</span><b>"+esc(x.hours||"—")+"</b></div>"+
+    "<div class='review-row'><span>تاريخ المباشرة</span><b>"+esc(x.startDate||"—")+"</b></div>"+
+    "<div class='review-row'><span>مدة العمل</span><b>"+workDuration(x.startDate)+"</b></div>"+
+    (staffCanManage()?"<div class='review-row'><span>الراتب الأساسي</span><b>"+money(x.salary)+"</b></div>":"")+
+    accBlock+
+    "<div style='display:flex;gap:8px;flex-wrap:wrap;margin-top:16px'>"+
+      (x.hasAccount
+        ? "<button class='btn sm' id='edPerms'>الصلاحيات</button><button class='btn sm' id='edNewPass'>كلمة مرور جديدة</button>"
+        : (can("staff","add")?"<button class='btn primary sm' id='edCreate'>+ إنشاء حساب في المنصة</button>":""))+
+    "</div>", null, ()=>true, true, 560);
+  setTimeout(()=>{
+    if($("edCreate"))$("edCreate").onclick=()=>createEmployeeAccount(id,x);
+    if($("edPerms"))$("edPerms").onclick=()=>{ if(x.uid) cRef().collection("users").doc(x.uid).get().then(u=>permMatrixModal(x.uid,u.exists?u.data():{name:x.name})); };
+    if($("edNewPass"))$("edNewPass").onclick=()=>resetEmployeePassword(x);
+  },30);
+}
+
+function createEmployeeAccount(empId,x){
+  openModal("إنشاء حساب: "+esc(x.name),
+    "<label class='field'><span>البريد الإلكتروني *</span><input id='caEmail' class='input' type='email' placeholder='name@example.com'></label>"+
+    "<label class='field'><span>الدور *</span><select id='caRole'><option value='employee'>موظف</option><option value='manager'>مدير فرع</option></select></label>"+
+    "<p class='muted' style='font-size:13px'>تُولّد كلمة مرور عشوائية تلقائياً.</p>",
+    "إنشاء الحساب", async ()=>{
+      const email=$("caEmail").value.trim().toLowerCase(), role=$("caRole").value;
+      if(!email){toast("أدخل البريد","err");return false;}
+      const pass=randomPassword();
       try{
-        const cred=await secondaryAuth.createUserWithEmailAndPassword(email,tempPass);
+        const cred=await secondaryAuth.createUserWithEmailAndPassword(email,pass);
         const uid=cred.user.uid; await secondaryAuth.signOut();
-        await db.collection("users").doc(uid).set({role,companyId:state.companyId,name,createdAt:now()});
-        // مدير الفرع يبدأ بصلاحية العرض للأقسام التشغيلية، الموظف صفر
+        await db.collection("users").doc(uid).set({role,companyId:state.companyId,name:x.name,createdAt:now()});
         const perms=emptyPermissions();
-        if(role==="manager"){["dashboard","sales","inventory","checklist","reports"].forEach(k=>{perms[k].view=true;});perms.sales.add=true;perms.sales.approve=true;}
+        if(role==="manager"){["dashboard","sales","inventory","checklist","reports"].forEach(k=>{if(perms[k])perms[k].view=true;});perms.sales.add=true;perms.sales.approve=true;}
         else{perms.dashboard.view=true;perms.sales.view=true;perms.sales.add=true;perms.checklist.view=true;}
-        await cRef().collection("users").doc(uid).set({name,email,role,permissions:perms,createdAt:now()});
-        logAction("add_user",name+" ("+role+")");
+        await cRef().collection("users").doc(uid).set({name:x.name,email,role,permissions:perms,employeeId:empId,createdAt:now()});
+        await cRef().collection("employees").doc(empId).update({hasAccount:true,uid,email,role});
+        logAction("add_user",x.name+" ("+role+")");
         closeModal();
-        openModal("تم إنشاء المستخدم ✅","<div class='review-row'><span>البريد</span><b>"+esc(email)+"</b></div><div class='review-row'><span>كلمة المرور المؤقتة</span><b>"+tempPass+"</b></div>","تم",()=>true,true);
+        openModal("تم إنشاء الحساب ✅",
+          "<div class='review-row'><span>الموظف</span><b>"+esc(x.name)+"</b></div>"+
+          "<div class='review-row'><span>البريد</span><b>"+esc(email)+"</b></div>"+
+          "<div class='review-row'><span>كلمة المرور</span><b>"+esc(pass)+"</b></div>"+
+          "<p class='muted' style='margin-top:12px;font-size:13px'>سلّمها للموظف. لن تُحفظ — استخدم «كلمة مرور جديدة» لاحقاً عند الحاجة.</p>",
+          "تم",()=>true,true);
         return false;
       }catch(e){toast(e.code==="auth/email-already-in-use"?"البريد مستخدم":"تعذّر الإنشاء","err");return false;}
     });
 }
+function resetEmployeePassword(x){
+  if(!x.email){toast("لا يوجد بريد لهذا الحساب","err");return;}
+  const pass=randomPassword();
+  // تحديث كلمة المرور مباشرة غير متاح من المتصفح؛ نرسل رابط إعادة التعيين للبريد
+  auth.sendPasswordResetEmail(x.email).then(()=>{
+    openModal("إعادة تعيين كلمة المرور",
+      "<p>أُرسل رابط إعادة تعيين إلى:<br><b>"+esc(x.email)+"</b></p>"+
+      "<p class='muted' style='font-size:13px;margin-top:8px'>يفتح الموظف الرابط ويختار كلمة مرور جديدة. (تغيير كلمة المرور مباشرة يحتاج ترقية لاحقاً.)</p>",
+      "تم",()=>true,true);
+  }).catch(()=>toast("تعذّر إرسال الرابط","err"));
+}
+
+/* ---------- (2) الرواتب (شهري) ---------- */
+function monthKey(offset){ const d=new Date(); d.setDate(1); d.setMonth(d.getMonth()+(offset||0)); return d.toISOString().slice(0,7); }
+function staffPayroll(c){
+  c.innerHTML=""; c.appendChild(staffBack(c));
+  c.appendChild(el("div",null,pageTitle("الرواتب","كشف شهري — الصافي يُحسب تلقائياً")));
+  // اختيار الشهر
+  const months=[]; for(let i=0;i<12;i++) months.push(monthKey(-i));
+  const sel=el("div"); sel.style.marginBottom="16px";
+  sel.innerHTML="<label class='field' style='max-width:220px'><span>الشهر</span><select id='payMonth'>"+months.map(m=>"<option value='"+m+"'>"+m+"</option>").join("")+"</select></label>";
+  c.appendChild(sel);
+  c.appendChild(el("div","kpi-grid",kpi("إجمالي رواتب الشهر (صافي)","payTotal","—")));
+  const wrap=el("div"); wrap.id="payWrap"; wrap.style.marginTop="16px"; c.appendChild(wrap);
+  $("payMonth").onchange=()=>loadPayroll($("payMonth").value);
+  loadPayroll(months[0]);
+}
+async function loadPayroll(month){
+  const wrap=$("payWrap"); if(!wrap) return; wrap.innerHTML="<div class='card muted'>جارٍ التحميل…</div>";
+  const [empSnap,paySnap]=await Promise.all([cRef().collection("employees").orderBy("name").get(),cRef().collection("payroll").doc(month).get()]);
+  const saved=(paySnap.exists&&paySnap.data().rows)||[];
+  const byId={}; saved.forEach(r=>byId[r.empId]=r);
+  const rows=[]; empSnap.forEach(d=>{const x=d.data(); const s=byId[d.id]||{};
+    rows.push({empId:d.id,name:x.name,salary:Number(x.salary)||0,
+      overtime:s.overtime||0,bonus:s.bonus||0,deductions:s.deductions||0,advance:s.advance||0});
+  });
+  const card=el("div","card");
+  card.innerHTML="<table><thead><tr><th>الموظف</th><th>الأساسي</th><th>أوفر تايم</th><th>مكافآت</th><th>خصومات</th><th>سلفة</th><th>الصافي</th></tr></thead><tbody id='payRows'></tbody></table>"+
+    (can("staff","edit")?"<div style='margin-top:14px'><button class='btn primary' id='savePay'>حفظ كشف "+month+"</button></div>":"");
+  wrap.innerHTML=""; wrap.appendChild(card);
+  const tb=$("payRows");
+  const calc=()=>{ let total=0; rows.forEach((r,i)=>{ const net=r.salary+num("ot"+i)+num("bn"+i)-num("dd"+i)-num("ad"+i);
+      const cell=$("net"+i); if(cell)cell.textContent=money(net); total+=net; });
+    if($("payTotal"))$("payTotal").textContent=money(total); };
+  const num=idp=>{const el=$(idp);return el?(parseFloat(el.value)||0):0;};
+  const ed=can("staff","edit");
+  rows.forEach((r,i)=>{
+    const inp=(idp,val)=>ed?"<input id='"+idp+i+"' class='input' type='number' style='width:80px;padding:6px' value='"+(val||0)+"'>":money(val);
+    const tr=el("tr",null,"<td><b>"+esc(r.name)+"</b></td><td>"+money(r.salary)+"</td><td>"+inp("ot",r.overtime)+"</td><td>"+inp("bn",r.bonus)+"</td><td>"+inp("dd",r.deductions)+"</td><td>"+inp("ad",r.advance)+"</td><td><b id='net"+i+"'>—</b></td>");
+    tb.appendChild(tr);
+  });
+  if(ed) ["ot","bn","dd","ad"].forEach(p=>rows.forEach((_,i)=>{const el=$(p+i);if(el)el.oninput=calc;}));
+  calc();
+  if($("savePay"))$("savePay").onclick=async()=>{
+    const out=rows.map((r,i)=>({empId:r.empId,name:r.name,salary:r.salary,overtime:num("ot"+i),bonus:num("bn"+i),deductions:num("dd"+i),advance:num("ad"+i),
+      net:r.salary+num("ot"+i)+num("bn"+i)-num("dd"+i)-num("ad"+i)}));
+    const total=out.reduce((a,b)=>a+b.net,0);
+    await cRef().collection("payroll").doc(month).set({month,rows:out,total,updatedAt:now()});
+    logAction("save_payroll",month); toast("تم حفظ كشف "+month,"ok");
+  };
+}
+
+/* ---------- (3) التقييم اليومي ---------- */
+const EVAL_CRITERIA=["الحضور والانضباط","النظافة","التعامل مع العملاء","جودة العمل","السرعة"];
+function evalLevel(pct){ return pct>=80?{t:"ممتاز",c:"green"}:pct>=60?{t:"جيد",c:"amber"}:{t:"يحتاج تطوير",c:"red"}; }
+function staffEvaluation(c){
+  c.innerHTML=""; c.appendChild(staffBack(c));
+  c.appendChild(el("div",null,pageTitle("التقييم اليومي","قيّم أداء الموظفين بسرعة")));
+  const bar=el("div"); bar.style.marginBottom="16px";
+  bar.innerHTML="<button class='btn primary' id='newEvalBtn'>+ تقييم موظف</button>";
+  c.appendChild(bar); $("newEvalBtn").onclick=()=>evaluationModal();
+  const card=el("div","card");
+  card.innerHTML="<table><thead><tr><th>التاريخ</th><th>الموظف</th><th>النسبة</th><th>المستوى</th><th>المُقيِّم</th></tr></thead><tbody id='evRows'><tr><td colspan='5' class='muted'>جارٍ التحميل…</td></tr></tbody></table>";
+  c.appendChild(card);
+  cRef().collection("evaluations").orderBy("at","desc").limit(100).onSnapshot(s=>{
+    const tb=$("evRows");if(!tb)return;tb.innerHTML="";
+    if(s.empty){tb.innerHTML="<tr><td colspan='5' class='muted'>لا توجد تقييمات</td></tr>";return;}
+    s.forEach(d=>{const x=d.data();const lv=evalLevel(x.pct||0);
+      tb.appendChild(el("tr",null,"<td>"+esc(x.date)+"</td><td><b>"+esc(x.name)+"</b></td><td>"+(x.pct||0)+"%</td><td><span class='tag "+lv.c+"'>"+lv.t+"</span></td><td class='muted'>"+esc(x.evaluatorName||"")+"</td>"));
+    });
+  },()=>{const tb=$("evRows");if(tb)tb.innerHTML="<tr><td colspan='5' style='color:var(--red)'>تعذّر التحميل</td></tr>";});
+}
+async function evaluationModal(){
+  let emps=[];try{const s=await cRef().collection("employees").orderBy("name").get();s.forEach(d=>emps.push({id:d.id,...d.data()}));}catch(e){}
+  if(!emps.length){toast("أضف موظفين أولاً","err");return;}
+  const opts=emps.map(e=>"<option value='"+e.id+"'>"+esc(e.name)+"</option>").join("");
+  const crit=EVAL_CRITERIA.map((cr,i)=>
+    "<div class='review-row'><span>"+esc(cr)+"</span><span id='star"+i+"'></span></div>").join("");
+  openModal("تقييم موظف",
+    "<label class='field'><span>الموظف *</span><select id='evEmp'>"+opts+"</select></label>"+
+    "<div class='muted' style='font-size:13px;margin-bottom:8px'>اختر التقييم لكل معيار (0–5):</div>"+crit,
+    "حفظ التقييم", async ()=>{
+      const scores=EVAL_CRITERIA.map((_,i)=>window.__ev&&window.__ev[i]||0);
+      const sum=scores.reduce((a,b)=>a+b,0); const max=EVAL_CRITERIA.length*5;
+      const pct=Math.round(sum/max*100);
+      const sel=$("evEmp"); const emp=emps.find(e=>e.id===sel.value);
+      await cRef().collection("evaluations").add({empId:sel.value,name:emp?emp.name:"",date:new Date().toISOString().slice(0,10),
+        scores,sum,pct,evaluatorName:state.profile.name||state.user.email,at:now()});
+      logAction("add_evaluation",(emp?emp.name:"")+" "+pct+"%");
+      toast("تم حفظ التقييم","ok"); return true;
+    });
+  window.__ev={};
+  setTimeout(()=>{ EVAL_CRITERIA.forEach((_,i)=>{ renderStars(i); }); },30);
+}
+function renderStars(i){
+  const wrap=$("star"+i); if(!wrap) return; wrap.innerHTML="";
+  for(let s=1;s<=5;s++){ const b=el("span",null,"☆"); b.style.cssText="cursor:pointer;font-size:22px;color:var(--brand)";
+    b.onclick=()=>{ window.__ev[i]=s; for(let j=1;j<=5;j++){ wrap.children[j-1].textContent=j<=s?"★":"☆"; } };
+    wrap.appendChild(b);
+  }
+}
+
 function permMatrixModal(uid,x){
   const perms=x.permissions||emptyPermissions();
   let head="<tr><th>القسم</th>"+ACTIONS.map(a=>"<th>"+a.name+"</th>").join("")+"</tr>";
@@ -1423,7 +1630,7 @@ function renderAudit(container,ref,title,inline){
   card.innerHTML=(card.innerHTML||"")+"<table><thead><tr><th>العملية</th><th>المستخدم</th><th>التفاصيل</th><th>الوقت</th></tr></thead><tbody id='auditRows'><tr><td colspan='4' class='muted'>جارٍ التحميل…</td></tr></tbody></table>";
   ref.orderBy("at","desc").limit(80).onSnapshot(s=>{const tb=document.getElementById("auditRows");if(!tb)return;tb.innerHTML="";
     if(s.empty){tb.innerHTML="<tr><td colspan='4' class='muted'>لا يوجد سجل</td></tr>";return;}
-    const names={login:"تسجيل دخول",create_company:"إنشاء شركة",suspend_company:"إيقاف شركة",activate_company:"تشغيل شركة",delete_company:"حذف شركة",update_subscription:"تعديل اشتراك",admin_enter:"دخول إداري",add_branch:"إضافة فرع",edit_branch:"تعديل فرع",delete_branch:"حذف فرع",add_user:"إضافة مستخدم",edit_permissions:"تعديل صلاحيات",submit_closing:"إرسال إقفال",approve_closing:"اعتماد إقفال",add_invoice:"إضافة فاتورة",add_product:"إضافة منتج",edit_product:"تعديل منتج",delete_product:"حذف منتج",add_category:"إضافة تصنيف",add_supplier:"إضافة مورد",edit_supplier:"تعديل مورد",delete_supplier:"حذف مورد",add_supplier_product:"إضافة منتج لمورد",update_price:"تحديث سعر"};
+    const names={login:"تسجيل دخول",create_company:"إنشاء شركة",suspend_company:"إيقاف شركة",activate_company:"تشغيل شركة",delete_company:"حذف شركة",update_subscription:"تعديل اشتراك",admin_enter:"دخول إداري",add_branch:"إضافة فرع",edit_branch:"تعديل فرع",delete_branch:"حذف فرع",add_user:"إضافة مستخدم",edit_permissions:"تعديل صلاحيات",submit_closing:"إرسال إقفال",approve_closing:"اعتماد إقفال",add_invoice:"إضافة فاتورة",add_product:"إضافة منتج",edit_product:"تعديل منتج",delete_product:"حذف منتج",add_category:"إضافة تصنيف",add_supplier:"إضافة مورد",edit_supplier:"تعديل مورد",delete_supplier:"حذف مورد",add_supplier_product:"إضافة منتج لمورد",update_price:"تحديث سعر",add_employee:"إضافة موظف",edit_employee:"تعديل موظف",save_payroll:"حفظ كشف رواتب",add_evaluation:"تقييم موظف"};
     s.forEach(d=>{const x=d.data();const t=x.at&&x.at.toDate?x.at.toDate().toLocaleString("ar-SA"):"—";
       tb.appendChild(el("tr",null,"<td>"+(names[x.action]||esc(x.action))+"</td><td class='muted'>"+esc(x.userName||"")+"</td><td class='muted'>"+esc(x.details||"")+"</td><td class='muted'>"+t+"</td>"));});
   },()=>{});
@@ -1447,4 +1654,3 @@ window.openPage=openPage;
 </script>
 </body>
 </html>
-
