@@ -358,7 +358,7 @@ function renderSuperNav(){
 }
 function renderCompanyNav(){
   const nav=$("navList");nav.innerHTML="";
-  MODULES.forEach(m=>{ if(can(m.key,"view")||can(m.key,"add")) nav.appendChild(navButton(m.name,m.icon,m.key)); });
+  MODULES.forEach(m=>{ if(m.key==="staff" || can(m.key,"view")||can(m.key,"add")) nav.appendChild(navButton(m.name,m.icon,m.key)); });
 }
 
 // مولّد كلمة مرور عشوائية قوية
@@ -1356,21 +1356,98 @@ function branchModal(id,x){x=x||{};
 function staffCanManage(){ return can("staff","add")||can("staff","edit")||state.role==="owner"||state.role==="manager"; }
 
 function pageStaff(c){
-  c.innerHTML=pageTitle("شؤون الموظفين","الموظفون والرواتب والتقييم");
+  c.innerHTML=pageTitle("شؤون الموظفين", state.role==="employee"?"راتبك ورسائلك":"الموظفون والرواتب والتقييم");
   const grid=el("div"); grid.style.cssText="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:16px";
-  const cards=[
-    {k:"emp",  t:"الموظفون",       ic:"👥", d:"بيانات الموظفين وحساباتهم"},
-    {k:"pay",  t:"الرواتب",         ic:"💵", d:"كشوف شهرية وصافي الرواتب"},
-    {k:"eval", t:"التقييم اليومي",  ic:"⭐", d:"تقييم أداء الموظفين يومياً"}
-  ];
+  let cards;
+  if(state.role==="employee"){
+    cards=[
+      {k:"mysalary", t:"راتبي",   ic:"💵", d:"تفاصيل راتب آخر شهر"},
+      {k:"mymsg",    t:"رسائلي",  ic:"✉️", d:"إرسال اقتراح / شكوى / استفسار"}
+    ];
+  }else{
+    cards=[
+      {k:"emp",  t:"الموظفون",       ic:"👥", d:"بيانات الموظفين وحساباتهم"},
+      {k:"pay",  t:"الرواتب",         ic:"💵", d:"كشوف شهرية وصافي الرواتب"},
+      {k:"eval", t:"التقييم اليومي",  ic:"⭐", d:"تقييم أداء الموظفين يومياً"}
+    ];
+    if(state.role==="owner") cards.push({k:"inbox", t:"الرسائل الواردة", ic:"📨", d:"رسائل الموظفين الخاصة"});
+  }
   cards.forEach(x=>{ const card=el("div","card"); card.style.cssText="cursor:pointer;min-height:120px";
     card.innerHTML="<div style='font-size:30px'>"+x.ic+"</div><div style='font-weight:800;margin-top:8px'>"+x.t+"</div><div class='muted' style='font-size:13px;margin-top:4px'>"+x.d+"</div>";
-    card.onclick=()=>{ if(x.k==="emp")staffEmployees(c); else if(x.k==="pay")staffPayroll(c); else staffEvaluation(c); };
+    card.onclick=()=>{ const f={emp:staffEmployees,pay:staffPayroll,eval:staffEvaluation,inbox:staffInbox,mysalary:staffMySalary,mymsg:staffMyMessages}[x.k]; f(c); };
     grid.appendChild(card);
   });
   c.appendChild(grid);
 }
 function staffBack(c){ const b=el("button","btn sm","← رجوع لشؤون الموظفين"); b.style.marginBottom="14px"; b.onclick=()=>pageStaff(c); return b; }
+
+/* ---------- رسائل الموظف (خاصة مع المالك) ---------- */
+function staffMyMessages(c){
+  c.innerHTML=""; c.appendChild(staffBack(c));
+  c.appendChild(el("div",null,pageTitle("رسائلي","رسالة خاصة لصاحب الشركة — لا يطّلع عليها مدير الفرع")));
+  const form=el("div","card"); form.style.marginBottom="16px";
+  form.innerHTML="<label class='field'><span>النوع</span><select id='msgType'><option value='اقتراح'>اقتراح</option><option value='شكوى'>شكوى</option><option value='استفسار'>استفسار</option></select></label>"+
+    "<label class='field'><span>الرسالة</span><textarea id='msgText' rows='4' placeholder='اكتب رسالتك...'></textarea></label>"+
+    "<button class='btn primary' id='sendMsg'>إرسال</button>";
+  c.appendChild(form);
+  $("sendMsg").onclick=async()=>{
+    const text=$("msgText").value.trim(); if(!text){toast("اكتب الرسالة","err");return;}
+    try{
+      await cRef().collection("messages").add({employeeUid:state.user.uid,employeeName:state.profile.name||state.user.email,
+        type:$("msgType").value,text,read:false,at:now()});
+      $("msgText").value=""; toast("تم إرسال رسالتك","ok"); loadMyMsgs();
+    }catch(e){toast("تعذّر الإرسال","err");}
+  };
+  const list=el("div"); list.id="myMsgs"; c.appendChild(list);
+  function loadMyMsgs(){
+    cRef().collection("messages").where("employeeUid","==",state.user.uid).limit(50).onSnapshot(s=>{
+      const w=$("myMsgs"); if(!w)return;
+      const items=[]; s.forEach(d=>items.push(d.data()));
+      items.sort((a,b)=>((b.at&&b.at.seconds)||0)-((a.at&&a.at.seconds)||0));
+      w.innerHTML="<div class='card'><h3 style='margin-bottom:10px'>رسائلي السابقة</h3>"+
+        (items.length?items.map(m=>"<div class='review-row'><span><b>"+esc(m.type)+"</b> — "+esc(m.text)+"</span><span class='tag "+(m.read?"green":"amber")+"'>"+(m.read?"مقروءة":"مُرسلة")+"</span></div>").join(""):"<p class='muted'>لا رسائل بعد</p>")+"</div>";
+    },()=>{});
+  }
+  loadMyMsgs();
+}
+
+/* ---------- صندوق الرسائل (المالك فقط) ---------- */
+function staffInbox(c){
+  c.innerHTML=""; c.appendChild(staffBack(c));
+  c.appendChild(el("div",null,pageTitle("الرسائل الواردة","رسائل الموظفين الخاصة")));
+  const card=el("div","card");
+  card.innerHTML="<table><thead><tr><th>التاريخ</th><th>الموظف</th><th>النوع</th><th>الرسالة</th><th>الحالة</th></tr></thead><tbody id='inboxRows'><tr><td colspan='5' class='muted'>جارٍ التحميل…</td></tr></tbody></table>";
+  c.appendChild(card);
+  cRef().collection("messages").orderBy("at","desc").limit(200).onSnapshot(s=>{
+    const tb=$("inboxRows");if(!tb)return;tb.innerHTML="";
+    if(s.empty){tb.innerHTML="<tr><td colspan='5' class='muted'>لا رسائل</td></tr>";return;}
+    s.forEach(d=>{const x=d.data();const dt=x.at&&x.at.toDate?x.at.toDate().toLocaleDateString("ar-SA"):"—";
+      const tr=el("tr",null,"<td class='muted'>"+dt+"</td><td><b>"+esc(x.employeeName)+"</b></td><td>"+esc(x.type)+"</td><td>"+esc(x.text)+"</td><td></td>");
+      const st=tr.lastChild; st.innerHTML=x.read?"<span class='tag green'>مقروءة</span>":"<span class='tag amber'>جديدة</span>";
+      if(!x.read){ const b=el("button","btn sm","تعليم كمقروءة"); b.style.marginRight="6px"; b.onclick=()=>cRef().collection("messages").doc(d.id).update({read:true}); st.appendChild(b); }
+      tb.appendChild(tr);
+    });
+  },()=>{const tb=$("inboxRows");if(tb)tb.innerHTML="<tr><td colspan='5' style='color:var(--red)'>تعذّر التحميل</td></tr>";});
+}
+
+/* ---------- راتبي (الموظف — آخر شهر فقط) ---------- */
+async function staffMySalary(c){
+  c.innerHTML=""; c.appendChild(staffBack(c));
+  c.appendChild(el("div",null,pageTitle("راتبي","تفاصيل راتب آخر شهر")));
+  const box=el("div","card"); box.innerHTML="<p class='muted'>جارٍ التحميل…</p>"; c.appendChild(box);
+  try{
+    const d=await cRef().collection("mySalary").doc(state.user.uid).get();
+    if(!d.exists){ box.innerHTML="<p class='muted'>لم يُصدر لك كشف راتب بعد.</p>"; return; }
+    const x=d.data();
+    box.innerHTML="<div class='review-row'><span>الشهر</span><b>"+esc(x.month||"—")+"</b></div>"+
+      "<div class='review-row'><span>الراتب الأساسي</span><b>"+money(x.salary)+"</b></div>"+
+      "<div class='review-row'><span>أوفر تايم</span><b>"+money(x.overtime)+"</b></div>"+
+      "<div class='review-row'><span>مكافآت</span><b>"+money(x.bonus)+"</b></div>"+
+      "<div class='review-row'><span>خصومات</span><b style='color:var(--red)'>−"+money(x.deductions)+"</b></div>"+
+      "<div class='review-row'><span>سلفة</span><b style='color:var(--red)'>−"+money(x.advance)+"</b></div>"+
+      "<div class='review-row'><span>الصافي</span><b style='color:var(--brand-2);font-size:18px'>"+money(x.net)+"</b></div>";
+  }catch(e){ box.innerHTML="<p style='color:var(--red)'>تعذّر التحميل</p>"; }
+}
 
 /* ---------- (1) الموظفون ---------- */
 function workDuration(start){
@@ -1518,7 +1595,7 @@ async function loadPayroll(month){
   const saved=(paySnap.exists&&paySnap.data().rows)||[];
   const byId={}; saved.forEach(r=>byId[r.empId]=r);
   const rows=[]; empSnap.forEach(d=>{const x=d.data(); const s=byId[d.id]||{};
-    rows.push({empId:d.id,name:x.name,salary:Number(x.salary)||0,
+    rows.push({empId:d.id,uid:x.uid||null,name:x.name,salary:Number(x.salary)||0,
       overtime:s.overtime||0,bonus:s.bonus||0,deductions:s.deductions||0,advance:s.advance||0});
   });
   const card=el("div","card");
@@ -1539,10 +1616,13 @@ async function loadPayroll(month){
   if(ed) ["ot","bn","dd","ad"].forEach(p=>rows.forEach((_,i)=>{const el=$(p+i);if(el)el.oninput=calc;}));
   calc();
   if($("savePay"))$("savePay").onclick=async()=>{
-    const out=rows.map((r,i)=>({empId:r.empId,name:r.name,salary:r.salary,overtime:num("ot"+i),bonus:num("bn"+i),deductions:num("dd"+i),advance:num("ad"+i),
+    const out=rows.map((r,i)=>({empId:r.empId,uid:r.uid||null,name:r.name,salary:r.salary,overtime:num("ot"+i),bonus:num("bn"+i),deductions:num("dd"+i),advance:num("ad"+i),
       net:r.salary+num("ot"+i)+num("bn"+i)-num("dd"+i)-num("ad"+i)}));
     const total=out.reduce((a,b)=>a+b.net,0);
     await cRef().collection("payroll").doc(month).set({month,rows:out,total,updatedAt:now()});
+    // نسخة راتب خاصة لكل موظف له حساب (يقرأها هو فقط)
+    for(const r of out){ if(r.uid){ try{ await cRef().collection("mySalary").doc(r.uid).set({
+      month,salary:r.salary,overtime:r.overtime,bonus:r.bonus,deductions:r.deductions,advance:r.advance,net:r.net,updatedAt:now()}); }catch(e){} } }
     logAction("save_payroll",month); toast("تم حفظ كشف "+month,"ok");
   };
 }
