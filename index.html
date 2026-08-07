@@ -194,6 +194,7 @@ const MODULES = [
   {key:"suppliers",  name:"الموردين", icon:"🚚"},
   {key:"staff",      name:"شؤون الموظفين", icon:"👥"},
   {key:"checklist",  name:"قوائم التحقّق التشغيلي", icon:"✅"},
+  {key:"recipes",    name:"الوصفات", icon:"📖"},
   {key:"reports",    name:"التقارير", icon:"📈"},
   {key:"branches",   name:"الفروع", icon:"🏬"},
   {key:"settings",   name:"الإعدادات", icon:"⚙️"}
@@ -359,7 +360,7 @@ function renderSuperNav(){
 }
 function renderCompanyNav(){
   const nav=$("navList");nav.innerHTML="";
-  MODULES.forEach(m=>{ if(m.key==="staff" || can(m.key,"view")||can(m.key,"add")) nav.appendChild(navButton(m.name,m.icon,m.key)); });
+  MODULES.forEach(m=>{ if(m.key==="staff" || m.key==="recipes" || can(m.key,"view")||can(m.key,"add")) nav.appendChild(navButton(m.name,m.icon,m.key)); });
 }
 
 // مولّد كلمة مرور عشوائية قوية
@@ -412,7 +413,7 @@ function openPage(key){
   const c=$("pageContent"); c.innerHTML="";
   const routes={
     super_companies:pageSuperCompanies, super_subs:pageSuperSubs, super_audit:pageSuperAudit,
-    dashboard:pageDashboard, sales:pageSales, invoices:pageInvoices, inventory:pageInventory, suppliers:pageSuppliers, staff:pageStaff, checklist:pageChecklist, branches:pageBranches, employees:pageStaff, settings:pageSettings
+    dashboard:pageDashboard, sales:pageSales, invoices:pageInvoices, inventory:pageInventory, suppliers:pageSuppliers, staff:pageStaff, checklist:pageChecklist, recipes:pageRecipes, branches:pageBranches, employees:pageStaff, settings:pageSettings
   };
   if(routes[key]) routes[key](c);
   else pagePlaceholder(c,key);
@@ -1339,6 +1340,58 @@ function productPriceModal(supId,supData,index){
     });
 }
 
+/* ================================================================== */
+/*  الوصفات                                                            */
+/* ================================================================== */
+function pageRecipes(c){
+  const canEdit = can("recipes","add")||can("recipes","edit")||state.role==="owner"||state.role==="manager";
+  c.innerHTML=pageTitle("الوصفات","وصفات المنتجات — متاحة للجميع");
+  if(can("recipes","add")||state.role==="owner"||state.role==="manager"){
+    const bar=el("div",null,"<button class='btn primary' id='newRecBtn'>+ إضافة وصفة</button>");bar.style.marginBottom="16px";c.appendChild(bar);
+    bar.firstChild.onclick=()=>recipeModal();
+  }
+  const grid=el("div"); grid.id="recGrid"; grid.style.cssText="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:14px";
+  c.appendChild(grid);
+  cRef().collection("recipes").orderBy("name").onSnapshot(s=>{
+    const g=$("recGrid");if(!g)return;g.innerHTML="";
+    if(s.empty){g.innerHTML="<div class='card muted' style='grid-column:1/-1;text-align:center'>لا توجد وصفات بعد</div>";return;}
+    s.forEach(d=>{const x=d.data();const card=el("div","card");card.style.cssText="cursor:pointer;min-height:110px";
+      card.innerHTML="<div style='font-size:26px'>📖</div><div style='font-weight:800;margin-top:6px'>"+esc(x.name)+"</div>";
+      card.onclick=()=>recipeDetail(c,d.id,x);
+      g.appendChild(card);
+    });
+  },()=>{const g=$("recGrid");if(g)g.innerHTML="<div class='card' style='grid-column:1/-1;color:var(--red)'>تعذّر التحميل</div>";});
+}
+function recipeDetail(c,id,x){
+  const canEdit = can("recipes","edit")||state.role==="owner"||state.role==="manager";
+  const canDel  = can("recipes","delete")||state.role==="owner";
+  const photo = x.photoUrl?"<img src='"+x.photoUrl+"' style='max-width:100%;border-radius:10px;margin-bottom:12px'>":"";
+  openModal("📖 "+esc(x.name),
+    photo+"<div style='white-space:pre-wrap;line-height:1.9'>"+esc(x.body||"—")+"</div>"+
+    ((canEdit||canDel)?"<div style='display:flex;gap:8px;margin-top:16px'>"+(canEdit?"<button class='btn sm' id='recEdit'>تعديل</button>":"")+(canDel?"<button class='btn sm danger' id='recDel'>حذف</button>":"")+"</div>":""),
+    null,()=>true,true,560);
+  setTimeout(()=>{
+    if($("recEdit"))$("recEdit").onclick=()=>recipeModal(id,x);
+    if($("recDel"))$("recDel").onclick=()=>{if(confirm("حذف الوصفة؟")){cRef().collection("recipes").doc(id).delete();logAction("delete_recipe",x.name);closeModal();}};
+  },30);
+}
+function recipeModal(id,x){ x=x||{};
+  openModal(id?"تعديل وصفة":"إضافة وصفة",
+    "<label class='field'><span>اسم الوصفة *</span><input id='recName' class='input' value='"+esc(x.name||"")+"'></label>"+
+    "<label class='field'><span>الوصفة (المقادير والطريقة)</span><textarea id='recBody' rows='8' placeholder='اكتب الوصفة هنا...'>"+esc(x.body||"")+"</textarea></label>"+
+    "<label class='field'><span>صورة (اختيارية)</span><input id='recPhoto' class='input' type='file' accept='image/*'></label>",
+    "حفظ", async ()=>{
+      const name=$("recName").value.trim(); if(!name){toast("أدخل اسم الوصفة","err");return false;}
+      const data={name,body:$("recBody").value};
+      const file=$("recPhoto")?$("recPhoto").files[0]:null;
+      const ref=id?cRef().collection("recipes").doc(id):cRef().collection("recipes").doc();
+      if(file){ try{const path="companies/"+state.companyId+"/recipes/"+ref.id+".jpg";const snap=await storage.ref(path).put(file);data.photoUrl=await snap.ref.getDownloadURL();}catch(e){ toast("حُفظت بدون صورة (الصور غير مفعّلة)",""); } }
+      if(id){await ref.update(data);logAction("edit_recipe",name);}
+      else{data.createdAt=now();await ref.set(data);logAction("add_recipe",name);}
+      return true;
+    });
+}
+
 function pageBranches(c){
   c.innerHTML=pageTitle("الفروع","بطاقات الفروع وتقييمها");
   if(can("branches","add")){const bar=el("div",null,"<button class='btn primary' id='newBranchBtn'>+ فرع جديد</button>");bar.style.marginBottom="16px";c.appendChild(bar);bar.firstChild.onclick=()=>branchModal();}
@@ -2100,7 +2153,7 @@ function renderAudit(container,ref,title,inline){
   card.innerHTML=(card.innerHTML||"")+"<table><thead><tr><th>العملية</th><th>المستخدم</th><th>التفاصيل</th><th>الوقت</th></tr></thead><tbody id='auditRows'><tr><td colspan='4' class='muted'>جارٍ التحميل…</td></tr></tbody></table>";
   ref.orderBy("at","desc").limit(80).onSnapshot(s=>{const tb=document.getElementById("auditRows");if(!tb)return;tb.innerHTML="";
     if(s.empty){tb.innerHTML="<tr><td colspan='4' class='muted'>لا يوجد سجل</td></tr>";return;}
-    const names={login:"تسجيل دخول",create_company:"إنشاء شركة",suspend_company:"إيقاف شركة",activate_company:"تشغيل شركة",delete_company:"حذف شركة",update_subscription:"تعديل اشتراك",admin_enter:"دخول إداري",add_branch:"إضافة فرع",edit_branch:"تعديل فرع",delete_branch:"حذف فرع",add_user:"إضافة مستخدم",edit_permissions:"تعديل صلاحيات",submit_closing:"إرسال إقفال",approve_closing:"اعتماد إقفال",add_invoice:"إضافة فاتورة",add_product:"إضافة منتج",edit_product:"تعديل منتج",delete_product:"حذف منتج",add_category:"إضافة تصنيف",add_supplier:"إضافة مورد",edit_supplier:"تعديل مورد",delete_supplier:"حذف مورد",add_supplier_product:"إضافة منتج لمورد",update_price:"تحديث سعر",add_employee:"إضافة موظف",edit_employee:"تعديل موظف",save_payroll:"حفظ كشف رواتب",add_evaluation:"تقييم موظف",add_checklist:"إضافة قائمة",edit_checklist:"تعديل قائمة",delete_checklist:"حذف قائمة",add_task:"إضافة مهمة",submit_checklist:"تنفيذ قائمة",approve_checklist:"اعتماد تنفيذ",reject_checklist:"رفض تنفيذ",edit_profile:"تعديل الملف التعريفي",save_document:"حفظ وثيقة",change_theme:"تغيير الثيم",add_branch_eval:"تقييم فرع"};
+    const names={login:"تسجيل دخول",create_company:"إنشاء شركة",suspend_company:"إيقاف شركة",activate_company:"تشغيل شركة",delete_company:"حذف شركة",update_subscription:"تعديل اشتراك",admin_enter:"دخول إداري",add_branch:"إضافة فرع",edit_branch:"تعديل فرع",delete_branch:"حذف فرع",add_user:"إضافة مستخدم",edit_permissions:"تعديل صلاحيات",submit_closing:"إرسال إقفال",approve_closing:"اعتماد إقفال",add_invoice:"إضافة فاتورة",add_product:"إضافة منتج",edit_product:"تعديل منتج",delete_product:"حذف منتج",add_category:"إضافة تصنيف",add_supplier:"إضافة مورد",edit_supplier:"تعديل مورد",delete_supplier:"حذف مورد",add_supplier_product:"إضافة منتج لمورد",update_price:"تحديث سعر",add_employee:"إضافة موظف",edit_employee:"تعديل موظف",save_payroll:"حفظ كشف رواتب",add_evaluation:"تقييم موظف",add_checklist:"إضافة قائمة",edit_checklist:"تعديل قائمة",delete_checklist:"حذف قائمة",add_task:"إضافة مهمة",submit_checklist:"تنفيذ قائمة",approve_checklist:"اعتماد تنفيذ",reject_checklist:"رفض تنفيذ",edit_profile:"تعديل الملف التعريفي",save_document:"حفظ وثيقة",change_theme:"تغيير الثيم",add_branch_eval:"تقييم فرع",add_recipe:"إضافة وصفة",edit_recipe:"تعديل وصفة",delete_recipe:"حذف وصفة"};
     s.forEach(d=>{const x=d.data();const t=x.at&&x.at.toDate?x.at.toDate().toLocaleString("ar-SA"):"—";
       tb.appendChild(el("tr",null,"<td>"+(names[x.action]||esc(x.action))+"</td><td class='muted'>"+esc(x.userName||"")+"</td><td class='muted'>"+esc(x.details||"")+"</td><td class='muted'>"+t+"</td>"));});
   },()=>{});
