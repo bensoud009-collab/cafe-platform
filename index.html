@@ -659,14 +659,19 @@ function monthRange(offset){
 }
 // البطاقات القابلة للإضافة (من الأقسام المبنية حالياً — تكبر مع بناء الأقسام)
 const DASH_WIDGETS = {
-  closings_month:{ name:"عدد إقفالات الشهر", icon:"🧾", page:"sales", kind:"count" },
-  prev_month_sales:{ name:"مبيعات الشهر الماضي", icon:"📉", page:"sales", kind:"money" },
-  avg_closing:{ name:"متوسط قيمة الإقفال", icon:"📊", page:"sales", kind:"money" },
-  invoices_count:{ name:"عدد المشتريات (الشهر)", icon:"🧾", page:"invoices", kind:"count" },
-  invoices_total:{ name:"إجمالي المشتريات (الشهر)", icon:"🛒", page:"invoices", kind:"money" },
-  inventory_count:{ name:"عدد المنتجات", icon:"📦", page:"inventory", kind:"count" },
-  inventory_value:{ name:"قيمة المخزون", icon:"💰", page:"inventory", kind:"money" }
+  sales_month:     { name:"مبيعات الشهر", icon:"💰", page:"sales" },
+  prev_month_sales:{ name:"مبيعات الشهر الماضي", icon:"📉", page:"sales" },
+  closings_month:  { name:"عدد إقفالات الشهر", icon:"🧾", page:"sales" },
+  avg_closing:     { name:"متوسط قيمة الإقفال", icon:"📊", page:"sales" },
+  branches_count:  { name:"عدد الفروع", icon:"🏬", page:"branches" },
+  users_count:     { name:"عدد الموظفين", icon:"👥", page:"staff" },
+  invoices_count:  { name:"عدد المشتريات (الشهر)", icon:"🧾", page:"invoices" },
+  invoices_total:  { name:"إجمالي المشتريات (الشهر)", icon:"🛒", page:"invoices" },
+  inventory_count: { name:"عدد المنتجات", icon:"📦", page:"inventory" },
+  inventory_value: { name:"قيمة المخزون", icon:"💰", page:"inventory" },
+  inventory_low:   { name:"منتجات تحتاج طلب", icon:"⚠️", page:"inventory" }
 };
+let dashReorder=false;
 
 function pageDashboard(c){
   // الموظف لا يرى أرقام المبيعات
@@ -684,50 +689,58 @@ function pageDashboard(c){
   let html=pageTitle("لوحة التحكم","نظرة على "+state.companyName);
   html+="<div style='display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px'>"+
     "<button class='btn sm' id='addCardBtn'>+ إضافة بطاقة</button>"+
+    "<button class='btn sm' id='orderBtn'>"+(dashReorder?"✓ تم":"⇅ ترتيب البطاقات")+"</button>"+
     "<button class='btn sm' id='cmpBtn'>"+(compare?"✓ ":"")+"مقارنة بالشهر الماضي</button>"+
     "</div>";
-  // البطاقات الأساسية
   html+="<div class='kpi-grid' id='kpis'>";
-  html+="<div class='kpi'><div class='l'>مبيعات الشهر</div><div class='v' id='salesMonth'>—</div><div id='salesDelta' class='"+(compare?"":"hidden")+"' style='font-size:13px;margin-top:4px'></div></div>";
-  html+=kpi("الفروع","branchesCount","—");
-  html+=kpi("الموظفون","usersCount","—");
-  // البطاقات المضافة
-  cards.forEach(k=>{ const w=DASH_WIDGETS[k]; if(!w) return;
-    html+="<div class='kpi' data-w='"+k+"' style='cursor:pointer;position:relative'>"+
-      "<button class='wx' data-rm='"+k+"' title='إزالة' style='position:absolute;top:8px;left:8px;background:none;border:none;color:var(--muted);cursor:pointer;font-size:16px'>×</button>"+
+  // بطاقة المقارنة (تلقائية عند التفعيل)
+  if(compare){
+    html+="<div class='kpi' style='border-color:var(--brand)'><div class='l'>مقارنة بالشهر الماضي</div><div class='v' id='salesDelta' style='font-size:18px'>—</div></div>";
+  }
+  // البطاقات المختارة فقط
+  cards.forEach((k,i)=>{ const w=DASH_WIDGETS[k]; if(!w) return;
+    let ctrls="";
+    if(dashReorder){
+      ctrls="<div style='position:absolute;top:6px;left:6px;display:flex;gap:4px'>"+
+        "<button class='dmove' data-dir='-1' data-i='"+i+"' style='background:var(--surface-2);border:1px solid var(--line);border-radius:6px;color:var(--text);cursor:pointer;padding:2px 8px'>→</button>"+
+        "<button class='dmove' data-dir='1' data-i='"+i+"' style='background:var(--surface-2);border:1px solid var(--line);border-radius:6px;color:var(--text);cursor:pointer;padding:2px 8px'>←</button>"+
+        "<button class='drm' data-rm='"+k+"' style='background:none;border:none;color:var(--red);cursor:pointer;font-size:18px'>×</button></div>";
+    }
+    html+="<div class='kpi' data-w='"+k+"' style='"+(dashReorder?"":"cursor:pointer;")+"position:relative'>"+ctrls+
       "<div class='l'>"+w.icon+" "+esc(w.name)+"</div><div class='v' id='w_"+k+"'>—</div></div>";
   });
   html+="</div>";
+  if(!cards.length && !compare) html+="<div class='card muted' style='text-align:center;padding:30px'>لوحتك فاضية — اضغط «+ إضافة بطاقة» لتخصيصها.</div>";
   c.innerHTML=html;
 
   // الأحداث
   $("addCardBtn").onclick=()=>addCardModal(cards);
+  $("orderBtn").onclick=()=>{ dashReorder=!dashReorder; pageDashboard(c); };
   $("cmpBtn").onclick=()=>saveDashPrefs({compare:!compare,cards});
-  c.querySelectorAll(".kpi[data-w]").forEach(el=>{
-    el.onclick=e=>{ if(e.target.classList.contains("wx")) return; openPage(DASH_WIDGETS[el.dataset.w].page); };
-  });
-  c.querySelectorAll("[data-rm]").forEach(b=>{
-    b.onclick=e=>{ e.stopPropagation(); saveDashPrefs({compare,cards:cards.filter(x=>x!==b.dataset.rm)}); };
-  });
+  if(!dashReorder){
+    c.querySelectorAll(".kpi[data-w]").forEach(el=>{ el.onclick=()=>openPage(DASH_WIDGETS[el.dataset.w].page); });
+  }else{
+    c.querySelectorAll(".dmove").forEach(b=>b.onclick=()=>{
+      const i=parseInt(b.dataset.i), dir=parseInt(b.dataset.dir), j=i+dir;
+      if(j<0||j>=cards.length) return; const nc=cards.slice(); const t=nc[i];nc[i]=nc[j];nc[j]=t;
+      saveDashPrefs({compare,cards:nc});
+    });
+    c.querySelectorAll(".drm").forEach(b=>b.onclick=()=>saveDashPrefs({compare,cards:cards.filter(x=>x!==b.dataset.rm)}));
+  }
 
-  // العدّادات الثابتة
-  cRef().collection("branches").onSnapshot(s=>{if($("branchesCount"))$("branchesCount").textContent=s.size;},()=>{});
-  cRef().collection("users").onSnapshot(s=>{if($("usersCount"))$("usersCount").textContent=s.size;},()=>{});
-
-  // مبيعات الشهر الحالي + البطاقات المشتقة
-  const cur=monthRange(0);
-  cRef().collection("dailyClosings").where("date",">=",cur.start).where("date","<",cur.next).onSnapshot(s=>{
-    let sum=0,count=0; s.forEach(d=>{sum+=Number(d.data().actualSales)||0;count++;});
-    if($("salesMonth"))$("salesMonth").textContent=money(sum);
-    if($("w_closings_month"))$("w_closings_month").textContent=count;
-    if($("w_avg_closing"))$("w_avg_closing").textContent=money(count?sum/count:0);
-    // المقارنة
-    if(compare){ window.__curMonthSales=sum; updateDelta(); }
-  },()=>{});
-
-  // الشهر الماضي (للمقارنة و/أو بطاقة مبيعات الشهر الماضي)
+  // ===== تغذية البيانات حسب البطاقات المختارة =====
+  const cur=monthRange(0), prev=monthRange(-1);
+  const needCur = compare || cards.some(k=>["sales_month","closings_month","avg_closing"].includes(k));
+  if(needCur){
+    cRef().collection("dailyClosings").where("date",">=",cur.start).where("date","<",cur.next).onSnapshot(s=>{
+      let sum=0,count=0; s.forEach(d=>{sum+=Number(d.data().actualSales)||0;count++;});
+      if($("w_sales_month"))$("w_sales_month").textContent=money(sum);
+      if($("w_closings_month"))$("w_closings_month").textContent=count;
+      if($("w_avg_closing"))$("w_avg_closing").textContent=money(count?sum/count:0);
+      window.__curMonthSales=sum; if(compare) updateDelta();
+    },()=>{});
+  }
   if(compare || cards.includes("prev_month_sales")){
-    const prev=monthRange(-1);
     cRef().collection("dailyClosings").where("date",">=",prev.start).where("date","<",prev.next).onSnapshot(s=>{
       let sum=0; s.forEach(d=>sum+=Number(d.data().actualSales)||0);
       window.__prevMonthSales=sum;
@@ -735,8 +748,12 @@ function pageDashboard(c){
       if(compare) updateDelta();
     },()=>{});
   }
-
-  // بطاقات الفواتير (إن أُضيفت)
+  if(cards.includes("branches_count")){
+    cRef().collection("branches").onSnapshot(s=>{if($("w_branches_count"))$("w_branches_count").textContent=s.size;},()=>{});
+  }
+  if(cards.includes("users_count")){
+    cRef().collection("employees").onSnapshot(s=>{if($("w_users_count"))$("w_users_count").textContent=s.size;},()=>{});
+  }
   if(cards.includes("invoices_count")||cards.includes("invoices_total")){
     cRef().collection("invoices").where("date",">=",cur.start).where("date","<",cur.next).onSnapshot(s=>{
       let total=0,count=0; s.forEach(d=>{total+=Number(d.data().total)||0;count++;});
@@ -744,12 +761,12 @@ function pageDashboard(c){
       if($("w_invoices_total"))$("w_invoices_total").textContent=money(total);
     },()=>{});
   }
-  // بطاقات المخزون (إن أُضيفت)
-  if(cards.includes("inventory_count")||cards.includes("inventory_value")){
+  if(cards.includes("inventory_count")||cards.includes("inventory_value")||cards.includes("inventory_low")){
     cRef().collection("products").onSnapshot(s=>{
-      let val=0; s.forEach(d=>{const x=d.data();val+=(Number(x.price)||0)*(Number(x.qty)||0);});
+      let val=0,low=0; s.forEach(d=>{const x=d.data();val+=(Number(x.price)||0)*(Number(x.qty)||0); if((Number(x.min)||0)>0 && (Number(x.qty)||0)<=(Number(x.min)||0)) low++;});
       if($("w_inventory_count"))$("w_inventory_count").textContent=s.size;
       if($("w_inventory_value"))$("w_inventory_value").textContent=money(val);
+      if($("w_inventory_low"))$("w_inventory_low").textContent=low;
     },()=>{});
   }
 }
