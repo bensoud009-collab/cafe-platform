@@ -331,8 +331,21 @@ $("loginPass").addEventListener("keydown",e=>{if(e.key==="Enter")$("loginBtn").c
 function doLogout(){ auth.signOut(); }
 window.doLogout=doLogout;
 
+// قراءة اسم رابط الشركة من ?c=slug وعرض هويتها في شاشة الدخول
+function currentSlug(){ try{ return new URLSearchParams(location.search).get("c")||""; }catch(e){ return ""; } }
+async function applyCompanyBranding(){
+  const slug=currentSlug(); if(!slug) return;
+  try{
+    const d=await db.collection("publicCompanies").doc(slug.toLowerCase()).get();
+    if(!d.exists) return;
+    const cd=d.data();
+    const ti=document.getElementById("lgTitle"); if(ti) ti.textContent=cd.name;
+    if(cd.theme) applyTheme(cd.theme);
+  }catch(e){}
+}
+
 auth.onAuthStateChanged(async user=>{
-  if(!user){ state.user=null; show("loginScreen"); return; }
+  if(!user){ state.user=null; show("loginScreen"); applyCompanyBranding(); return; }
   state.user=user;
   show("bootScreen");
   try{
@@ -366,6 +379,8 @@ auth.onAuthStateChanged(async user=>{
       if(cdata.status==="suspended"){ toast("انتهى اشتراك الشركة أو تم إيقافه، راجع الإدارة","err"); return doLogout(); }
       state.companyName=cdata.name;
       state.profile=profDoc.exists?profDoc.data():{name:user.email,role:map.role,permissions:{}};
+      // فحص إيقاف حساب الموظف
+      if(state.profile.accountActive===false){ toast("حسابك موقوف، راجع صاحب الشركة","err"); return doLogout(); }
       applyTheme(cdata.theme);
       buildShell(); renderCompanyNav(); openPage("dashboard");
     }
@@ -519,6 +534,7 @@ async function companyDetailsModal(id,cd){
   const subLine = left===null?"غير محدد":(left<0?"منتهٍ":"باقٍ "+left+" يوم");
   openModal("تفاصيل: "+esc(cd.name),
     "<div class='review-row'><span>كود الشركة</span><b>"+esc(cd.code||"—")+"</b></div>"+
+    "<div class='review-row'><span>رابط الشركة</span><b style='direction:ltr;font-size:12px'>"+(cd.slug?esc(companyLink(cd.slug)):"— لا يوجد —")+"</b></div>"+
     "<div class='review-row'><span>اسم المالك</span><b>"+esc(cd.ownerName||"صاحب "+cd.name)+"</b></div>"+
     "<div class='review-row'><span>جوال المالك</span><b>"+esc(cd.ownerPhone||"—")+"</b></div>"+
     "<div class='review-row'><span>بريد المالك</span><b>"+esc(cd.ownerEmail||"—")+"</b></div>"+
@@ -529,14 +545,33 @@ async function companyDetailsModal(id,cd){
     "<div class='review-row'><span>الحالة</span><b>"+(cd.status==="suspended"?"موقوفة":"نشطة")+"</b></div>"+
     "<div style='display:flex;gap:8px;flex-wrap:wrap;margin-top:16px'>"+
       "<button class='btn primary sm' id='cdEnter'>دخول إداري</button>"+
+      "<button class='btn sm' id='cdLink'>تعديل الرابط</button>"+
       "<button class='btn sm' id='cdSub'>تعديل الاشتراك</button>"+
       "<button class='btn danger sm' id='cdDel'>حذف نهائي</button>"+
     "</div>", null, ()=>true, true, 560);
   setTimeout(()=>{
     if($("cdEnter"))$("cdEnter").onclick=()=>{closeModal();enterCompanyAsAdmin(id,cd.name);};
+    if($("cdLink"))$("cdLink").onclick=()=>companySlugModal(id,cd);
     if($("cdSub"))$("cdSub").onclick=()=>subscriptionModal(id,cd);
     if($("cdDel"))$("cdDel").onclick=()=>deleteCompanyModal(id,cd);
   },30);
+}
+
+// تعديل اسم رابط الشركة
+function companySlugModal(id,cd){
+  openModal("رابط الشركة: "+esc(cd.name),
+    "<label class='field'><span>اسم الرابط (إنجليزي)</span><input id='csSlug' class='input' value='"+esc(cd.slug||"")+"' placeholder='naseem'></label>"+
+    "<div class='review-row'><span>الرابط</span><b id='csPreview' style='direction:ltr;font-size:12px'>—</b></div>",
+    "حفظ", async ()=>{
+      const slug=slugify($("csSlug").value); if(!slug){toast("أدخل اسم الرابط","err");return false;}
+      const dup=await db.collection("companies").where("slug","==",slug).limit(1).get();
+      if(!dup.empty && dup.docs[0].id!==id){toast("اسم الرابط مستخدم","err");return false;}
+      await db.collection("companies").doc(id).update({slug});
+      await db.collection("publicCompanies").doc(slug).set({name:cd.name,theme:cd.theme||"gold"}).catch(()=>{});
+      logAction("edit_slug",cd.name+" → "+slug);
+      toast("تم حفظ الرابط","ok"); return true;
+    });
+  setTimeout(()=>{const upd=()=>{const s=slugify($("csSlug").value);$("csPreview").textContent=s?companyLink(s):"—";};if($("csSlug")){$("csSlug").oninput=upd;upd();}},30);
 }
 
 // نافذة تعديل الاشتراك (بداية + مدة أشهر → نهاية تلقائية)
@@ -602,6 +637,7 @@ function openNewCompanyModal(){
   const startVal=new Date().toISOString().slice(0,10);
   openModal("إنشاء شركة جديدة",
     "<label class='field'><span>اسم الشركة *</span><input id='ncName' class='input' placeholder='مثال: مقهى نسيم'></label>"+
+    "<label class='field'><span>اسم الرابط (إنجليزي) *</span><input id='ncSlug' class='input' placeholder='naseem'></label>"+
     "<label class='field'><span>اسم المالك</span><input id='ncOwner' class='input' placeholder='الاسم الكامل'></label>"+
     "<label class='field'><span>بريد صاحب الشركة *</span><input id='ncEmail' class='input' type='email' placeholder='owner@company.com'></label>"+
     "<label class='field'><span>جوال صاحب الشركة</span><input id='ncPhone' class='input' placeholder='05xxxxxxxx'></label>"+
@@ -621,11 +657,18 @@ function openNewCompanyModal(){
   },30);
 }
 
+function slugify(s){ return (s||"").toString().trim().toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-+|-+$/g,""); }
+function companyLink(slug){ return location.origin+location.pathname+"?c="+slug; }
+
 async function createCompany(){
   const name=$("ncName").value.trim(), owner=$("ncOwner").value.trim(), email=$("ncEmail").value.trim().toLowerCase(), phone=$("ncPhone").value.trim();
-  const pass=$("ncPass").value, start=new Date($("ncStart").value), months=parseInt($("ncMonths").value)||1;
+  const slug=slugify($("ncSlug").value), pass=$("ncPass").value, start=new Date($("ncStart").value), months=parseInt($("ncMonths").value)||1;
   if(!name||!email){toast("أدخل اسم الشركة وبريد صاحبها","err");return false;}
+  if(!slug){toast("أدخل اسم الرابط (إنجليزي)","err");return false;}
   if(!pass||pass.length<6){toast("كلمة المرور ٦ أحرف على الأقل (أو ولّدها 🎲)","err");return false;}
+  // تأكد أن اسم الرابط غير مستخدم
+  const dup=await db.collection("companies").where("slug","==",slug).limit(1).get();
+  if(!dup.empty){toast("اسم الرابط مستخدم، اختر غيره","err");return false;}
   const code="C"+Math.random().toString(36).slice(2,7).toUpperCase();
   const end=new Date(isNaN(start)?new Date():start); end.setMonth(end.getMonth()+months);
   try{
@@ -633,20 +676,23 @@ async function createCompany(){
     const ownerUid=cred.user.uid;
     await secondaryAuth.signOut();
     const compRef=db.collection("companies").doc();
-    await compRef.set({name,code,ownerName:owner||("صاحب "+name),ownerEmail:email,ownerPhone:phone,ownerUid,status:"active",
+    await compRef.set({name,slug,code,ownerName:owner||("صاحب "+name),ownerEmail:email,ownerPhone:phone,ownerUid,status:"active",theme:"gold",
       subscription:{plan:"monthly",months,startsAt:(isNaN(start)?new Date():start).toISOString(),endsAt:end.toISOString(),active:true},
       createdAt:now(), createdBy:state.user.uid});
     await db.collection("users").doc(ownerUid).set({role:"owner",companyId:compRef.id,name:owner||("صاحب الشركة "+name),createdAt:now()});
     await compRef.collection("users").doc(ownerUid).set({name:owner||"صاحب الشركة",email,phone,role:"owner",permissions:fullPermissions(),createdAt:now()});
+    // بطاقة عامة للهوية على شاشة الدخول
+    await db.collection("publicCompanies").doc(slug).set({name,theme:"gold"}).catch(()=>{});
     logAction("create_company",name);
     closeModal();
     openModal("تم إنشاء الشركة ✅",
       "<div class='review-row'><span>الشركة</span><b>"+esc(name)+"</b></div>"+
+      "<div class='review-row'><span>رابط الشركة</span><b style='direction:ltr'>"+esc(companyLink(slug))+"</b></div>"+
       "<div class='review-row'><span>كود الشركة</span><b>"+code+"</b></div>"+
       "<div class='review-row'><span>البريد</span><b>"+esc(email)+"</b></div>"+
       "<div class='review-row'><span>كلمة المرور</span><b>"+esc(pass)+"</b></div>"+
       "<div class='review-row'><span>انتهاء الاشتراك</span><b>"+end.toLocaleDateString("ar-SA-u-ca-gregory-nu-latn")+"</b></div>"+
-      "<p class='muted' style='margin-top:14px;font-size:13px'>سلّم هذي البيانات لصاحب الشركة.</p>",
+      "<p class='muted' style='margin-top:14px;font-size:13px'>سلّم الرابط والبيانات لصاحب الشركة.</p>",
       "تم", ()=>true, true);
     return false;
   }catch(e){
@@ -1739,10 +1785,22 @@ async function employeeModal(id,x){ x=x||{};
 
 // تفاصيل الموظف + إنشاء حساب/صلاحيات
 function employeeDetail(id,x){
+  const isOwner=state.role==="owner"||state.role==="super";
+  const active = x.accountActive!==false; // افتراضياً نشط
   const accBlock = x.hasAccount
-    ? "<div class='review-row'><span>حساب المنصة</span><b class='tag green'>مفعّل</b></div>"+
+    ? "<div class='review-row'><span>حساب المنصة</span><b class='tag "+(active?"green":"red")+"'>"+(active?"مفعّل":"موقوف")+"</b></div>"+
       "<div class='review-row'><span>البريد</span><b>"+esc(x.email||"—")+"</b></div>"
     : "<div class='review-row'><span>حساب المنصة</span><b class='muted'>غير مفعّل</b></div>";
+  let btns="";
+  if(x.hasAccount){
+    btns+="<button class='btn sm' id='edPerms'>الصلاحيات</button>";
+    btns+="<button class='btn sm' id='edNewPass'>كلمة مرور جديدة</button>";
+    if(isOwner) btns+="<button class='btn sm' id='edToggle'>"+(active?"إيقاف الحساب":"تفعيل الحساب")+"</button>";
+    if(isOwner) btns+="<button class='btn sm danger' id='edDelAcc'>حذف الحساب</button>";
+  }else if(can("staff","add")){
+    btns+="<button class='btn primary sm' id='edCreate'>+ إنشاء حساب في المنصة</button>";
+  }
+  if(can("staff","delete")) btns+="<button class='btn sm danger' id='edDelEmp'>حذف الموظف</button>";
   openModal("الموظف: "+esc(x.name),
     "<div class='review-row'><span>الرقم الوظيفي</span><b>"+esc(x.jobNo||"—")+"</b></div>"+
     "<div class='review-row'><span>الجوال</span><b>"+esc(x.phone||"—")+"</b></div>"+
@@ -1752,15 +1810,33 @@ function employeeDetail(id,x){
     "<div class='review-row'><span>مدة العمل</span><b>"+workDuration(x.startDate)+"</b></div>"+
     (staffCanManage()?"<div class='review-row'><span>الراتب الأساسي</span><b>"+money(x.salary)+"</b></div>":"")+
     accBlock+
-    "<div style='display:flex;gap:8px;flex-wrap:wrap;margin-top:16px'>"+
-      (x.hasAccount
-        ? "<button class='btn sm' id='edPerms'>الصلاحيات</button><button class='btn sm' id='edNewPass'>كلمة مرور جديدة</button>"
-        : (can("staff","add")?"<button class='btn primary sm' id='edCreate'>+ إنشاء حساب في المنصة</button>":""))+
-    "</div>", null, ()=>true, true, 560);
+    "<div style='display:flex;gap:8px;flex-wrap:wrap;margin-top:16px'>"+btns+"</div>", null, ()=>true, true, 560);
   setTimeout(()=>{
     if($("edCreate"))$("edCreate").onclick=()=>createEmployeeAccount(id,x);
     if($("edPerms"))$("edPerms").onclick=()=>{ if(x.uid) cRef().collection("users").doc(x.uid).get().then(u=>permMatrixModal(x.uid,u.exists?u.data():{name:x.name})); };
     if($("edNewPass"))$("edNewPass").onclick=()=>resetEmployeePassword(x);
+    if($("edToggle"))$("edToggle").onclick=async()=>{
+      const na=!active;
+      await cRef().collection("employees").doc(id).update({accountActive:na});
+      if(x.uid) await cRef().collection("users").doc(x.uid).update({accountActive:na}).catch(()=>{});
+      logAction(na?"activate_account":"suspend_account",x.name); toast(na?"تم تفعيل الحساب":"تم إيقاف الحساب","ok"); closeModal();
+    };
+    if($("edDelAcc"))$("edDelAcc").onclick=async()=>{
+      if(!confirm("حذف حساب الدخول؟ لن يتمكّن الموظف من الدخول. تبقى بياناته الوظيفية.")) return;
+      try{
+        if(x.uid){ await db.collection("users").doc(x.uid).delete().catch(()=>{}); await cRef().collection("users").doc(x.uid).delete().catch(()=>{}); }
+        await cRef().collection("employees").doc(id).update({hasAccount:false,uid:firebase.firestore.FieldValue.delete(),accountActive:firebase.firestore.FieldValue.delete()});
+        logAction("delete_account",x.name); toast("تم حذف الحساب، لا يمكنه الدخول","ok"); closeModal();
+      }catch(e){toast("تعذّر حذف الحساب","err");}
+    };
+    if($("edDelEmp"))$("edDelEmp").onclick=async()=>{
+      if(!confirm("حذف الموظف نهائياً؟ تُحذف بياناته"+(x.hasAccount?" وحسابه":"")+".")) return;
+      try{
+        if(x.uid){ await db.collection("users").doc(x.uid).delete().catch(()=>{}); await cRef().collection("users").doc(x.uid).delete().catch(()=>{}); }
+        await cRef().collection("employees").doc(id).delete();
+        logAction("delete_employee",x.name); toast("تم حذف الموظف","ok"); closeModal();
+      }catch(e){toast("تعذّر الحذف","err");}
+    };
   },30);
 }
 
@@ -2195,7 +2271,7 @@ function renderAudit(container,ref,title,inline){
   card.innerHTML=(card.innerHTML||"")+"<table><thead><tr><th>العملية</th><th>المستخدم</th><th>التفاصيل</th><th>الوقت</th></tr></thead><tbody id='auditRows'><tr><td colspan='4' class='muted'>جارٍ التحميل…</td></tr></tbody></table>";
   ref.orderBy("at","desc").limit(80).onSnapshot(s=>{const tb=document.getElementById("auditRows");if(!tb)return;tb.innerHTML="";
     if(s.empty){tb.innerHTML="<tr><td colspan='4' class='muted'>لا يوجد سجل</td></tr>";return;}
-    const names={login:"تسجيل دخول",create_company:"إنشاء شركة",suspend_company:"إيقاف شركة",activate_company:"تشغيل شركة",delete_company:"حذف شركة",update_subscription:"تعديل اشتراك",admin_enter:"دخول إداري",add_branch:"إضافة فرع",edit_branch:"تعديل فرع",delete_branch:"حذف فرع",add_user:"إضافة مستخدم",edit_permissions:"تعديل صلاحيات",submit_closing:"إرسال إقفال",approve_closing:"اعتماد إقفال",add_invoice:"إضافة فاتورة",add_product:"إضافة منتج",edit_product:"تعديل منتج",delete_product:"حذف منتج",add_category:"إضافة تصنيف",add_supplier:"إضافة مورد",edit_supplier:"تعديل مورد",delete_supplier:"حذف مورد",add_supplier_product:"إضافة منتج لمورد",update_price:"تحديث سعر",add_employee:"إضافة موظف",edit_employee:"تعديل موظف",save_payroll:"حفظ كشف رواتب",add_evaluation:"تقييم موظف",add_checklist:"إضافة قائمة",edit_checklist:"تعديل قائمة",delete_checklist:"حذف قائمة",add_task:"إضافة مهمة",submit_checklist:"تنفيذ قائمة",approve_checklist:"اعتماد تنفيذ",reject_checklist:"رفض تنفيذ",edit_profile:"تعديل الملف التعريفي",save_document:"حفظ وثيقة",change_theme:"تغيير الثيم",add_branch_eval:"تقييم فرع",add_recipe:"إضافة وصفة",edit_recipe:"تعديل وصفة",delete_recipe:"حذف وصفة"};
+    const names={login:"تسجيل دخول",create_company:"إنشاء شركة",suspend_company:"إيقاف شركة",activate_company:"تشغيل شركة",delete_company:"حذف شركة",update_subscription:"تعديل اشتراك",admin_enter:"دخول إداري",add_branch:"إضافة فرع",edit_branch:"تعديل فرع",delete_branch:"حذف فرع",add_user:"إضافة مستخدم",edit_permissions:"تعديل صلاحيات",submit_closing:"إرسال إقفال",approve_closing:"اعتماد إقفال",add_invoice:"إضافة فاتورة",add_product:"إضافة منتج",edit_product:"تعديل منتج",delete_product:"حذف منتج",add_category:"إضافة تصنيف",add_supplier:"إضافة مورد",edit_supplier:"تعديل مورد",delete_supplier:"حذف مورد",add_supplier_product:"إضافة منتج لمورد",update_price:"تحديث سعر",add_employee:"إضافة موظف",edit_employee:"تعديل موظف",save_payroll:"حفظ كشف رواتب",add_evaluation:"تقييم موظف",add_checklist:"إضافة قائمة",edit_checklist:"تعديل قائمة",delete_checklist:"حذف قائمة",add_task:"إضافة مهمة",submit_checklist:"تنفيذ قائمة",approve_checklist:"اعتماد تنفيذ",reject_checklist:"رفض تنفيذ",edit_profile:"تعديل الملف التعريفي",save_document:"حفظ وثيقة",change_theme:"تغيير الثيم",add_branch_eval:"تقييم فرع",add_recipe:"إضافة وصفة",edit_recipe:"تعديل وصفة",delete_recipe:"حذف وصفة",edit_slug:"تعديل رابط الشركة",suspend_account:"إيقاف حساب موظف",activate_account:"تفعيل حساب موظف",delete_account:"حذف حساب موظف",delete_employee:"حذف موظف"};
     s.forEach(d=>{const x=d.data();const t=x.at&&x.at.toDate?x.at.toDate().toLocaleString("ar-SA-u-ca-gregory-nu-latn"):"—";
       tb.appendChild(el("tr",null,"<td>"+(names[x.action]||esc(x.action))+"</td><td class='muted'>"+esc(x.userName||"")+"</td><td class='muted'>"+esc(x.details||"")+"</td><td class='muted'>"+t+"</td>"));});
   },()=>{});
