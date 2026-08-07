@@ -27,6 +27,11 @@ html[data-mode="dark"]{
   --text:#e8eaed; --muted:#9aa3b2;
   --shadow:0 8px 30px rgba(0,0,0,.35);
 }
+/* أيقونات بدون لون (رمادي) */
+html[data-icons="mono"] .nav-item .ic,
+html[data-icons="mono"] .card > div[style*="font-size:30px"],
+html[data-icons="mono"] .card > div[style*="font-size:26px"],
+html[data-icons="mono"] .kpi .l{ filter:grayscale(1) opacity(.7); }
 *{box-sizing:border-box}
 html,body{margin:0;height:100%;background:var(--bg);color:var(--text);font-size:15px}
 body{-webkit-font-smoothing:antialiased}
@@ -164,7 +169,7 @@ tbody tr:hover{background:var(--surface-2)}
       <div class="topbar">
         <button class="btn ghost sm hamb" onclick="document.getElementById('sidebar').classList.toggle('open')">☰</button>
         <div style="flex:1"></div>
-        <button class="btn ghost sm" id="modeBtn" title="فاتح/غامق" onclick="toggleMode()" style="font-size:16px">🌙</button>
+        <button class="btn ghost sm" id="modeBtn" title="فاتح/غامق" onclick="toggleMode()" style="font-size:12px;padding:5px 8px">🌙</button>
         <div class="muted" style="font-size:13px" id="topDate"></div>
       </div>
       <div class="content" id="pageContent"></div>
@@ -2160,11 +2165,12 @@ function pageSettings(c){
     {k:"docs",     t:"الوثائق الرسمية", ic:"📄", d:"السجلات والتراخيص وتواريخها"},
     {k:"sub",      t:"معلومات الاشتراك", ic:"💳", d:"الخطة وتاريخ الانتهاء"},
     {k:"theme",    t:"الألوان والثيم", ic:"🎨", d:"لون المنصة"},
+    {k:"icons",    t:"شكل الأيقونات", ic:"✨", d:"ملوّنة أو بدون لون"},
     {k:"audit",    t:"سجل العمليات", ic:"📜", d:"كل ما تم في الشركة"}
   ];
   cards.forEach(x=>{const card=el("div","card");card.style.cssText="cursor:pointer;min-height:120px";
     card.innerHTML="<div style='font-size:30px'>"+x.ic+"</div><div style='font-weight:800;margin-top:8px'>"+x.t+"</div><div class='muted' style='font-size:13px;margin-top:4px'>"+x.d+"</div>";
-    card.onclick=()=>{ const f={profile:settingsProfile,docs:settingsDocs,sub:settingsSub,theme:settingsTheme,audit:settingsAudit}[x.k]; f(c,canEdit); };
+    card.onclick=()=>{ const f={profile:settingsProfile,docs:settingsDocs,sub:settingsSub,theme:settingsTheme,icons:settingsIcons,audit:settingsAudit}[x.k]; f(c,canEdit); };
     grid.appendChild(card);
   });
   c.appendChild(grid);
@@ -2265,6 +2271,18 @@ async function settingsTheme(c,canEdit){
   if(!canEdit) c.appendChild(el("p","muted","تغيير الثيم متاح لصاحب الشركة فقط."));
 }
 
+function settingsIcons(c){
+  c.innerHTML=""; c.appendChild(settingsBack(c)); c.appendChild(el("div",null,pageTitle("شكل الأيقونات","تفضيل شخصي")));
+  const cur=currentIcons();
+  const box=el("div","card");
+  box.innerHTML="<div style='display:flex;gap:12px;flex-wrap:wrap'>"+
+    "<button class='btn"+(cur==="color"?" primary":"")+"' id='icColor'>ملوّنة</button>"+
+    "<button class='btn"+(cur==="mono"?" primary":"")+"' id='icMono'>بدون لون (رمادي)</button>"+
+    "</div><p class='muted' style='margin-top:12px;font-size:13px'>يُطبّق فوراً ويُحفظ لك في هذا المتصفح.</p>";
+  c.appendChild(box);
+  $("icColor").onclick=()=>{ setIcons("color"); settingsIcons(c); };
+  $("icMono").onclick=()=>{ setIcons("mono"); settingsIcons(c); };
+}
 function settingsAudit(c){
   c.innerHTML=""; c.appendChild(settingsBack(c));
   c.appendChild(el("div",null,pageTitle("سجل العمليات","كل ما تم في الشركة")));
@@ -2309,12 +2327,19 @@ function applyMode(m){
 function toggleMode(){ const m=currentMode()==="dark"?"light":"dark"; try{localStorage.setItem("cafe_mode",m);}catch(e){} applyMode(m); }
 window.toggleMode=toggleMode;
 
+// شكل الأيقونات: ملوّنة / بدون لون (شخصي)
+function currentIcons(){ try{ return localStorage.getItem("cafe_icons")||"color"; }catch(e){ return "color"; } }
+function applyIcons(v){ document.documentElement.setAttribute("data-icons", v==="mono"?"mono":"color"); }
+function setIcons(v){ try{localStorage.setItem("cafe_icons",v);}catch(e){} applyIcons(v); }
+window.setIcons=setIcons;
+
 (function initLang(){
   document.documentElement.lang=LANG;
   document.documentElement.dir=(LANGS.find(x=>x.k===LANG)||{}).dir||"rtl";
   applyLoginLang(); renderLangSwitchers();
 })();
 applyMode(currentMode());
+applyIcons(currentIcons());
 </script>
 </body>
 </html>
