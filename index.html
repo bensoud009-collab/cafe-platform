@@ -22,6 +22,11 @@
   --radius:16px; --shadow:0 6px 22px rgba(30,41,59,.08);
   font-family:"Segoe UI",system-ui,-apple-system,"Tahoma",sans-serif;
 }
+html[data-mode="dark"]{
+  --bg:#0f1115; --surface:#171a21; --surface-2:#1e222b; --line:#2a2f3a;
+  --text:#e8eaed; --muted:#9aa3b2;
+  --shadow:0 8px 30px rgba(0,0,0,.35);
+}
 *{box-sizing:border-box}
 html,body{margin:0;height:100%;background:var(--bg);color:var(--text);font-size:15px}
 body{-webkit-font-smoothing:antialiased}
@@ -159,6 +164,7 @@ tbody tr:hover{background:var(--surface-2)}
       <div class="topbar">
         <button class="btn ghost sm hamb" onclick="document.getElementById('sidebar').classList.toggle('open')">☰</button>
         <div style="flex:1"></div>
+        <button class="btn ghost sm" id="modeBtn" title="فاتح/غامق" onclick="toggleMode()" style="font-size:16px">🌙</button>
         <div class="muted" style="font-size:13px" id="topDate"></div>
       </div>
       <div class="content" id="pageContent"></div>
@@ -401,7 +407,7 @@ function buildShell(){
   const dloc=(LANG==="en"?"en-GB":"ar-SA-u-ca-gregory-nu-latn");
   $("topDate").textContent=new Date().toLocaleDateString(dloc,{weekday:"long",year:"numeric",month:"long",day:"numeric"});
   const lo=document.getElementById("logoutBtn"); if(lo)lo.textContent=t("logout");
-  renderLangSwitchers();
+  renderLangSwitchers(); applyMode(currentMode());
 }
 
 function navButton(label,icon,pageKey){
@@ -2294,11 +2300,21 @@ function openModal(title,bodyHtml,okLabel,onOk,hideCancel,maxWidth){
 function closeModal(){$("modalRoot").innerHTML="";}
 window.openPage=openPage;
 // تهيئة اللغة عند التحميل
+// الوضع فاتح/غامق (تفضيل شخصي محفوظ في المتصفح)
+function currentMode(){ try{ return localStorage.getItem("cafe_mode")||"light"; }catch(e){ return "light"; } }
+function applyMode(m){
+  document.documentElement.setAttribute("data-mode", m==="dark"?"dark":"light");
+  const b=document.getElementById("modeBtn"); if(b) b.textContent = m==="dark"?"☀️":"🌙";
+}
+function toggleMode(){ const m=currentMode()==="dark"?"light":"dark"; try{localStorage.setItem("cafe_mode",m);}catch(e){} applyMode(m); }
+window.toggleMode=toggleMode;
+
 (function initLang(){
   document.documentElement.lang=LANG;
   document.documentElement.dir=(LANGS.find(x=>x.k===LANG)||{}).dir||"rtl";
   applyLoginLang(); renderLangSwitchers();
 })();
+applyMode(currentMode());
 </script>
 </body>
 </html>
