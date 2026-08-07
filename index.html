@@ -1340,18 +1340,136 @@ function productPriceModal(supId,supData,index){
 }
 
 function pageBranches(c){
-  c.innerHTML=pageTitle("الفروع","إدارة فروع الشركة");
+  c.innerHTML=pageTitle("الفروع","بطاقات الفروع وتقييمها");
   if(can("branches","add")){const bar=el("div",null,"<button class='btn primary' id='newBranchBtn'>+ فرع جديد</button>");bar.style.marginBottom="16px";c.appendChild(bar);bar.firstChild.onclick=()=>branchModal();}
-  const card=el("div","card","<table><thead><tr><th>الفرع</th><th>العنوان</th><th>الجوال</th><th>إجراء</th></tr></thead><tbody id='brRows'></tbody></table>");
+  const grid=el("div"); grid.id="brGrid"; grid.style.cssText="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:16px";
+  c.appendChild(grid);
+  cRef().collection("branches").orderBy("name").onSnapshot(async s=>{
+    const g=$("brGrid");if(!g)return;g.innerHTML="";
+    if(s.empty){g.innerHTML="<div class='card muted' style='grid-column:1/-1;text-align:center'>لا توجد فروع</div>";return;}
+    // نجلب متوسط التقييم لكل فرع
+    const evalsSnap=await cRef().collection("branchEvals").get().catch(()=>null);
+    const byBranch={};
+    if(evalsSnap) evalsSnap.forEach(d=>{const x=d.data();(byBranch[x.branchId]=byBranch[x.branchId]||[]).push(x.pct||0);});
+    s.forEach(d=>{const x=d.data();
+      const arr=byBranch[d.id]||[]; const avg=arr.length?arr.reduce((a,b)=>a+b,0)/arr.length:0;
+      const stars=Math.round(avg/20); // 0-100% → 0-5
+      let starHtml=""; for(let i=1;i<=5;i++) starHtml+="<span style='color:"+(i<=stars?"var(--brand)":"var(--line)")+"'>★</span>";
+      const card=el("div","card");card.style.cssText="cursor:pointer;min-height:130px";
+      card.innerHTML="<div style='font-size:26px'>🏬</div><div style='font-weight:800;margin-top:6px'>"+esc(x.name)+"</div>"+
+        "<div style='font-size:18px;margin-top:6px'>"+starHtml+"</div>"+
+        "<div class='muted' style='font-size:12px;margin-top:4px'>"+(arr.length?"متوسط "+Math.round(avg)+"%":"لا تقييم بعد")+"</div>";
+      card.onclick=()=>branchDetail(c,d.id,x);
+      g.appendChild(card);
+    });
+  },()=>{const g=$("brGrid");if(g)g.innerHTML="<div class='card' style='grid-column:1/-1;color:var(--red)'>تعذّر التحميل</div>";});
+}
+
+async function branchDetail(c,id,x){
+  c.innerHTML=""; const back=el("button","btn sm","← رجوع للفروع"); back.style.marginBottom="14px"; back.onclick=()=>openPage("branches"); c.appendChild(back);
+  const head=el("div","card"); head.style.marginBottom="16px";
+  head.innerHTML="<div style='display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap'><h2 style='font-size:22px'>🏬 "+esc(x.name)+"</h2><div></div></div>";
+  const hb=head.querySelector("div>div:last-child");
+  if(can("branches","edit")){const e=el("button","btn sm","تعديل");e.onclick=()=>branchModal(id,x);hb.appendChild(e);}
+  if(can("branches","delete")){const dl=el("button","btn sm danger","حذف");dl.style.marginRight="6px";dl.onclick=()=>{if(confirm("حذف الفرع؟")){cRef().collection("branches").doc(id).delete();logAction("delete_branch",x.name);openPage("branches");}};hb.appendChild(dl);}
+  c.appendChild(head);
+  // ثلاث بطاقات
+  const grid=el("div","kpi-grid"); grid.style.marginBottom="16px";
+  grid.innerHTML=kpi("مبيعات الفرع (الشهر)","brSales","—")+kpi("عدد الموظفين","brEmps","—")+
+    "<div class='kpi' id='brEvalCard' style='cursor:pointer'><div class='l'>⭐ تقييم الفرع</div><div class='v' id='brEvalAvg'>—</div><div class='muted' style='font-size:12px'>اضغط للتقييم</div></div>";
+  c.appendChild(grid);
+  $("brEvalCard").onclick=()=>branchEvalPage(c,id,x);
+  // مبيعات الفرع للشهر
+  const cur=monthRange(0);
+  cRef().collection("dailyClosings").where("date",">=",cur.start).where("date","<",cur.next).onSnapshot(s=>{
+    let sum=0;s.forEach(d=>{const y=d.data();if(y.branchId===id)sum+=Number(y.actualSales)||0;});
+    if($("brSales"))$("brSales").textContent=money(sum);
+  },()=>{});
+  cRef().collection("employees").onSnapshot(s=>{let n=0;s.forEach(d=>{if(d.data().branchId===id)n++;});if($("brEmps"))$("brEmps").textContent=n;},()=>{});
+  cRef().collection("branchEvals").onSnapshot(s=>{const a=[];s.forEach(d=>{const y=d.data();if(y.branchId===id)a.push(y.pct||0);});
+    if($("brEvalAvg"))$("brEvalAvg").textContent=a.length?Math.round(a.reduce((x,y)=>x+y,0)/a.length)+"%":"—";},()=>{});
+}
+
+// معايير تقييم الفرع (موحّدة) + سجل التقييمات
+async function loadBranchCriteria(){ try{const d=await cRef().collection("meta").doc("branchCriteria").get();return (d.exists&&d.data().list)||[];}catch(e){return [];} }
+async function branchEvalPage(c,id,x){
+  c.innerHTML=""; const back=el("button","btn sm","← رجوع للفرع"); back.style.marginBottom="14px"; back.onclick=()=>branchDetail(c,id,x); c.appendChild(back);
+  c.appendChild(el("div",null,pageTitle("تقييم الفرع: "+esc(x.name),"معايير موحّدة لكل الفروع")));
+  const bar=el("div"); bar.style.marginBottom="16px";
+  bar.innerHTML="<button class='btn primary' id='newBrEval'>+ إضافة تقييم</button> "+(clCanManage()?"<button class='btn sm' id='brCrit'>إدارة المعايير</button>":"");
+  c.appendChild(bar);
+  $("newBrEval").onclick=()=>branchEvalModal(id,x);
+  if($("brCrit"))$("brCrit").onclick=()=>branchCriteriaModal(c,id,x);
+  const card=el("div","card");
+  card.innerHTML="<table><thead><tr><th>التاريخ</th><th>المقيّم</th><th>النتيجة</th><th>الحالة</th><th></th></tr></thead><tbody id='brEvRows'><tr><td colspan='5' class='muted'>جارٍ التحميل…</td></tr></tbody></table>";
   c.appendChild(card);
-  cRef().collection("branches").orderBy("name").onSnapshot(s=>{const tb=$("brRows");if(!tb)return;tb.innerHTML="";
-    if(s.empty){tb.innerHTML="<tr><td colspan='4' class='muted'>لا توجد فروع</td></tr>";return;}
-    s.forEach(d=>{const x=d.data();const tr=el("tr",null,"<td><b>"+esc(x.name)+"</b></td><td class='muted'>"+esc(x.address||"—")+"</td><td class='muted'>"+esc(x.phone||"—")+"</td><td></td>");
-      if(can("branches","edit")){const e=el("button","btn sm","تعديل");e.onclick=()=>branchModal(d.id,x);tr.lastChild.appendChild(e);}
-      if(can("branches","delete")){const dl=el("button","btn sm danger","حذف");dl.style.marginRight="6px";dl.onclick=()=>{if(confirm("حذف الفرع؟")){cRef().collection("branches").doc(d.id).delete();logAction("delete_branch",x.name);}};tr.lastChild.appendChild(dl);}
-      tb.appendChild(tr);});
+  cRef().collection("branchEvals").onSnapshot(s=>{
+    const tb=$("brEvRows");if(!tb)return;tb.innerHTML="";
+    const runs=[];s.forEach(d=>{const y=d.data();if(y.branchId===id)runs.push({id:d.id,...y});});
+    runs.sort((a,b)=>((b.at&&b.at.seconds)||0)-((a.at&&a.at.seconds)||0));
+    if(!runs.length){tb.innerHTML="<tr><td colspan='5' class='muted'>لا توجد تقييمات</td></tr>";return;}
+    runs.forEach(r=>{const lv=evalLevel(r.pct||0);
+      const tr=el("tr",null,"<td>"+esc(r.date)+"</td><td>"+esc(r.byName||"")+"</td><td>"+(r.pct||0)+"% <span class='tag "+lv.c+"'>"+lv.t+"</span></td><td></td><td></td>");
+      const v=el("button","btn sm","عرض");v.onclick=()=>viewBranchEval(r);tr.children[3].appendChild(v);
+      tb.appendChild(tr);
+    });
   },()=>{});
 }
+function branchCriteriaModal(c,id,x){
+  loadBranchCriteria().then(list=>{
+    openModal("معايير تقييم الفرع",
+      "<div style='display:flex;gap:8px;margin-bottom:12px'><input id='newCrit' class='input' placeholder='مثال: نظافة الفرع'><button type='button' class='btn' id='addCrit'>إضافة</button></div><div id='critList'></div>",
+      null,()=>true,true);
+    const render=(l)=>{const w=$("critList");if(!w)return;w.innerHTML=l.length?"":"<p class='muted'>لا معايير بعد</p>";
+      l.forEach((cr,i)=>{const row=el("div","review-row");row.innerHTML="<span>"+esc(cr)+"</span>";const del=el("button","btn sm danger","حذف");del.onclick=async()=>{const nl=l.filter((_,j)=>j!==i);await cRef().collection("meta").doc("branchCriteria").set({list:nl});render(nl);};row.appendChild(del);w.appendChild(row);});};
+    setTimeout(()=>{let l=list.slice();render(l);
+      if($("addCrit"))$("addCrit").onclick=async()=>{const v=$("newCrit").value.trim();if(!v)return;if(l.includes(v)){toast("موجود","");return;}l=l.concat(v);await cRef().collection("meta").doc("branchCriteria").set({list:l});$("newCrit").value="";render(l);};
+    },30);
+  });
+}
+async function branchEvalModal(id,x){
+  const crit=await loadBranchCriteria();
+  if(!crit.length){toast("أضف معايير التقييم أولاً (إدارة المعايير)","err");return;}
+  const body=crit.map((cr,i)=>
+    "<div class='card' style='margin-bottom:10px;padding:12px'>"+
+      "<div style='font-weight:600;margin-bottom:8px'>"+(i+1)+". "+esc(cr)+"</div>"+
+      "<div style='display:flex;gap:8px;margin-bottom:8px'>"+
+        "<button type='button' class='btn sm yesbtn' data-i='"+i+"' data-v='1'>✓ إيه</button>"+
+        "<button type='button' class='btn sm nobtn' data-i='"+i+"' data-v='0'>✗ لا</button></div>"+
+      "<input class='input bnote' data-i='"+i+"' placeholder='ملاحظة (اختياري)' style='margin-bottom:8px'>"+
+      "<input class='input bphoto' data-i='"+i+"' type='file' accept='image/*' capture='environment'>"+
+    "</div>").join("");
+  openModal("تقييم "+esc(x.name),body,"حفظ التقييم",()=>submitBranchEval(id,x,crit));
+  window.__brEval={};
+  setTimeout(()=>{document.querySelectorAll("#modalRoot .yesbtn,#modalRoot .nobtn").forEach(b=>{
+    b.onclick=()=>{const i=b.dataset.i;window.__brEval[i]=b.dataset.v==="1";
+      document.querySelectorAll("#modalRoot [data-i='"+i+"'].yesbtn,#modalRoot [data-i='"+i+"'].nobtn").forEach(o=>o.style.opacity="0.4");b.style.opacity="1";};});},30);
+}
+async function submitBranchEval(id,x,crit){
+  const vals=window.__brEval||{};
+  for(let i=0;i<crit.length;i++){if(vals[i]===undefined){toast("حدّد إيه/لا لكل المعايير","err");return false;}}
+  const notes={},files={};
+  document.querySelectorAll("#modalRoot .bnote").forEach(n=>notes[n.dataset.i]=n.value.trim());
+  document.querySelectorAll("#modalRoot .bphoto").forEach(p=>{if(p.files[0])files[p.dataset.i]=p.files[0];});
+  try{
+    const ref=cRef().collection("branchEvals").doc();
+    const results=[];
+    for(let i=0;i<crit.length;i++){let photoUrl="";
+      if(files[i]){try{const path="companies/"+state.companyId+"/branchEval/"+ref.id+"_"+i+".jpg";const snap=await storage.ref(path).put(files[i]);photoUrl=await snap.ref.getDownloadURL();}catch(e){photoUrl="";}}
+      results.push({name:crit[i],ok:!!vals[i],note:notes[i]||"",photoUrl});
+    }
+    const yes=results.filter(r=>r.ok).length; const pct=Math.round(yes/results.length*100);
+    await ref.set({branchId:id,branchName:x.name,date:todayStr(),byName:state.profile.name||state.user.email,results,pct,at:now()});
+    logAction("add_branch_eval",x.name+" "+pct+"%");
+    toast("تم حفظ التقييم","ok"); return true;
+  }catch(e){console.error(e);toast("تعذّر الحفظ","err");return false;}
+}
+function viewBranchEval(r){
+  const rows=(r.results||[]).map(t=>"<div class='review-row'><span>"+(t.ok?"✅":"❌")+" "+esc(t.name)+(t.note?" — <span class='muted'>"+esc(t.note)+"</span>":"")+"</span>"+(t.photoUrl?"<a class='btn sm' href='"+t.photoUrl+"' target='_blank'>صورة</a>":"")+"</div>").join("");
+  openModal("تقييم "+esc(r.branchName)+" — "+esc(r.date),
+    "<div class='review-row'><span>النتيجة</span><b>"+(r.pct||0)+"%</b></div><div style='margin-top:10px'>"+rows+"</div>","تم",()=>true,true);
+}
+
 function branchModal(id,x){x=x||{};
   openModal(id?"تعديل فرع":"فرع جديد",
     "<label class='field'><span>اسم الفرع *</span><input id='brName' class='input' value='"+esc(x.name||"")+"'></label>"+
@@ -1362,7 +1480,7 @@ function branchModal(id,x){x=x||{};
       const data={name,address:$("brAddr").value.trim(),phone:$("brPhone").value.trim()};
       if(id){await cRef().collection("branches").doc(id).update(data);logAction("edit_branch",name);}
       else{data.createdAt=now();await cRef().collection("branches").add(data);logAction("add_branch",name);}
-      return true;
+      openPage("branches"); return true;
     });
 }
 
@@ -1982,7 +2100,7 @@ function renderAudit(container,ref,title,inline){
   card.innerHTML=(card.innerHTML||"")+"<table><thead><tr><th>العملية</th><th>المستخدم</th><th>التفاصيل</th><th>الوقت</th></tr></thead><tbody id='auditRows'><tr><td colspan='4' class='muted'>جارٍ التحميل…</td></tr></tbody></table>";
   ref.orderBy("at","desc").limit(80).onSnapshot(s=>{const tb=document.getElementById("auditRows");if(!tb)return;tb.innerHTML="";
     if(s.empty){tb.innerHTML="<tr><td colspan='4' class='muted'>لا يوجد سجل</td></tr>";return;}
-    const names={login:"تسجيل دخول",create_company:"إنشاء شركة",suspend_company:"إيقاف شركة",activate_company:"تشغيل شركة",delete_company:"حذف شركة",update_subscription:"تعديل اشتراك",admin_enter:"دخول إداري",add_branch:"إضافة فرع",edit_branch:"تعديل فرع",delete_branch:"حذف فرع",add_user:"إضافة مستخدم",edit_permissions:"تعديل صلاحيات",submit_closing:"إرسال إقفال",approve_closing:"اعتماد إقفال",add_invoice:"إضافة فاتورة",add_product:"إضافة منتج",edit_product:"تعديل منتج",delete_product:"حذف منتج",add_category:"إضافة تصنيف",add_supplier:"إضافة مورد",edit_supplier:"تعديل مورد",delete_supplier:"حذف مورد",add_supplier_product:"إضافة منتج لمورد",update_price:"تحديث سعر",add_employee:"إضافة موظف",edit_employee:"تعديل موظف",save_payroll:"حفظ كشف رواتب",add_evaluation:"تقييم موظف",add_checklist:"إضافة قائمة",edit_checklist:"تعديل قائمة",delete_checklist:"حذف قائمة",add_task:"إضافة مهمة",submit_checklist:"تنفيذ قائمة",approve_checklist:"اعتماد تنفيذ",reject_checklist:"رفض تنفيذ",edit_profile:"تعديل الملف التعريفي",save_document:"حفظ وثيقة",change_theme:"تغيير الثيم"};
+    const names={login:"تسجيل دخول",create_company:"إنشاء شركة",suspend_company:"إيقاف شركة",activate_company:"تشغيل شركة",delete_company:"حذف شركة",update_subscription:"تعديل اشتراك",admin_enter:"دخول إداري",add_branch:"إضافة فرع",edit_branch:"تعديل فرع",delete_branch:"حذف فرع",add_user:"إضافة مستخدم",edit_permissions:"تعديل صلاحيات",submit_closing:"إرسال إقفال",approve_closing:"اعتماد إقفال",add_invoice:"إضافة فاتورة",add_product:"إضافة منتج",edit_product:"تعديل منتج",delete_product:"حذف منتج",add_category:"إضافة تصنيف",add_supplier:"إضافة مورد",edit_supplier:"تعديل مورد",delete_supplier:"حذف مورد",add_supplier_product:"إضافة منتج لمورد",update_price:"تحديث سعر",add_employee:"إضافة موظف",edit_employee:"تعديل موظف",save_payroll:"حفظ كشف رواتب",add_evaluation:"تقييم موظف",add_checklist:"إضافة قائمة",edit_checklist:"تعديل قائمة",delete_checklist:"حذف قائمة",add_task:"إضافة مهمة",submit_checklist:"تنفيذ قائمة",approve_checklist:"اعتماد تنفيذ",reject_checklist:"رفض تنفيذ",edit_profile:"تعديل الملف التعريفي",save_document:"حفظ وثيقة",change_theme:"تغيير الثيم",add_branch_eval:"تقييم فرع"};
     s.forEach(d=>{const x=d.data();const t=x.at&&x.at.toDate?x.at.toDate().toLocaleString("ar-SA"):"—";
       tb.appendChild(el("tr",null,"<td>"+(names[x.action]||esc(x.action))+"</td><td class='muted'>"+esc(x.userName||"")+"</td><td class='muted'>"+esc(x.details||"")+"</td><td class='muted'>"+t+"</td>"));});
   },()=>{});
