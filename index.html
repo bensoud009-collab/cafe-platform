@@ -16,10 +16,10 @@
 <style>
 /* ============================ نظام التصميم ============================ */
 :root{
-  --bg:#0f1115; --surface:#171a21; --surface-2:#1e222b; --line:#2a2f3a;
-  --text:#e8eaed; --muted:#9aa3b2; --brand:#c8a15a; --brand-2:#e0be7e;
-  --green:#3fb984; --red:#e5645f; --amber:#e0a54b; --blue:#5b8def;
-  --radius:14px; --shadow:0 8px 30px rgba(0,0,0,.35);
+  --bg:#f4f6fb; --surface:#ffffff; --surface-2:#eef1f7; --line:#e4e8f0;
+  --text:#1e2532; --muted:#6b7280; --brand:#6366f1; --brand-2:#818cf8;
+  --green:#16a34a; --red:#e5484d; --amber:#e08a0b; --blue:#3b82f6;
+  --radius:16px; --shadow:0 6px 22px rgba(30,41,59,.08);
   font-family:"Segoe UI",system-ui,-apple-system,"Tahoma",sans-serif;
 }
 *{box-sizing:border-box}
@@ -37,7 +37,7 @@ button{font-family:inherit}
   padding:10px 16px;font-weight:600;cursor:pointer;background:var(--surface-2);color:var(--text);
   border:1px solid var(--line);transition:.15s}
 .btn:hover{border-color:var(--brand)}
-.btn.primary{background:linear-gradient(135deg,var(--brand),var(--brand-2));color:#20160a;border:none}
+.btn.primary{background:linear-gradient(135deg,var(--brand),var(--brand-2));color:#fff;border:none}
 .btn.primary:hover{filter:brightness(1.05)}
 .btn.danger{background:transparent;color:var(--red);border-color:var(--red)}
 .btn.ghost{background:transparent}
@@ -50,7 +50,7 @@ button{font-family:inherit}
 label.field{display:block;margin-bottom:14px}
 label.field > span{display:block;margin-bottom:6px;color:var(--muted);font-size:13px}
 
-.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:20px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:20px;box-shadow:var(--shadow)}
 .grid{display:grid;gap:16px}
 .tag{display:inline-block;padding:3px 10px;border-radius:999px;font-size:12px;font-weight:600}
 .tag.green{background:rgba(63,185,132,.15);color:var(--green)}
@@ -64,7 +64,7 @@ tbody tr:hover{background:var(--surface-2)}
 
 /* شاشة الدخول */
 #loginScreen{min-height:100%;display:flex;align-items:center;justify-content:center;padding:20px;
-  background:radial-gradient(1200px 600px at 70% -10%,rgba(200,161,90,.12),transparent)}
+  background:radial-gradient(1200px 600px at 70% -10%,rgba(99,102,241,.10),transparent)}
 .login-box{width:100%;max-width:400px}
 .brand-mark{width:56px;height:56px;border-radius:16px;background:linear-gradient(135deg,var(--brand),var(--brand-2));
   display:flex;align-items:center;justify-content:center;font-size:26px;margin:0 auto 16px}
@@ -87,7 +87,8 @@ tbody tr:hover{background:var(--surface-2)}
 
 /* بطاقات المؤشرات */
 .kpi-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:16px}
-.kpi{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:18px}
+.kpi{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:18px;box-shadow:var(--shadow);transition:.15s}
+.kpi:hover{transform:translateY(-2px)}
 .kpi .v{font-size:26px;font-weight:800;margin-top:6px}
 .kpi .l{color:var(--muted);font-size:13px}
 
