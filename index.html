@@ -431,6 +431,7 @@ auth.onAuthStateChanged(async user=>{
       state.profile=profDoc.exists?profDoc.data():{name:user.email,role:map.role,permissions:{}};
       // فحص إيقاف حساب الموظف
       if(state.profile.accountActive===false){ toast("حسابك موقوف، راجع صاحب الشركة","err"); return doLogout(); }
+      state.companyVis=cdata.sectionVisibility||{};
       applyTheme(cdata.theme);
       buildShell(); renderCompanyNav(); openPage("dashboard");
     }
@@ -465,9 +466,16 @@ function renderSuperNav(){
   nav.appendChild(navButton("الاشتراكات","💳","super_subs"));
   nav.appendChild(navButton("سجل العمليات","📜","super_audit"));
 }
+function sectionVisible(key){
+  if(state.role==="owner"||state.role==="super") return true;
+  const v=(state.companyVis||{})[key]; if(!v) return true;
+  if(state.role==="manager") return v.manager!==false;
+  if(state.role==="employee") return v.employee!==false;
+  return true;
+}
 function renderCompanyNav(){
   const nav=$("navList");nav.innerHTML="";
-  MODULES.forEach(m=>{ if(m.key==="staff" || m.key==="recipes" || can(m.key,"view")||can(m.key,"add")) nav.appendChild(navButton(t("nav_"+m.key)||m.name,m.icon,m.key)); });
+  MODULES.forEach(m=>{ const allowed = (m.key==="staff" || m.key==="recipes" || can(m.key,"view")||can(m.key,"add")); if(allowed && sectionVisible(m.key)) nav.appendChild(navButton(t("nav_"+m.key)||m.name,m.icon,m.key)); });
   setupInventoryNavBadge();
 }
 // شارة الطلبات الجديدة جنب «المخزون والجرد» (للمالك/المدير)
@@ -530,6 +538,9 @@ function setActiveNav(pageKey){[...document.querySelectorAll(".nav-item")].forEa
 function openPage(key){
   state.current=key; setActiveNav(key);
   document.getElementById("sidebar").classList.remove("open");
+  // منع الوصول لقسم مخفي (لغير المالك)
+  const companyModule = MODULES.some(m=>m.key===key);
+  if(companyModule && !sectionVisible(key)){ key="dashboard"; state.current="dashboard"; setActiveNav("dashboard"); }
   const c=$("pageContent"); c.innerHTML="";
   const routes={
     super_companies:pageSuperCompanies, super_subs:pageSuperSubs, super_audit:pageSuperAudit,
@@ -537,7 +548,30 @@ function openPage(key){
   };
   if(routes[key]) routes[key](c);
   else pagePlaceholder(c,key);
+  // أيقونة عين ظهور القسم (للمالك فقط، للأقسام التشغيلية)
+  if(state.role==="owner" && MODULES.some(m=>m.key===key) && key!=="settings" && key!=="dashboard"){
+    const eye=el("button",null,"👁");
+    eye.title="ظهور القسم"; eye.style.cssText="position:absolute;top:14px;inset-inline-start:16px;background:none;border:none;font-size:18px;filter:grayscale(1) opacity(.55);cursor:pointer;z-index:5";
+    eye.onclick=()=>visibilityModal(key);
+    c.style.position="relative"; c.appendChild(eye);
+  }
   setTimeout(()=>translateTree(c),0);
+}
+function visibilityModal(key){
+  const mod=MODULES.find(m=>m.key===key)||{name:key};
+  const v=(state.companyVis||{})[key]||{};
+  const mgr=v.manager!==false, emp=v.employee!==false;
+  openModal("ظهور قسم: "+esc(t("nav_"+key)||mod.name),
+    "<p class='muted' style='font-size:13px;margin-bottom:12px'>اختر من يرى هذا القسم (أنت كمالك تراه دائماً):</p>"+
+    "<label class='review-row' style='cursor:pointer'><span>يظهر لمدير الفرع</span><input type='checkbox' id='visMgr' "+(mgr?"checked":"")+"></label>"+
+    "<label class='review-row' style='cursor:pointer'><span>يظهر للموظف</span><input type='checkbox' id='visEmp' "+(emp?"checked":"")+"></label>",
+    "حفظ", async ()=>{
+      const nm={manager:$("visMgr").checked, employee:$("visEmp").checked};
+      state.companyVis=state.companyVis||{}; state.companyVis[key]=nm;
+      const upd={}; upd["sectionVisibility."+key]=nm;
+      try{ await cRef().update(upd); logAction("section_visibility",(t("nav_"+key)||mod.name)); toast("تم الحفظ","ok"); }catch(e){ toast("تعذّر الحفظ","err"); return false; }
+      return true;
+    });
 }
 
 function pageTitle(title,sub){return "<div class='page-title'><h2>"+esc(L(title))+"</h2>"+(sub?"<p>"+esc(L(sub))+"</p>":"")+"</div>";}
@@ -2546,7 +2580,7 @@ function renderAudit(container,ref,title,inline){
   card.innerHTML=(card.innerHTML||"")+"<table><thead><tr><th>العملية</th><th>المستخدم</th><th>التفاصيل</th><th>الوقت</th></tr></thead><tbody id='auditRows'><tr><td colspan='4' class='muted'>جارٍ التحميل…</td></tr></tbody></table>";
   ref.orderBy("at","desc").limit(80).onSnapshot(s=>{const tb=document.getElementById("auditRows");if(!tb)return;tb.innerHTML="";
     if(s.empty){tb.innerHTML="<tr><td colspan='4' class='muted'>لا يوجد سجل</td></tr>";return;}
-    const names={login:"تسجيل دخول",create_company:"إنشاء شركة",suspend_company:"إيقاف شركة",activate_company:"تشغيل شركة",delete_company:"حذف شركة",update_subscription:"تعديل اشتراك",admin_enter:"دخول إداري",add_branch:"إضافة فرع",edit_branch:"تعديل فرع",delete_branch:"حذف فرع",add_user:"إضافة مستخدم",edit_permissions:"تعديل صلاحيات",submit_closing:"إرسال إقفال",approve_closing:"اعتماد إقفال",add_invoice:"إضافة فاتورة",add_product:"إضافة منتج",edit_product:"تعديل منتج",delete_product:"حذف منتج",add_category:"إضافة تصنيف",add_supplier:"إضافة مورد",edit_supplier:"تعديل مورد",delete_supplier:"حذف مورد",add_supplier_product:"إضافة منتج لمورد",update_price:"تحديث سعر",add_employee:"إضافة موظف",edit_employee:"تعديل موظف",save_payroll:"حفظ كشف رواتب",add_evaluation:"تقييم موظف",add_checklist:"إضافة قائمة",edit_checklist:"تعديل قائمة",delete_checklist:"حذف قائمة",add_task:"إضافة مهمة",submit_checklist:"تنفيذ قائمة",approve_checklist:"اعتماد تنفيذ",reject_checklist:"رفض تنفيذ",edit_profile:"تعديل الملف التعريفي",save_document:"حفظ وثيقة",change_theme:"تغيير الثيم",add_branch_eval:"تقييم فرع",add_recipe:"إضافة وصفة",edit_recipe:"تعديل وصفة",delete_recipe:"حذف وصفة",edit_slug:"تعديل رابط الشركة",suspend_account:"إيقاف حساب موظف",activate_account:"تفعيل حساب موظف",delete_account:"حذف حساب موظف",delete_employee:"حذف موظف",stock_count:"جرد مخزون",stock_order:"طلب مخزون",order_done:"إنهاء طلب",waste:"تسجيل تالف"};
+    const names={login:"تسجيل دخول",create_company:"إنشاء شركة",suspend_company:"إيقاف شركة",activate_company:"تشغيل شركة",delete_company:"حذف شركة",update_subscription:"تعديل اشتراك",admin_enter:"دخول إداري",add_branch:"إضافة فرع",edit_branch:"تعديل فرع",delete_branch:"حذف فرع",add_user:"إضافة مستخدم",edit_permissions:"تعديل صلاحيات",submit_closing:"إرسال إقفال",approve_closing:"اعتماد إقفال",add_invoice:"إضافة فاتورة",add_product:"إضافة منتج",edit_product:"تعديل منتج",delete_product:"حذف منتج",add_category:"إضافة تصنيف",add_supplier:"إضافة مورد",edit_supplier:"تعديل مورد",delete_supplier:"حذف مورد",add_supplier_product:"إضافة منتج لمورد",update_price:"تحديث سعر",add_employee:"إضافة موظف",edit_employee:"تعديل موظف",save_payroll:"حفظ كشف رواتب",add_evaluation:"تقييم موظف",add_checklist:"إضافة قائمة",edit_checklist:"تعديل قائمة",delete_checklist:"حذف قائمة",add_task:"إضافة مهمة",submit_checklist:"تنفيذ قائمة",approve_checklist:"اعتماد تنفيذ",reject_checklist:"رفض تنفيذ",edit_profile:"تعديل الملف التعريفي",save_document:"حفظ وثيقة",change_theme:"تغيير الثيم",add_branch_eval:"تقييم فرع",add_recipe:"إضافة وصفة",edit_recipe:"تعديل وصفة",delete_recipe:"حذف وصفة",edit_slug:"تعديل رابط الشركة",suspend_account:"إيقاف حساب موظف",activate_account:"تفعيل حساب موظف",delete_account:"حذف حساب موظف",delete_employee:"حذف موظف",stock_count:"جرد مخزون",stock_order:"طلب مخزون",order_done:"إنهاء طلب",waste:"تسجيل تالف",section_visibility:"ظهور قسم"};
     s.forEach(d=>{const x=d.data();const t=x.at&&x.at.toDate?x.at.toDate().toLocaleString("ar-SA-u-ca-gregory-nu-latn"):"—";
       tb.appendChild(el("tr",null,"<td>"+(names[x.action]||esc(x.action))+"</td><td class='muted'>"+esc(x.userName||"")+"</td><td class='muted'>"+esc(x.details||"")+"</td><td class='muted'>"+t+"</td>"));});
   },()=>{});
@@ -2558,12 +2592,13 @@ function renderAudit(container,ref,title,inline){
 function openModal(title,bodyHtml,okLabel,onOk,hideCancel,maxWidth){
   closeModal();
   const ov=el("div","overlay");
-  ov.innerHTML="<div class='modal' style='max-width:"+(maxWidth||560)+"px'><div class='head'><h3>"+esc(title)+"</h3><button class='btn ghost sm' id='mClose'>✕</button></div><div class='body'>"+bodyHtml+"</div><div class='foot'>"+(okLabel?"<button class='btn primary' id='mOk'>"+esc(okLabel)+"</button>":"")+(hideCancel?"":"<button class='btn ghost' id='mCancel'>إلغاء</button>")+"</div></div>";
+  ov.innerHTML="<div class='modal' style='max-width:"+(maxWidth||560)+"px'><div class='head'><h3>"+esc(L(title))+"</h3><button class='btn ghost sm' id='mClose'>✕</button></div><div class='body'>"+bodyHtml+"</div><div class='foot'>"+(okLabel?"<button class='btn primary' id='mOk'>"+esc(L(okLabel))+"</button>":"")+(hideCancel?"":"<button class='btn ghost' id='mCancel'>"+esc(L("إلغاء"))+"</button>")+"</div></div>";
   $("modalRoot").appendChild(ov);
   $("mClose").onclick=closeModal;
   if($("mCancel"))$("mCancel").onclick=closeModal;
   if($("mOk"))$("mOk").onclick=async()=>{const b=$("mOk");b.disabled=true;const keep=await onOk();b.disabled=false;if(keep!==false)closeModal();};
   ov.addEventListener("mousedown",e=>{if(e.target===ov)closeModal();});
+  setTimeout(()=>translateTree(ov),0);
 }
 function closeModal(){$("modalRoot").innerHTML="";}
 window.openPage=openPage;
