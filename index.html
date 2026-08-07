@@ -129,11 +129,12 @@ tbody tr:hover{background:var(--surface-2)}
 <!-- ================= شاشة الدخول ================= -->
 <div id="loginScreen" class="hidden">
   <div class="login-box card">
+    <div style="display:flex;justify-content:center;gap:6px;margin-bottom:14px" id="loginLangs"></div>
     <div class="brand-mark">☕</div>
-    <h1 style="text-align:center;font-size:20px">منصة إدارة المقاهي والمطاعم</h1>
-    <p class="muted" style="text-align:center;margin:6px 0 22px;font-size:13px">سجّل الدخول للمتابعة</p>
-    <label class="field"><span>البريد الإلكتروني</span><input id="loginEmail" class="input" type="email" autocomplete="username" placeholder="you@example.com"></label>
-    <label class="field"><span>كلمة المرور</span><input id="loginPass" class="input" type="password" autocomplete="current-password" placeholder="••••••••"></label>
+    <h1 id="lgTitle" style="text-align:center;font-size:20px">منصة إدارة المقاهي والمطاعم</h1>
+    <p id="lgSub" class="muted" style="text-align:center;margin:6px 0 22px;font-size:13px">سجّل الدخول للمتابعة</p>
+    <label class="field"><span id="lgEmail">البريد الإلكتروني</span><input id="loginEmail" class="input" type="email" autocomplete="username" placeholder="you@example.com"></label>
+    <label class="field"><span id="lgPass">كلمة المرور</span><input id="loginPass" class="input" type="password" autocomplete="current-password" placeholder="••••••••"></label>
     <button id="loginBtn" class="btn primary" style="width:100%">دخول</button>
     <p id="loginErr" class="hidden" style="color:var(--red);text-align:center;margin-top:14px;font-size:13px"></p>
   </div>
@@ -148,8 +149,9 @@ tbody tr:hover{background:var(--surface-2)}
       </div>
       <nav id="navList"></nav>
       <div style="margin-top:auto;padding-top:12px;border-top:1px solid var(--line)">
+        <div style="display:flex;gap:6px;padding:6px 12px" id="navLangs"></div>
         <div style="padding:8px 12px"><div style="font-weight:600;font-size:13px" id="sideUser">—</div><div class="muted" style="font-size:11px" id="sideEmail">—</div></div>
-        <button class="btn ghost sm" style="width:100%" onclick="doLogout()">تسجيل الخروج</button>
+        <button class="btn ghost sm" id="logoutBtn" style="width:100%" onclick="doLogout()">تسجيل الخروج</button>
       </div>
     </aside>
     <div class="main">
@@ -212,6 +214,43 @@ const ACTIONS = [
 const BUILT = new Set(["dashboard","sales","branches","employees","settings"]);
 
 /* ================================================================== */
+/*  اللغات (متعدد اللغات — يُترجَم تدريجياً)                            */
+/* ================================================================== */
+const LANGS=[{k:"ar",n:"ع",dir:"rtl"},{k:"en",n:"EN",dir:"ltr"},{k:"ur",n:"اردو",dir:"rtl"}];
+let LANG="ar";
+try{ const sv=localStorage.getItem("cafe_lang"); if(sv) LANG=sv; }catch(e){}
+const I18N={
+  ar:{ app_title:"منصة إدارة المقاهي والمطاعم", login_sub:"سجّل الدخول للمتابعة", email:"البريد الإلكتروني", password:"كلمة المرور", login:"دخول", logout:"تسجيل الخروج",
+    role_super:"مالك المنصة", role_owner:"صاحب الشركة", role_manager:"مدير فرع", role_employee:"موظف",
+    nav_dashboard:"لوحة التحكم", nav_sales:"الإقفال اليومي", nav_invoices:"الفواتير", nav_inventory:"المخزون والجرد", nav_suppliers:"الموردين", nav_staff:"شؤون الموظفين", nav_checklist:"قوائم التحقّق التشغيلي", nav_recipes:"الوصفات", nav_reports:"التقارير", nav_branches:"الفروع", nav_settings:"الإعدادات" },
+  en:{ app_title:"Cafés & Restaurants Management", login_sub:"Sign in to continue", email:"Email", password:"Password", login:"Sign in", logout:"Sign out",
+    role_super:"Platform Owner", role_owner:"Company Owner", role_manager:"Branch Manager", role_employee:"Employee",
+    nav_dashboard:"Dashboard", nav_sales:"Daily Closing", nav_invoices:"Invoices", nav_inventory:"Inventory", nav_suppliers:"Suppliers", nav_staff:"Staff", nav_checklist:"Checklists", nav_recipes:"Recipes", nav_reports:"Reports", nav_branches:"Branches", nav_settings:"Settings" },
+  ur:{ app_title:"کیفے اور ریستوران مینجمنٹ", login_sub:"جاری رکھنے کے لیے سائن ان کریں", email:"ای میل", password:"پاس ورڈ", login:"سائن ان", logout:"سائن آؤٹ",
+    role_super:"پلیٹ فارم مالک", role_owner:"کمپنی مالک", role_manager:"برانچ منیجر", role_employee:"ملازم",
+    nav_dashboard:"ڈیش بورڈ", nav_sales:"روزانہ کلوزنگ", nav_invoices:"انوائسز", nav_inventory:"انوینٹری", nav_suppliers:"سپلائرز", nav_staff:"عملہ", nav_checklist:"چیک لسٹ", nav_recipes:"ترکیبیں", nav_reports:"رپورٹس", nav_branches:"برانچز", nav_settings:"ترتیبات" }
+};
+function t(k){ return (I18N[LANG]&&I18N[LANG][k]) || I18N.ar[k] || k; }
+function setLang(l){
+  LANG=l; try{ localStorage.setItem("cafe_lang",l); }catch(e){}
+  const dir=(LANGS.find(x=>x.k===l)||{}).dir||"rtl";
+  document.documentElement.lang=l; document.documentElement.dir=dir;
+  applyLoginLang(); renderLangSwitchers();
+  if(state.user){ buildShell(); if(state.role==="super"){renderSuperNav();} else {renderCompanyNav();} if(state.current) openPage(state.current); }
+}
+function renderLangSwitchers(){
+  ["loginLangs","navLangs"].forEach(id=>{ const w=document.getElementById(id); if(!w) return; w.innerHTML="";
+    LANGS.forEach(l=>{ const b=document.createElement("button"); b.className="btn sm"+(LANG===l.k?" primary":""); b.textContent=l.n; b.style.padding="4px 10px"; b.onclick=()=>setLang(l.k); w.appendChild(b); });
+  });
+}
+function applyLoginLang(){
+  const set=(id,txt)=>{const e=document.getElementById(id);if(e)e.textContent=txt;};
+  set("lgTitle",t("app_title")); set("lgSub",t("login_sub")); set("lgEmail",t("email")); set("lgPass",t("password"));
+  const lb=document.getElementById("loginBtn"); if(lb&&lb.textContent.trim()!=="")lb.textContent=t("login");
+  const lo=document.getElementById("logoutBtn"); if(lo)lo.textContent=t("logout");
+}
+
+/* ================================================================== */
 /*  3) التهيئة والحالة                                                 */
 /* ================================================================== */
 firebase.initializeApp(firebaseConfig);
@@ -237,7 +276,7 @@ const state = {
 const $ = id => document.getElementById(id);
 const el = (t,c,h)=>{const e=document.createElement(t);if(c)e.className=c;if(h!=null)e.innerHTML=h;return e;};
 const esc = s => (s==null?"":String(s)).replace(/[&<>"]/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[m]));
-const money = n => (Number(n)||0).toLocaleString("ar-SA",{minimumFractionDigits:2,maximumFractionDigits:2})+" ﷼";
+const money = n => (Number(n)||0).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})+" ﷼";
 const now = () => firebase.firestore.FieldValue.serverTimestamp();
 
 function toast(msg,type){const t=el("div","toast "+(type||""),esc(msg));$("toast").appendChild(t);
@@ -340,10 +379,13 @@ auth.onAuthStateChanged(async user=>{
 /* ================================================================== */
 function buildShell(){
   $("sideCompany").textContent=state.companyName;
-  $("sideRole").textContent={super:"مالك المنصة",owner:"صاحب الشركة",manager:"مدير فرع",employee:"موظف"}[state.role]||state.role;
+  $("sideRole").textContent={super:t("role_super"),owner:t("role_owner"),manager:t("role_manager"),employee:t("role_employee")}[state.role]||state.role;
   $("sideUser").textContent=state.profile.name||"";
   $("sideEmail").textContent=state.user.email||"";
-  $("topDate").textContent=new Date().toLocaleDateString("ar-SA",{weekday:"long",year:"numeric",month:"long",day:"numeric"});
+  const dloc=(LANG==="en"?"en-GB":"ar-SA-u-ca-gregory-nu-latn");
+  $("topDate").textContent=new Date().toLocaleDateString(dloc,{weekday:"long",year:"numeric",month:"long",day:"numeric"});
+  const lo=document.getElementById("logoutBtn"); if(lo)lo.textContent=t("logout");
+  renderLangSwitchers();
 }
 
 function navButton(label,icon,pageKey){
@@ -360,7 +402,7 @@ function renderSuperNav(){
 }
 function renderCompanyNav(){
   const nav=$("navList");nav.innerHTML="";
-  MODULES.forEach(m=>{ if(m.key==="staff" || m.key==="recipes" || can(m.key,"view")||can(m.key,"add")) nav.appendChild(navButton(m.name,m.icon,m.key)); });
+  MODULES.forEach(m=>{ if(m.key==="staff" || m.key==="recipes" || can(m.key,"view")||can(m.key,"add")) nav.appendChild(navButton(t("nav_"+m.key)||m.name,m.icon,m.key)); });
 }
 
 // مولّد كلمة مرور عشوائية قوية
@@ -473,7 +515,7 @@ async function companyDetailsModal(id,cd){
   const left=subDaysLeft(cd);
   const start=subEndDate(cd)?toDate(cd.subscription.startsAt):null;
   const end=subEndDate(cd);
-  const fmt=d=>d?d.toLocaleDateString("ar-SA"):"—";
+  const fmt=d=>d?d.toLocaleDateString("ar-SA-u-ca-gregory-nu-latn"):"—";
   const subLine = left===null?"غير محدد":(left<0?"منتهٍ":"باقٍ "+left+" يوم");
   openModal("تفاصيل: "+esc(cd.name),
     "<div class='review-row'><span>كود الشركة</span><b>"+esc(cd.code||"—")+"</b></div>"+
@@ -517,7 +559,7 @@ function subscriptionModal(id,cd){
       logAction("update_subscription",cd.name+" ("+m+" شهر)");
       return true;
     });
-  const upd=()=>{const st=new Date($("subStart").value);const m=parseInt($("subMonths").value)||1;if(!isNaN(st)){const e=new Date(st);e.setMonth(e.getMonth()+m);$("subEndPreview").textContent=e.toLocaleDateString("ar-SA");}};
+  const upd=()=>{const st=new Date($("subStart").value);const m=parseInt($("subMonths").value)||1;if(!isNaN(st)){const e=new Date(st);e.setMonth(e.getMonth()+m);$("subEndPreview").textContent=e.toLocaleDateString("ar-SA-u-ca-gregory-nu-latn");}};
   setTimeout(()=>{if($("subStart")){$("subStart").oninput=upd;$("subMonths").oninput=upd;upd();}},30);
 }
 
@@ -574,7 +616,7 @@ function openNewCompanyModal(){
     "إنشاء", createCompany);
   setTimeout(()=>{
     if($("ncDice"))$("ncDice").onclick=()=>{$("ncPass").value=randomPassword();};
-    const upd=()=>{const st=new Date($("ncStart").value);const m=parseInt($("ncMonths").value)||1;if(!isNaN(st)){const e=new Date(st);e.setMonth(e.getMonth()+m);$("ncEndPreview").textContent=e.toLocaleDateString("ar-SA");}};
+    const upd=()=>{const st=new Date($("ncStart").value);const m=parseInt($("ncMonths").value)||1;if(!isNaN(st)){const e=new Date(st);e.setMonth(e.getMonth()+m);$("ncEndPreview").textContent=e.toLocaleDateString("ar-SA-u-ca-gregory-nu-latn");}};
     if($("ncStart")){$("ncStart").oninput=upd;$("ncMonths").oninput=upd;upd();}
   },30);
 }
@@ -603,7 +645,7 @@ async function createCompany(){
       "<div class='review-row'><span>كود الشركة</span><b>"+code+"</b></div>"+
       "<div class='review-row'><span>البريد</span><b>"+esc(email)+"</b></div>"+
       "<div class='review-row'><span>كلمة المرور</span><b>"+esc(pass)+"</b></div>"+
-      "<div class='review-row'><span>انتهاء الاشتراك</span><b>"+end.toLocaleDateString("ar-SA")+"</b></div>"+
+      "<div class='review-row'><span>انتهاء الاشتراك</span><b>"+end.toLocaleDateString("ar-SA-u-ca-gregory-nu-latn")+"</b></div>"+
       "<p class='muted' style='margin-top:14px;font-size:13px'>سلّم هذي البيانات لصاحب الشركة.</p>",
       "تم", ()=>true, true);
     return false;
@@ -626,7 +668,7 @@ function pageSuperSubs(c){
     const alerts=[];
     s.forEach(d=>{const cd=d.data();
       const start=toDate(cd.subscription&&cd.subscription.startsAt), end=subEndDate(cd), left=subDaysLeft(cd);
-      const fmt=x=>x?x.toLocaleDateString("ar-SA"):"—";
+      const fmt=x=>x?x.toLocaleDateString("ar-SA-u-ca-gregory-nu-latn"):"—";
       let leftCell="<span class='muted'>—</span>";
       if(left!==null){
         if(left<0) leftCell="<span class='tag red'>منتهٍ</span>";
@@ -1611,7 +1653,7 @@ function staffInbox(c){
   cRef().collection("messages").orderBy("at","desc").limit(200).onSnapshot(s=>{
     const tb=$("inboxRows");if(!tb)return;tb.innerHTML="";
     if(s.empty){tb.innerHTML="<tr><td colspan='5' class='muted'>لا رسائل</td></tr>";return;}
-    s.forEach(d=>{const x=d.data();const dt=x.at&&x.at.toDate?x.at.toDate().toLocaleDateString("ar-SA"):"—";
+    s.forEach(d=>{const x=d.data();const dt=x.at&&x.at.toDate?x.at.toDate().toLocaleDateString("ar-SA-u-ca-gregory-nu-latn"):"—";
       const tr=el("tr",null,"<td class='muted'>"+dt+"</td><td><b>"+esc(x.employeeName)+"</b></td><td>"+esc(x.type)+"</td><td>"+esc(x.text)+"</td><td></td>");
       const st=tr.lastChild; st.innerHTML=x.read?"<span class='tag green'>مقروءة</span>":"<span class='tag amber'>جديدة</span>";
       if(!x.read){ const b=el("button","btn sm","تعليم كمقروءة"); b.style.marginRight="6px"; b.onclick=()=>cRef().collection("messages").doc(d.id).update({read:true}); st.appendChild(b); }
@@ -2103,7 +2145,7 @@ async function settingsSub(c){
   c.innerHTML=""; c.appendChild(settingsBack(c)); c.appendChild(el("div",null,pageTitle("معلومات الاشتراك","خطة الشركة")));
   const x=(await cRef().get()).data()||{}; const s=x.subscription||{};
   const start=toDate(s.startsAt), end=subEndDate(x), left=subDaysLeft(x);
-  const fmt=d=>d?d.toLocaleDateString("ar-SA"):"—";
+  const fmt=d=>d?d.toLocaleDateString("ar-SA-u-ca-gregory-nu-latn"):"—";
   const box=el("div","card");
   box.innerHTML="<div class='review-row'><span>الحالة</span><b>"+(x.status==="suspended"?"موقوفة":"نشطة")+"</b></div>"+
     "<div class='review-row'><span>المدة</span><b>"+((s.months||"—")+" شهر")+"</b></div>"+
@@ -2154,7 +2196,7 @@ function renderAudit(container,ref,title,inline){
   ref.orderBy("at","desc").limit(80).onSnapshot(s=>{const tb=document.getElementById("auditRows");if(!tb)return;tb.innerHTML="";
     if(s.empty){tb.innerHTML="<tr><td colspan='4' class='muted'>لا يوجد سجل</td></tr>";return;}
     const names={login:"تسجيل دخول",create_company:"إنشاء شركة",suspend_company:"إيقاف شركة",activate_company:"تشغيل شركة",delete_company:"حذف شركة",update_subscription:"تعديل اشتراك",admin_enter:"دخول إداري",add_branch:"إضافة فرع",edit_branch:"تعديل فرع",delete_branch:"حذف فرع",add_user:"إضافة مستخدم",edit_permissions:"تعديل صلاحيات",submit_closing:"إرسال إقفال",approve_closing:"اعتماد إقفال",add_invoice:"إضافة فاتورة",add_product:"إضافة منتج",edit_product:"تعديل منتج",delete_product:"حذف منتج",add_category:"إضافة تصنيف",add_supplier:"إضافة مورد",edit_supplier:"تعديل مورد",delete_supplier:"حذف مورد",add_supplier_product:"إضافة منتج لمورد",update_price:"تحديث سعر",add_employee:"إضافة موظف",edit_employee:"تعديل موظف",save_payroll:"حفظ كشف رواتب",add_evaluation:"تقييم موظف",add_checklist:"إضافة قائمة",edit_checklist:"تعديل قائمة",delete_checklist:"حذف قائمة",add_task:"إضافة مهمة",submit_checklist:"تنفيذ قائمة",approve_checklist:"اعتماد تنفيذ",reject_checklist:"رفض تنفيذ",edit_profile:"تعديل الملف التعريفي",save_document:"حفظ وثيقة",change_theme:"تغيير الثيم",add_branch_eval:"تقييم فرع",add_recipe:"إضافة وصفة",edit_recipe:"تعديل وصفة",delete_recipe:"حذف وصفة"};
-    s.forEach(d=>{const x=d.data();const t=x.at&&x.at.toDate?x.at.toDate().toLocaleString("ar-SA"):"—";
+    s.forEach(d=>{const x=d.data();const t=x.at&&x.at.toDate?x.at.toDate().toLocaleString("ar-SA-u-ca-gregory-nu-latn"):"—";
       tb.appendChild(el("tr",null,"<td>"+(names[x.action]||esc(x.action))+"</td><td class='muted'>"+esc(x.userName||"")+"</td><td class='muted'>"+esc(x.details||"")+"</td><td class='muted'>"+t+"</td>"));});
   },()=>{});
 }
@@ -2174,6 +2216,12 @@ function openModal(title,bodyHtml,okLabel,onOk,hideCancel,maxWidth){
 }
 function closeModal(){$("modalRoot").innerHTML="";}
 window.openPage=openPage;
+// تهيئة اللغة عند التحميل
+(function initLang(){
+  document.documentElement.lang=LANG;
+  document.documentElement.dir=(LANGS.find(x=>x.k===LANG)||{}).dir||"rtl";
+  applyLoginLang(); renderLangSwitchers();
+})();
 </script>
 </body>
 </html>
