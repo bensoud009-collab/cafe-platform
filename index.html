@@ -326,6 +326,7 @@ auth.onAuthStateChanged(async user=>{
       if(cdata.status==="suspended"){ toast("انتهى اشتراك الشركة أو تم إيقافه، راجع الإدارة","err"); return doLogout(); }
       state.companyName=cdata.name;
       state.profile=profDoc.exists?profDoc.data():{name:user.email,role:map.role,permissions:{}};
+      applyTheme(cdata.theme);
       buildShell(); renderCompanyNav(); openPage("dashboard");
     }
     logAction("login");
@@ -386,6 +387,7 @@ async function enterCompanyAsAdmin(companyId,companyName){
 function exitAdminMode(){
   impersonation.active=false;
   state.role="super"; state.companyId=null;
+  applyTheme("gold");
   state.companyName="لوحة مالك المنصة"; state.profile={name:impersonation.superName||"مالك المنصة",permissions:{}};
   removeAdminBanner();
   buildShell(); renderSuperNav(); openPage("super_companies");
@@ -1854,9 +1856,124 @@ function viewRunModal(clId,r){
 /*  12) الإعدادات + سجل العمليات                                       */
 /* ================================================================== */
 function pageSettings(c){
-  c.innerHTML=pageTitle("الإعدادات","بيانات الشركة وسجل العمليات");
-  c.appendChild(el("div","card","<h3 style='margin-bottom:12px'>سجل العمليات</h3><div id='auditWrap'></div>"));
-  renderAudit($("auditWrap"),cRef().collection("auditLog"),null,true);
+  const canEdit = state.role==="owner"||state.role==="super";
+  c.innerHTML=pageTitle("الإعدادات","إعدادات الشركة");
+  const grid=el("div"); grid.style.cssText="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:16px";
+  const cards=[
+    {k:"profile",  t:"الملف التعريفي", ic:"🏢", d:"بيانات الشركة"},
+    {k:"docs",     t:"الوثائق الرسمية", ic:"📄", d:"السجلات والتراخيص وتواريخها"},
+    {k:"sub",      t:"معلومات الاشتراك", ic:"💳", d:"الخطة وتاريخ الانتهاء"},
+    {k:"theme",    t:"الألوان والثيم", ic:"🎨", d:"لون المنصة"},
+    {k:"audit",    t:"سجل العمليات", ic:"📜", d:"كل ما تم في الشركة"}
+  ];
+  cards.forEach(x=>{const card=el("div","card");card.style.cssText="cursor:pointer;min-height:120px";
+    card.innerHTML="<div style='font-size:30px'>"+x.ic+"</div><div style='font-weight:800;margin-top:8px'>"+x.t+"</div><div class='muted' style='font-size:13px;margin-top:4px'>"+x.d+"</div>";
+    card.onclick=()=>{ const f={profile:settingsProfile,docs:settingsDocs,sub:settingsSub,theme:settingsTheme,audit:settingsAudit}[x.k]; f(c,canEdit); };
+    grid.appendChild(card);
+  });
+  c.appendChild(grid);
+}
+function settingsBack(c){ const b=el("button","btn sm","← رجوع للإعدادات"); b.style.marginBottom="14px"; b.onclick=()=>pageSettings(c); return b; }
+
+async function settingsProfile(c,canEdit){
+  c.innerHTML=""; c.appendChild(settingsBack(c)); c.appendChild(el("div",null,pageTitle("الملف التعريفي","بيانات الشركة")));
+  const doc=await cRef().get(); const x=doc.data()||{};
+  const box=el("div","card");
+  box.innerHTML=
+    "<label class='field'><span>اسم الشركة</span><input id='pfName' class='input' value='"+esc(x.name||"")+"' "+(canEdit?"":"disabled")+"></label>"+
+    "<label class='field'><span>العنوان</span><input id='pfAddr' class='input' value='"+esc(x.address||"")+"' "+(canEdit?"":"disabled")+"></label>"+
+    "<label class='field'><span>الجوال</span><input id='pfPhone' class='input' inputmode='tel' value='"+esc(x.phone||"")+"' "+(canEdit?"":"disabled")+"></label>"+
+    "<label class='field'><span>الرقم الضريبي</span><input id='pfVat' class='input' value='"+esc(x.vatNo||"")+"' "+(canEdit?"":"disabled")+"></label>"+
+    (canEdit?"<button class='btn primary' id='pfSave'>حفظ</button>":"");
+  c.appendChild(box);
+  if(canEdit)$("pfSave").onclick=async()=>{
+    await cRef().update({name:$("pfName").value.trim(),address:$("pfAddr").value.trim(),phone:$("pfPhone").value.trim(),vatNo:$("pfVat").value.trim()});
+    state.companyName=$("pfName").value.trim()||state.companyName; if($("sideCompany"))$("sideCompany").textContent=state.companyName;
+    logAction("edit_profile",""); toast("تم الحفظ","ok");
+  };
+}
+
+function settingsDocs(c,canEdit){
+  c.innerHTML=""; c.appendChild(settingsBack(c)); c.appendChild(el("div",null,pageTitle("الوثائق الرسمية","تسجيل الوثائق وتواريخ انتهائها")));
+  if(canEdit){const bar=el("div",null,"<button class='btn primary' id='newDocBtn'>+ إضافة وثيقة</button>");bar.style.marginBottom="16px";c.appendChild(bar);bar.firstChild.onclick=()=>docModal();}
+  const card=el("div","card");
+  card.innerHTML="<table><thead><tr><th>النوع</th><th>الرقم</th><th>تاريخ الانتهاء</th><th>الحالة</th><th>إجراء</th></tr></thead><tbody id='docRows'><tr><td colspan='5' class='muted'>جارٍ التحميل…</td></tr></tbody></table>";
+  c.appendChild(card);
+  cRef().collection("documents").orderBy("expiry").onSnapshot(s=>{
+    const tb=$("docRows");if(!tb)return;tb.innerHTML="";
+    if(s.empty){tb.innerHTML="<tr><td colspan='5' class='muted'>لا توجد وثائق</td></tr>";return;}
+    s.forEach(d=>{const x=d.data();
+      let status="<span class='muted'>—</span>";
+      if(x.expiry){ const days=Math.ceil((new Date(x.expiry)-new Date())/(1000*60*60*24));
+        status = days<0?"<span class='tag red'>منتهية</span>":days<=30?"<span class='tag amber'>باقٍ "+days+" يوم</span>":"<span class='tag green'>سارية</span>"; }
+      const tr=el("tr",null,"<td><b>"+esc(x.type)+"</b></td><td class='muted'>"+esc(x.number||"—")+"</td><td class='muted'>"+esc(x.expiry||"—")+"</td><td>"+status+"</td><td></td>");
+      if(canEdit){const e=el("button","btn sm","تعديل");e.onclick=()=>docModal(d.id,x);tr.lastChild.appendChild(e);
+        const dl=el("button","btn sm danger","حذف");dl.style.marginRight="6px";dl.onclick=()=>{if(confirm("حذف الوثيقة؟"))cRef().collection("documents").doc(d.id).delete();};tr.lastChild.appendChild(dl);}
+      tb.appendChild(tr);
+    });
+  },()=>{const tb=$("docRows");if(tb)tb.innerHTML="<tr><td colspan='5' style='color:var(--red)'>تعذّر التحميل</td></tr>";});
+}
+function docModal(id,x){ x=x||{};
+  openModal(id?"تعديل وثيقة":"إضافة وثيقة",
+    "<label class='field'><span>نوع الوثيقة *</span><input id='dcType' class='input' placeholder='سجل تجاري / رخصة بلدية...' value='"+esc(x.type||"")+"'></label>"+
+    "<label class='field'><span>الرقم</span><input id='dcNum' class='input' value='"+esc(x.number||"")+"'></label>"+
+    "<label class='field'><span>تاريخ الانتهاء</span><input id='dcExp' class='input' type='date' value='"+esc(x.expiry||"")+"'></label>"+
+    "<p class='muted' style='font-size:13px'>رفع ملف الوثيقة يُضاف بعد تفعيل خدمة الملفات.</p>",
+    "حفظ", async ()=>{
+      const type=$("dcType").value.trim(); if(!type){toast("أدخل نوع الوثيقة","err");return false;}
+      const data={type,number:$("dcNum").value.trim(),expiry:$("dcExp").value};
+      if(id)await cRef().collection("documents").doc(id).update(data);
+      else{data.createdAt=now();await cRef().collection("documents").add(data);}
+      logAction("save_document",type); return true;
+    });
+}
+
+async function settingsSub(c){
+  c.innerHTML=""; c.appendChild(settingsBack(c)); c.appendChild(el("div",null,pageTitle("معلومات الاشتراك","خطة الشركة")));
+  const x=(await cRef().get()).data()||{}; const s=x.subscription||{};
+  const start=toDate(s.startsAt), end=subEndDate(x), left=subDaysLeft(x);
+  const fmt=d=>d?d.toLocaleDateString("ar-SA"):"—";
+  const box=el("div","card");
+  box.innerHTML="<div class='review-row'><span>الحالة</span><b>"+(x.status==="suspended"?"موقوفة":"نشطة")+"</b></div>"+
+    "<div class='review-row'><span>المدة</span><b>"+((s.months||"—")+" شهر")+"</b></div>"+
+    "<div class='review-row'><span>البداية</span><b>"+fmt(start)+"</b></div>"+
+    "<div class='review-row'><span>الانتهاء</span><b>"+fmt(end)+"</b></div>"+
+    "<div class='review-row'><span>المتبقّي</span><b>"+(left===null?"—":left<0?"منتهٍ":left+" يوم")+"</b></div>"+
+    "<p class='muted' style='margin-top:12px;font-size:13px'>لتجديد الاشتراك أو تعديله، تواصل مع إدارة المنصة.</p>";
+  c.appendChild(box);
+}
+
+const THEMES=[
+  {k:"gold",  n:"ذهبي",   a:"#c8a15a", b:"#e0be7e"},
+  {k:"green", n:"أخضر",   a:"#3fb984", b:"#63d3a3"},
+  {k:"blue",  n:"أزرق",   a:"#5b8def", b:"#83a9f5"},
+  {k:"purple",n:"بنفسجي", a:"#a06cf0", b:"#b794f0"},
+  {k:"red",   n:"أحمر",   a:"#e5645f", b:"#f08a86"},
+  {k:"teal",  n:"تركوازي",a:"#2bb3c0", b:"#5ccad4"}
+];
+function applyTheme(key){
+  const t=THEMES.find(x=>x.k===key)||THEMES[0];
+  document.documentElement.style.setProperty("--brand",t.a);
+  document.documentElement.style.setProperty("--brand-2",t.b);
+}
+async function settingsTheme(c,canEdit){
+  c.innerHTML=""; c.appendChild(settingsBack(c)); c.appendChild(el("div",null,pageTitle("الألوان والثيم","لون المنصة لشركتك")));
+  const x=(await cRef().get()).data()||{}; const cur=x.theme||"gold";
+  const grid=el("div"); grid.style.cssText="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:12px";
+  THEMES.forEach(t=>{const card=el("div","card");card.style.cssText="cursor:pointer;text-align:center;border-color:"+(cur===t.k?t.a:"var(--line)");
+    card.innerHTML="<div style='width:44px;height:44px;border-radius:12px;margin:0 auto 8px;background:linear-gradient(135deg,"+t.a+","+t.b+")'></div><div style='font-weight:700'>"+t.n+"</div>"+(cur===t.k?"<div class='tag green' style='margin-top:6px'>الحالي</div>":"");
+    if(canEdit)card.onclick=async()=>{ await cRef().update({theme:t.k}); applyTheme(t.k); logAction("change_theme",t.n); settingsTheme(c,canEdit); };
+    grid.appendChild(card);
+  });
+  c.appendChild(grid);
+  if(!canEdit) c.appendChild(el("p","muted","تغيير الثيم متاح لصاحب الشركة فقط."));
+}
+
+function settingsAudit(c){
+  c.innerHTML=""; c.appendChild(settingsBack(c));
+  c.appendChild(el("div",null,pageTitle("سجل العمليات","كل ما تم في الشركة")));
+  const wrap=el("div"); c.appendChild(wrap);
+  renderAudit(wrap,cRef().collection("auditLog"),null,false);
 }
 function renderAudit(container,ref,title,inline){
   if(title) container.innerHTML=pageTitle(title);
@@ -1865,7 +1982,7 @@ function renderAudit(container,ref,title,inline){
   card.innerHTML=(card.innerHTML||"")+"<table><thead><tr><th>العملية</th><th>المستخدم</th><th>التفاصيل</th><th>الوقت</th></tr></thead><tbody id='auditRows'><tr><td colspan='4' class='muted'>جارٍ التحميل…</td></tr></tbody></table>";
   ref.orderBy("at","desc").limit(80).onSnapshot(s=>{const tb=document.getElementById("auditRows");if(!tb)return;tb.innerHTML="";
     if(s.empty){tb.innerHTML="<tr><td colspan='4' class='muted'>لا يوجد سجل</td></tr>";return;}
-    const names={login:"تسجيل دخول",create_company:"إنشاء شركة",suspend_company:"إيقاف شركة",activate_company:"تشغيل شركة",delete_company:"حذف شركة",update_subscription:"تعديل اشتراك",admin_enter:"دخول إداري",add_branch:"إضافة فرع",edit_branch:"تعديل فرع",delete_branch:"حذف فرع",add_user:"إضافة مستخدم",edit_permissions:"تعديل صلاحيات",submit_closing:"إرسال إقفال",approve_closing:"اعتماد إقفال",add_invoice:"إضافة فاتورة",add_product:"إضافة منتج",edit_product:"تعديل منتج",delete_product:"حذف منتج",add_category:"إضافة تصنيف",add_supplier:"إضافة مورد",edit_supplier:"تعديل مورد",delete_supplier:"حذف مورد",add_supplier_product:"إضافة منتج لمورد",update_price:"تحديث سعر",add_employee:"إضافة موظف",edit_employee:"تعديل موظف",save_payroll:"حفظ كشف رواتب",add_evaluation:"تقييم موظف",add_checklist:"إضافة قائمة",edit_checklist:"تعديل قائمة",delete_checklist:"حذف قائمة",add_task:"إضافة مهمة",submit_checklist:"تنفيذ قائمة",approve_checklist:"اعتماد تنفيذ",reject_checklist:"رفض تنفيذ"};
+    const names={login:"تسجيل دخول",create_company:"إنشاء شركة",suspend_company:"إيقاف شركة",activate_company:"تشغيل شركة",delete_company:"حذف شركة",update_subscription:"تعديل اشتراك",admin_enter:"دخول إداري",add_branch:"إضافة فرع",edit_branch:"تعديل فرع",delete_branch:"حذف فرع",add_user:"إضافة مستخدم",edit_permissions:"تعديل صلاحيات",submit_closing:"إرسال إقفال",approve_closing:"اعتماد إقفال",add_invoice:"إضافة فاتورة",add_product:"إضافة منتج",edit_product:"تعديل منتج",delete_product:"حذف منتج",add_category:"إضافة تصنيف",add_supplier:"إضافة مورد",edit_supplier:"تعديل مورد",delete_supplier:"حذف مورد",add_supplier_product:"إضافة منتج لمورد",update_price:"تحديث سعر",add_employee:"إضافة موظف",edit_employee:"تعديل موظف",save_payroll:"حفظ كشف رواتب",add_evaluation:"تقييم موظف",add_checklist:"إضافة قائمة",edit_checklist:"تعديل قائمة",delete_checklist:"حذف قائمة",add_task:"إضافة مهمة",submit_checklist:"تنفيذ قائمة",approve_checklist:"اعتماد تنفيذ",reject_checklist:"رفض تنفيذ",edit_profile:"تعديل الملف التعريفي",save_document:"حفظ وثيقة",change_theme:"تغيير الثيم"};
     s.forEach(d=>{const x=d.data();const t=x.at&&x.at.toDate?x.at.toDate().toLocaleString("ar-SA"):"—";
       tb.appendChild(el("tr",null,"<td>"+(names[x.action]||esc(x.action))+"</td><td class='muted'>"+esc(x.userName||"")+"</td><td class='muted'>"+esc(x.details||"")+"</td><td class='muted'>"+t+"</td>"));});
   },()=>{});
