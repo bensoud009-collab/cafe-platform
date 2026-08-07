@@ -228,7 +228,7 @@ const BUILT = new Set(["dashboard","sales","branches","employees","settings"]);
 /* ================================================================== */
 /*  اللغات (متعدد اللغات — يُترجَم تدريجياً)                            */
 /* ================================================================== */
-const LANGS=[{k:"ar",n:"ع",dir:"rtl"},{k:"en",n:"EN",dir:"ltr"},{k:"ur",n:"اردو",dir:"rtl"}];
+const LANGS=[{k:"ar",n:"ع",dir:"rtl"},{k:"en",n:"EN",dir:"ltr"}];
 let LANG="ar";
 try{ const sv=localStorage.getItem("cafe_lang"); if(sv) LANG=sv; }catch(e){}
 const I18N={
@@ -237,12 +237,50 @@ const I18N={
     nav_dashboard:"لوحة التحكم", nav_sales:"الإقفال اليومي", nav_invoices:"الفواتير", nav_inventory:"المخزون والجرد", nav_suppliers:"الموردين", nav_staff:"شؤون الموظفين", nav_checklist:"قوائم التحقّق التشغيلي", nav_recipes:"الوصفات", nav_reports:"التقارير", nav_branches:"الفروع", nav_settings:"الإعدادات" },
   en:{ app_title:"Cafés & Restaurants Management", login_sub:"Sign in to continue", email:"Email", password:"Password", login:"Sign in", logout:"Sign out",
     role_super:"Platform Owner", role_owner:"Company Owner", role_manager:"Branch Manager", role_employee:"Employee",
-    nav_dashboard:"Dashboard", nav_sales:"Daily Closing", nav_invoices:"Invoices", nav_inventory:"Inventory", nav_suppliers:"Suppliers", nav_staff:"Staff", nav_checklist:"Checklists", nav_recipes:"Recipes", nav_reports:"Reports", nav_branches:"Branches", nav_settings:"Settings" },
-  ur:{ app_title:"کیفے اور ریستوران مینجمنٹ", login_sub:"جاری رکھنے کے لیے سائن ان کریں", email:"ای میل", password:"پاس ورڈ", login:"سائن ان", logout:"سائن آؤٹ",
-    role_super:"پلیٹ فارم مالک", role_owner:"کمپنی مالک", role_manager:"برانچ منیجر", role_employee:"ملازم",
-    nav_dashboard:"ڈیش بورڈ", nav_sales:"روزانہ کلوزنگ", nav_invoices:"انوائسز", nav_inventory:"انوینٹری", nav_suppliers:"سپلائرز", nav_staff:"عملہ", nav_checklist:"چیک لسٹ", nav_recipes:"ترکیبیں", nav_reports:"رپورٹس", nav_branches:"برانچز", nav_settings:"ترتیبات" }
+    nav_dashboard:"Dashboard", nav_sales:"Daily Closing", nav_invoices:"Invoices", nav_inventory:"Inventory", nav_suppliers:"Suppliers", nav_staff:"Staff", nav_checklist:"Checklists", nav_recipes:"Recipes", nav_reports:"Reports", nav_branches:"Branches", nav_settings:"Settings" }
 };
 function t(k){ return (I18N[LANG]&&I18N[LANG][k]) || I18N.ar[k] || k; }
+
+// قاموس ترجمة عربي→إنجليزي للعبارات الظاهرة (يتوسّع تدريجياً)
+const EN={
+  // عناوين الصفحات
+  "لوحة التحكم":"Dashboard","نظرة على":"Overview of","الإقفال اليومي":"Daily Closing","إرسال إقفال المبيعات":"Submit sales closing","مراجعة واعتماد إقفالات المبيعات":"Review & approve closings",
+  "الفواتير":"Invoices","إضافة فاتورة مشتريات":"Add purchase invoice","مشتريات الشهر وسجلّها":"Monthly purchases & log",
+  "المخزون والجرد":"Inventory","إدارة المخزون والجرد والطلبات":"Manage stock, counts & orders","المنتجات":"Products","سجل المنتجات وكمياتها":"Products & quantities",
+  "الجرد":"Stock Count","إدخال الكميات الفعلية":"Enter actual quantities","سجل الجرد":"Count History","عمليات الجرد السابقة":"Previous counts",
+  "الطلب":"Orders","طلبات المخزون":"Stock orders","تالف":"Waste","تسجيل الهدر والتلف":"Log waste & spoilage",
+  "الموردين":"Suppliers","متابعة الموردين وأسعار منتجاتهم":"Track suppliers & prices",
+  "شؤون الموظفين":"Staff","الموظفون":"Employees","سجل الموظفين وحساباتهم":"Employees & accounts","الرواتب":"Payroll","كشف شهري — الصافي يُحسب تلقائياً":"Monthly — net auto-calculated",
+  "التقييم اليومي":"Daily Rating","قيّم أداء الموظفين بسرعة":"Rate staff quickly","راتبي":"My Salary","تفاصيل راتب آخر شهر":"Last month details","رسائلي":"My Messages","الرسائل الواردة":"Inbox","رسائل الموظفين الخاصة":"Private staff messages",
+  "قوائم التحقّق التشغيلي":"Checklists","قوائم المهام اليومية ومتابعتها":"Daily task lists","الوصفات":"Recipes","وصفات المنتجات — متاحة للجميع":"Product recipes — visible to all",
+  "الفروع":"Branches","بطاقات الفروع وتقييمها":"Branch cards & rating","الإعدادات":"Settings","إعدادات الشركة":"Company settings",
+  "الملف التعريفي":"Profile","بيانات الشركة":"Company info","الوثائق الرسمية":"Documents","تسجيل الوثائق وتواريخ انتهائها":"Docs & expiry dates",
+  "معلومات الاشتراك":"Subscription","خطة الشركة":"Company plan","الألوان والثيم":"Theme","لون المنصة لشركتك":"Platform color","شكل الأيقونات":"Icons style","تفضيل شخصي":"Personal preference",
+  "سجل العمليات":"Activity Log","كل ما تم في الشركة":"All company activity","الشركات":"Companies","الاشتراكات":"Subscriptions","متابعة اشتراكات الشركات":"Track company subscriptions",
+  // أزرار وعناصر متكررة
+  "حفظ":"Save","إلغاء":"Cancel","تم":"Done","حذف":"Delete","تعديل":"Edit","عرض":"View","إضافة":"Add","رجوع":"Back","إغلاق":"Close","بحث":"Search","إرسال":"Send","اعتماد":"Approve","رفض":"Reject",
+  "+ إضافة منتج":"+ Add product","+ إضافة بطاقة":"+ Add card","⇅ ترتيب البطاقات":"⇅ Reorder cards","✓ تم":"✓ Done","إدارة التصنيفات":"Manage categories",
+  "+ إضافة جرد":"+ Add count","حفظ الجرد":"Save count","+ طلب مخزون":"+ Stock order","إرسال الطلب":"Send order","+ تسجيل تالف":"+ Log waste","تسجيل تالف":"Log waste",
+  "+ إضافة موظف":"+ Add employee","+ إضافة مورد":"+ Add supplier","+ فرع جديد":"+ New branch","+ إضافة وصفة":"+ Add recipe","+ إضافة قائمة":"+ Add list","+ إضافة تقييم":"+ Add rating","+ إضافة وثيقة":"+ Add document",
+  "المنتج":"Product","التصنيف":"Category","الكمية":"Quantity","الحد الأدنى":"Min","سعر الوحدة":"Unit price","قيمة":"Value","المورد":"Supplier","إجراء":"Action","التاريخ":"Date","الحالة":"Status","المبلغ":"Amount","الإجمالي":"Total","الاسم":"Name","البريد":"Email","الدور":"Role","الجوال":"Phone",
+  "قيمة المخزون":"Stock value","عدد المنتجات":"Products","منتجات تحتاج طلب":"Low stock","المتوفر":"Available","المطلوب":"Required","بالنظام":"System","الفعلي":"Actual","السبب":"Reason","الكمية التالفة":"Waste qty",
+  "الراتب الأساسي":"Base salary","أوفر تايم":"Overtime","مكافآت":"Bonus","خصومات":"Deductions","سلفة":"Advance","الصافي":"Net","الرقم الوظيفي":"Job No.","الفرع":"Branch","تاريخ المباشرة":"Start date","مدة العمل":"Tenure","ساعات العمل":"Work hours",
+  "جارٍ التحميل…":"Loading…","تعذّر التحميل":"Load failed","لا توجد منتجات":"No products","لا توجد بيانات":"No data","نشط":"Active","موقوف":"Suspended","مفعّل":"Active","جديد":"New",
+  "المبيعات الفعلية":"Actual sales","الشبكة":"Card","النقد":"Cash","اسم الفرع":"Branch name","اسم القائمة":"List name","اسم الوصفة":"Recipe name","المندوب":"Rep","الطالب":"Requester","الأصناف":"Items","المُجري":"By","قيمة العجز":"Shortage value",
+  "إدارة المهام":"Manage tasks","بدء مهام اليوم":"Start today's tasks","سجل التنفيذ":"Execution log","إدارة المعايير":"Manage criteria","إدارة عناصر الجرد":"Manage count items",
+  "الألوان":"Colors","ملوّنة":"Colored","بدون لون (رمادي)":"Grayscale","فاتح":"Light","غامق":"Dark"
+};
+function L(s){ if(LANG!=="en"||s==null) return s; const k=(""+s).trim(); return EN[k]||s; }
+// ترجمة عناصر الصفحة تلقائياً (النصوص المطابقة في القاموس)
+function translateTree(root){
+  if(LANG!=="en"||!root) return;
+  try{
+    const walker=document.createTreeWalker(root,NodeFilter.SHOW_TEXT,null);
+    const nodes=[]; while(walker.nextNode()) nodes.push(walker.currentNode);
+    nodes.forEach(n=>{ const raw=n.nodeValue; if(!raw) return; const key=raw.trim(); if(key && EN[key]) n.nodeValue=raw.replace(key,EN[key]); });
+    root.querySelectorAll("input[placeholder],textarea[placeholder]").forEach(inp=>{ const k=(inp.getAttribute("placeholder")||"").trim(); if(EN[k]) inp.setAttribute("placeholder",EN[k]); });
+  }catch(e){}
+}
 function setLang(l){
   LANG=l; try{ localStorage.setItem("cafe_lang",l); }catch(e){}
   const dir=(LANGS.find(x=>x.k===l)||{}).dir||"rtl";
@@ -499,9 +537,10 @@ function openPage(key){
   };
   if(routes[key]) routes[key](c);
   else pagePlaceholder(c,key);
+  setTimeout(()=>translateTree(c),0);
 }
 
-function pageTitle(title,sub){return "<div class='page-title'><h2>"+esc(title)+"</h2>"+(sub?"<p>"+esc(sub)+"</p>":"")+"</div>";}
+function pageTitle(title,sub){return "<div class='page-title'><h2>"+esc(L(title))+"</h2>"+(sub?"<p>"+esc(L(sub))+"</p>":"")+"</div>";}
 
 function pagePlaceholder(c,key){
   const m=MODULES.find(x=>x.key===key)||{name:key,icon:"🚧"};
