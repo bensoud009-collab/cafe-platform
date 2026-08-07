@@ -169,6 +169,7 @@ tbody tr:hover{background:var(--surface-2)}
       <div class="topbar">
         <button class="btn ghost sm hamb" onclick="document.getElementById('sidebar').classList.toggle('open')">☰</button>
         <div style="flex:1"></div>
+        <button class="btn ghost sm" id="visBtn" title="ظهور القسم" onclick="visibilityCurrent()" style="display:none;font-size:13px;padding:5px 8px;filter:grayscale(1) opacity(.6)">👁</button>
         <button class="btn ghost sm" id="modeBtn" title="فاتح/غامق" onclick="toggleMode()" style="font-size:12px;padding:5px 8px">🌙</button>
         <div class="muted" style="font-size:13px" id="topDate"></div>
       </div>
@@ -548,15 +549,16 @@ function openPage(key){
   };
   if(routes[key]) routes[key](c);
   else pagePlaceholder(c,key);
-  // أيقونة عين ظهور القسم (للمالك فقط، للأقسام التشغيلية)
-  if(state.role==="owner" && MODULES.some(m=>m.key===key) && key!=="settings" && key!=="dashboard"){
-    const eye=el("button",null,"👁");
-    eye.title="ظهور القسم"; eye.style.cssText="position:absolute;top:14px;inset-inline-start:16px;background:none;border:none;font-size:18px;filter:grayscale(1) opacity(.55);cursor:pointer;z-index:5";
-    eye.onclick=()=>visibilityModal(key);
-    c.style.position="relative"; c.appendChild(eye);
+  // إظهار زر العين في الشريط للمالك عندما يكون في قسم تشغيلي
+  const eyeBtn=document.getElementById("visBtn");
+  if(eyeBtn){
+    if(state.role==="owner" && MODULES.some(m=>m.key===key) && key!=="settings" && key!=="dashboard"){ eyeBtn.style.display=""; eyeBtn.dataset.key=key; }
+    else eyeBtn.style.display="none";
   }
   setTimeout(()=>translateTree(c),0);
 }
+function visibilityCurrent(){ const k=(document.getElementById("visBtn")||{}).dataset?document.getElementById("visBtn").dataset.key:null; if(k) visibilityModal(k); }
+window.visibilityCurrent=visibilityCurrent;
 function visibilityModal(key){
   const mod=MODULES.find(m=>m.key===key)||{name:key};
   const v=(state.companyVis||{})[key]||{};
