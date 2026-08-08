@@ -246,6 +246,10 @@ function t(k){ return (I18N[LANG]&&I18N[LANG][k]) || I18N.ar[k] || k; }
 
 // قاموس ترجمة عربي→إنجليزي للعبارات الظاهرة (يتوسّع تدريجياً)
 const EN={
+  "الكاش":"Cash","مجموع طرق الدفع":"Payment methods total","الفرق (فعلي − نظام)":"Difference (actual − system)",
+  "الكاش / مدى / فيزا / ماستر":"Cash / Mada / Visa / Mastercard","مبيعات فعلية":"Actual sales","المُدخِل":"Entered by",
+  "المنتجات":"Products","تأكّد من صحة البيانات قبل الإرسال. تُسجّل تلقائياً بالتاريخ والوقت واسمك وتُرسل للإدارة.":"Verify the data before sending. Date, time and your name are recorded automatically and sent to management.",
+  "التاريخ والوقت واسم المُرسِل تُسجّل تلقائياً.":"Date, time and sender name are recorded automatically.",
   "% عن الشهر الماضي":"% vs last month",
   "(بدون صورة)":"(no image)",
   "(دخول إداري)":"(admin access)",
@@ -741,7 +745,7 @@ function setLang(l){
   const dir=(LANGS.find(x=>x.k===l)||{}).dir||"rtl";
   document.documentElement.lang=l; document.documentElement.dir=dir;
   applyLoginLang(); renderLangSwitchers();
-  if(state.user){ buildShell(); if(state.role==="super"){renderSuperNav();} else {renderCompanyNav();} if(state.current) openPage(state.current); }
+  if(state.user){ buildShell(); if(state.role==="super"){renderSuperNav();} else {renderCompanyNav();} if(state.current==="__home__"){ renderCardsHome(); } else if(state.current) openPage(state.current,true); }
 }
 function renderLangSwitchers(){
   ["loginLangs","navLangs"].forEach(id=>{ const w=document.getElementById(id); if(!w) return; w.innerHTML="";
