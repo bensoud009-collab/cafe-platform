@@ -246,6 +246,15 @@ function t(k){ return (I18N[LANG]&&I18N[LANG][k]) || I18N.ar[k] || k; }
 
 // قاموس ترجمة عربي→إنجليزي للعبارات الظاهرة (يتوسّع تدريجياً)
 const EN={
+  "المبيعات الفعلية *":"Actual Sales *","مبيعات النظام *":"System Sales *","الفرع *":"Branch *",
+  "المبيعات الفعلية (تلقائي = مجموع طرق الدفع)":"Actual Sales (auto = sum of payments)",
+  "ماستركارد":"Mastercard","صورة الإقفال (اختيارية)":"Closing photo (optional)","صورة الفاتورة (اختيارية)":"Invoice photo (optional)",
+  "اسم المنتج *":"Product name *","القيمة *":"Value *","كمية *":"Qty *","إضافة منتج آخر +":"Add another product +",
+  "المورد (اختياري)":"Supplier (optional)","رقم المورد (اختياري)":"Supplier No. (optional)",
+  "أدخل مبيعات النظام":"Enter system sales","أدخل طرق الدفع (الكاش/الشبكة)":"Enter payment methods (cash/card)",
+  "أدخل المبيعات الفعلية ومبيعات النظام":"Enter actual & system sales","إرسال إقفال يومي":"Submit daily closing",
+  "لا توجد فروع":"No branches","نوع الوثيقة *":"Document type *","اسم الشركة":"Company name","العنوان":"Address",
+  "الرقم الضريبي":"Tax number","اسم المالك":"Owner name","المدة":"Duration","البداية":"Start","الانتهاء":"Expiry","المتبقّي":"Remaining",
   "الكاش":"Cash","مجموع طرق الدفع":"Payment methods total","الفرق (فعلي − نظام)":"Difference (actual − system)",
   "الكاش / مدى / فيزا / ماستر":"Cash / Mada / Visa / Mastercard","مبيعات فعلية":"Actual sales","المُدخِل":"Entered by",
   "المنتجات":"Products","تأكّد من صحة البيانات قبل الإرسال. تُسجّل تلقائياً بالتاريخ والوقت واسمك وتُرسل للإدارة.":"Verify the data before sending. Date, time and your name are recorded automatically and sent to management.",
@@ -1566,30 +1575,34 @@ async function openClosingModal(){
   const brOptions=branches.length?branches.map(b=>"<option value='"+b.id+"'>"+esc(b.name)+"</option>").join(""):"<option value=''>لا توجد فروع</option>";
   openModal("إرسال إقفال يومي",
     "<label class='field'><span>الفرع *</span><select id='clBranch'>"+brOptions+"</select></label>"+
+    "<label class='field'><span>مبيعات النظام *</span><input id='clSystem' class='input' type='number' inputmode='decimal' placeholder='0.00'></label>"+
     "<div class='grid' style='grid-template-columns:1fr 1fr'>"+
-      "<label class='field'><span>المبيعات الفعلية *</span><input id='clActual' class='input' type='number' inputmode='decimal' placeholder='0.00'></label>"+
-      "<label class='field'><span>مبيعات النظام *</span><input id='clSystem' class='input' type='number' inputmode='decimal' placeholder='0.00'></label>"+
-      "<label class='field'><span>الكاش</span><input id='clCash' class='input' type='number' placeholder='0.00'></label>"+
-      "<label class='field'><span>مدى</span><input id='clMada' class='input' type='number' placeholder='0.00'></label>"+
-      "<label class='field'><span>فيزا</span><input id='clVisa' class='input' type='number' placeholder='0.00'></label>"+
-      "<label class='field'><span>ماستركارد</span><input id='clMaster' class='input' type='number' placeholder='0.00'></label>"+
+      "<label class='field'><span>الكاش</span><input id='clCash' class='input clpay' type='number' inputmode='decimal' placeholder='0.00'></label>"+
+      "<label class='field'><span>مدى</span><input id='clMada' class='input clpay' type='number' inputmode='decimal' placeholder='0.00'></label>"+
+      "<label class='field'><span>فيزا</span><input id='clVisa' class='input clpay' type='number' inputmode='decimal' placeholder='0.00'></label>"+
+      "<label class='field'><span>ماستركارد</span><input id='clMaster' class='input clpay' type='number' inputmode='decimal' placeholder='0.00'></label>"+
     "</div>"+
+    "<label class='field'><span>المبيعات الفعلية (تلقائي = مجموع طرق الدفع)</span><input id='clActual' class='input' type='number' readonly disabled value='0.00' style='opacity:.75;font-weight:800'></label>"+
     "<label class='field'><span>صورة الإقفال (اختيارية)</span><input id='clPhoto' class='input' type='file' accept='image/*' capture='environment'></label>"+
     "<img id='clPrev' class='photo-prev hidden'>",
     "مراجعة قبل الإرسال", reviewClosing);
+  const recompute=()=>{ const v=id=>parseFloat(($(id)&&$(id).value)||0)||0; const s=v("clCash")+v("clMada")+v("clVisa")+v("clMaster"); if($("clActual"))$("clActual").value=s.toFixed(2); };
+  document.querySelectorAll("#modalRoot .clpay").forEach(i=>i.oninput=recompute);
   const ph=$("clPhoto");ph.onchange=()=>{const f=ph.files[0];if(f){const u=URL.createObjectURL(f);$("clPrev").src=u;$("clPrev").classList.remove("hidden");}};
 }
 
 function reviewClosing(){
   const g=id=>$(id)?$(id).value:"";
   const branchSel=$("clBranch"); const branchName=branchSel&&branchSel.selectedOptions[0]?branchSel.selectedOptions[0].textContent:"";
+  const cash=parseFloat(g("clCash"))||0, mada=parseFloat(g("clMada"))||0, visa=parseFloat(g("clVisa"))||0, mastercard=parseFloat(g("clMaster"))||0;
+  const paySum=cash+mada+visa+mastercard;
   const data={branchId:branchSel?branchSel.value:"",branchName,
-    actualSales:parseFloat(g("clActual"))||0, systemSales:parseFloat(g("clSystem"))||0,
-    cash:parseFloat(g("clCash"))||0, mada:parseFloat(g("clMada"))||0, visa:parseFloat(g("clVisa"))||0, mastercard:parseFloat(g("clMaster"))||0};
+    actualSales:paySum, systemSales:parseFloat(g("clSystem"))||0,
+    cash, mada, visa, mastercard};
   const file=$("clPhoto").files[0];
   if(!data.branchId){toast("اختر الفرع","err");return false;}
-  if(!g("clActual")||!g("clSystem")){toast("أدخل المبيعات الفعلية ومبيعات النظام","err");return false;}
-  const paySum=data.cash+data.mada+data.visa+data.mastercard;
+  if(!g("clSystem")){toast("أدخل مبيعات النظام","err");return false;}
+  if(paySum<=0){toast("أدخل طرق الدفع (الكاش/الشبكة)","err");return false;}
   const diff=data.actualSales-data.systemSales;
   // شاشة المراجعة قبل الإرسال
   if(!canApproveSales()){
