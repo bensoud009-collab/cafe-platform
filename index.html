@@ -1005,41 +1005,71 @@ function kpi(label,id,val){return "<div class='kpi'><div class='l'>"+esc(label)+
 /* ================================================================== */
 // الموظف = يستطيع الإضافة لكن لا يعتمد (لا يرى الأرقام ولا سجل الإقفالات)
 function isEmployeeView(){ return state.role==="employee" || (can("sales","add") && !can("sales","approve")); }
+function canApproveSales(){ return can("sales","approve")||state.role==="owner"||state.role==="manager"; }
+function statusTag3(st){ return st==="approved"?"<span class='tag green'>تم الاعتماد</span>":st==="rejected"?"<span class='tag red'>مرفوضة</span>":"<span class='tag amber'>قيد المراجعة</span>"; }
+function fmtDT(ts){ try{ const d=ts&&ts.toDate?ts.toDate():null; if(!d)return "—"; const loc=(LANG==="en"?"en-GB":"ar-SA-u-ca-gregory-nu-latn"); return d.toLocaleDateString(loc)+" "+d.toLocaleTimeString(loc,{hour:"2-digit",minute:"2-digit"}); }catch(e){return "—";} }
 
 function pageSales(c){
-  // ===== واجهة الموظف: إرسال فقط، بدون أي أرقام أو سجل =====
-  if(isEmployeeView()){
-    c.innerHTML=pageTitle("الإقفال اليومي","إرسال إقفال المبيعات");
-    const bar=el("div",null,"<button class='btn primary' id='newClosingBtn'>+ إرسال إقفال جديد</button>");
-    bar.style.marginBottom="16px"; c.appendChild(bar);
-    bar.querySelector("#newClosingBtn").onclick=openClosingModal;
-    // منطقة البطاقات المؤقتة (تظهر بعد الإرسال وتختفي بعد 5 دقائق)
-    const temp=el("div"); temp.id="empTempWrap"; c.appendChild(temp);
-    const note=el("div","card muted","لا توجد إقفالات معلّقة. اضغط «إرسال إقفال جديد» لتسجيل إقفال اليوم.");
-    note.id="empHint"; note.style.textAlign="center"; c.appendChild(note);
+  const canApp=canApproveSales();
+  c.innerHTML=pageTitle("الإقفال اليومي", canApp?"مراجعة واعتماد إقفالات المبيعات":"إرسال إقفال المبيعات");
+  const bar=el("div",null,"<button class='btn primary' id='newClosingBtn'>+ إرسال إقفال</button>"); bar.style.marginBottom="16px"; c.appendChild(bar);
+  $("newClosingBtn").onclick=openClosingModal;
+
+  if(!canApp){
+    // ===== الموظف: جدول «طلباتي» (بدون أرقام) =====
+    const card=el("div","card");
+    card.innerHTML="<h3 style='margin-bottom:10px'>طلباتي</h3><table><thead><tr><th>التاريخ والوقت</th><th>الحالة</th></tr></thead><tbody id='myClo'><tr><td colspan='2' class='muted'>جارٍ التحميل…</td></tr></tbody></table>";
+    c.appendChild(card);
+    cRef().collection("dailyClosings").where("employeeUid","==",state.user.uid).onSnapshot(s=>{
+      const tb=$("myClo");if(!tb)return;const rows=[];s.forEach(d=>rows.push(d.data()));
+      rows.sort((a,b)=>((b.createdAt&&b.createdAt.seconds)||0)-((a.createdAt&&a.createdAt.seconds)||0));
+      tb.innerHTML=rows.length?"":"<tr><td colspan='2' class='muted'>لا توجد إقفالات مُرسلة</td></tr>";
+      rows.forEach(x=>tb.appendChild(el("tr",null,"<td>"+fmtDT(x.createdAt)+"</td><td>"+statusTag3(x.status)+"</td>")));
+    },()=>{const tb=$("myClo");if(tb)tb.innerHTML="<tr><td colspan='2' style='color:var(--red)'>تعذّر التحميل</td></tr>";});
     return;
   }
-  // ===== واجهة المالك/المدير: سجل كامل بكل التفاصيل =====
-  c.innerHTML=pageTitle("الإقفال اليومي","مراجعة واعتماد إقفالات المبيعات");
+
+  // ===== المالك/المدير: سجل كامل + عرض + اعتماد/رفض =====
   const card=el("div","card");
-  card.innerHTML="<table><thead><tr><th>التاريخ</th><th>الفرع</th><th>الموظف</th><th>مبيعات فعلية</th><th>مبيعات النظام</th><th>الفرق</th><th>الحالة</th></tr></thead><tbody id='clRows'><tr><td colspan='7' class='muted'>جارٍ التحميل…</td></tr></tbody></table>";
+  card.innerHTML="<table><thead><tr><th>التاريخ والوقت</th><th>الفرع</th><th>المُرسِل</th><th>الحالة</th><th>إجراء</th></tr></thead><tbody id='clRows'><tr><td colspan='5' class='muted'>جارٍ التحميل…</td></tr></tbody></table>";
   c.appendChild(card);
   cRef().collection("dailyClosings").orderBy("createdAt","desc").limit(100).onSnapshot(s=>{
     const tb=$("clRows");if(!tb)return;tb.innerHTML="";
-    if(s.empty){tb.innerHTML="<tr><td colspan='7' class='muted'>لا توجد إقفالات</td></tr>";return;}
-    s.forEach(d=>{const x=d.data();const diff=(Number(x.actualSales)||0)-(Number(x.systemSales)||0);
-      const diffTag=diff===0?"<span class='tag green'>مطابق</span>":"<span class='tag "+(diff>0?"amber":"red")+"'>"+money(diff)+"</span>";
-      const st=x.status==="approved"?"<span class='tag green'>معتمد</span>":"<span class='tag amber'>بانتظار</span>";
-      const tr=el("tr",null,"<td>"+esc(x.date)+"</td><td>"+esc(x.branchName||"—")+"</td><td>"+esc(x.employeeName)+"</td><td>"+money(x.actualSales)+"</td><td>"+money(x.systemSales)+"</td><td>"+diffTag+"</td><td></td>");
-      const stc=tr.lastChild; stc.innerHTML=st;
-      if(x.status!=="approved"&&can("sales","approve")){
+    if(s.empty){tb.innerHTML="<tr><td colspan='5' class='muted'>لا توجد إقفالات</td></tr>";return;}
+    s.forEach(d=>{const x=d.data();
+      const tr=el("tr",null,"<td>"+fmtDT(x.createdAt)+"</td><td>"+esc(x.branchName||"—")+"</td><td>"+esc(x.employeeName)+"</td><td>"+statusTag3(x.status)+"</td><td></td>");
+      const act=tr.lastChild;
+      const v=el("button","btn sm","عرض"); v.onclick=()=>viewClosing(d.id,x); act.appendChild(v);
+      if(x.status!=="approved"&&x.status!=="rejected"){
         const ap=el("button","btn sm","اعتماد");ap.style.marginRight="6px";
         ap.onclick=()=>{cRef().collection("dailyClosings").doc(d.id).update({status:"approved",approvedBy:state.user.uid,approvedAt:now()});logAction("approve_closing",x.date+" / "+x.branchName);};
-        stc.appendChild(ap);
+        act.appendChild(ap);
+        const rj=el("button","btn sm danger","رفض");rj.style.marginRight="6px";
+        rj.onclick=()=>{cRef().collection("dailyClosings").doc(d.id).update({status:"rejected",approvedBy:state.user.uid,approvedAt:now()});logAction("reject_closing",x.date+" / "+x.branchName);};
+        act.appendChild(rj);
       }
       tb.appendChild(tr);
     });
-  },()=>{const tb=$("clRows");if(tb)tb.innerHTML="<tr><td colspan='7' style='color:var(--red)'>تعذّر التحميل</td></tr>";});
+  },()=>{const tb=$("clRows");if(tb)tb.innerHTML="<tr><td colspan='5' style='color:var(--red)'>تعذّر التحميل</td></tr>";});
+}
+// عرض تفاصيل الإقفال (للإدارة، بدون تعديل)
+function viewClosing(id,x){
+  const diff=(Number(x.actualSales)||0)-(Number(x.systemSales)||0);
+  const paySum=(Number(x.cash)||0)+(Number(x.mada)||0)+(Number(x.visa)||0)+(Number(x.mastercard)||0);
+  openModal("تفاصيل الإقفال — "+esc(x.branchName||""),
+    "<div class='review-row'><span>التاريخ والوقت</span><b>"+fmtDT(x.createdAt)+"</b></div>"+
+    "<div class='review-row'><span>المُرسِل</span><b>"+esc(x.employeeName)+"</b></div>"+
+    "<div class='review-row'><span>المبيعات الفعلية</span><b>"+money(x.actualSales)+"</b></div>"+
+    "<div class='review-row'><span>مبيعات النظام</span><b>"+money(x.systemSales)+"</b></div>"+
+    "<div class='review-row'><span>الفرق</span><b style='color:"+(diff===0?"var(--green)":"var(--amber)")+"'>"+money(diff)+"</b></div>"+
+    "<div class='review-row'><span>الكاش</span><b>"+money(x.cash)+"</b></div>"+
+    "<div class='review-row'><span>مدى</span><b>"+money(x.mada)+"</b></div>"+
+    "<div class='review-row'><span>فيزا</span><b>"+money(x.visa)+"</b></div>"+
+    "<div class='review-row'><span>ماستر</span><b>"+money(x.mastercard)+"</b></div>"+
+    "<div class='review-row'><span>مجموع الدفعات</span><b>"+money(paySum)+"</b></div>"+
+    "<div class='review-row'><span>الحالة</span>"+statusTag3(x.status)+"</div>"+
+    (x.photoUrl?"<a class='btn sm' href='"+x.photoUrl+"' target='_blank' style='margin-top:10px'>عرض الصورة</a>":""),
+    "تم",()=>true,true);
 }
 
 // بطاقة تأكيد مؤقتة تظهر للموظف بعد الإرسال وتختفي بعد 5 دقائق
@@ -1094,11 +1124,11 @@ function reviewClosing(){
   if(!g("clActual")||!g("clSystem")){toast("أدخل المبيعات الفعلية ومبيعات النظام","err");return false;}
   const paySum=data.cash+data.mada+data.visa+data.mastercard;
   const diff=data.actualSales-data.systemSales;
-  // شاشة المراجعة — الموظف بلا أرقام، المالك/المدير بالتفاصيل الكاملة
-  if(isEmployeeView()){
+  // شاشة المراجعة قبل الإرسال
+  if(!canApproveSales()){
     openModal("تأكيد الإرسال",
       "<div class='review-row'><span>الفرع</span><b>"+esc(branchName)+"</b></div>"+
-      "<p class='muted' style='margin-top:12px;font-size:14px'>تأكّد من صحة البيانات قبل الإرسال. بعد الإرسال تُسجّل تلقائياً بالتاريخ والوقت واسمك، وتُرسل للإدارة.</p>",
+      "<p class='muted' style='margin-top:12px;font-size:14px'>تأكّد من صحة البيانات قبل الإرسال. تُسجّل تلقائياً بالتاريخ والوقت واسمك وتُرسل للإدارة.</p>",
       "إرسال الإقفال", ()=>submitClosing(data,file));
     return false;
   }
@@ -1109,7 +1139,7 @@ function reviewClosing(){
     "<div class='review-row'><span>الفرق (فعلي − نظام)</span><b style='color:"+(diff===0?"var(--green)":"var(--amber)")+"'>"+money(diff)+"</b></div>"+
     "<div class='review-row'><span>الكاش / مدى / فيزا / ماستر</span><b>"+money(data.cash)+" · "+money(data.mada)+" · "+money(data.visa)+" · "+money(data.mastercard)+"</b></div>"+
     "<div class='review-row'><span>مجموع طرق الدفع</span><b style='color:"+(Math.abs(paySum-data.actualSales)<0.01?"var(--green)":"var(--red)")+"'>"+money(paySum)+"</b></div>"+
-    "<p class='muted' style='margin-top:10px;font-size:13px'>التاريخ والوقت واسم الموظف تُسجّل تلقائياً."+(file?" أرفقت الصورة ✅":" (بدون صورة)")+"</p>",
+    "<p class='muted' style='margin-top:10px;font-size:13px'>التاريخ والوقت واسم المُرسِل تُسجّل تلقائياً."+(file?" أرفقت الصورة ✅":" (بدون صورة)")+"</p>",
     "اعتماد الإرسال", ()=>submitClosing(data,file));
   return false;
 }
@@ -1133,10 +1163,9 @@ async function submitClosing(data,file){
     await ref.set({...data, photoUrl, photoPath,
       date:new Date().toISOString().slice(0,10),
       employeeUid:state.user.uid, employeeName:state.profile.name||state.user.email,
-      status:"submitted", createdAt:now()});
+      status:"pending", createdAt:now()});
     logAction("submit_closing",data.date+" / "+data.branchName);
-    if(isEmployeeView()){ closeModal(); showEmployeeConfirmation(); }
-    else toast("تم إرسال الإقفال بنجاح","ok");
+    toast("تم إرسال الإقفال بنجاح","ok");
     return true;
   }catch(e){console.error(e);toast("تعذّر الإرسال","err");return false;}
 }
@@ -1147,48 +1176,66 @@ async function submitClosing(data,file){
 // الموظف الذي يضيف الفواتير دون صلاحية عرضها → واجهة إرسال فقط
 function invoiceEmployeeView(){ return !can("invoices","view") && can("invoices","add"); }
 
+function canApproveInvoices(){ return can("invoices","approve")||state.role==="owner"||state.role==="manager"; }
+
 function pageInvoices(c){
-  // ===== واجهة الموظف: إضافة فقط، بدون أرقام أو جدول =====
-  if(invoiceEmployeeView()){
-    c.innerHTML=pageTitle("الفواتير","إضافة فاتورة مشتريات");
-    const bar=el("div",null,"<button class='btn primary' id='newInvBtn'>+ إضافة فاتورة</button>");
-    bar.style.marginBottom="16px"; c.appendChild(bar);
-    bar.querySelector("#newInvBtn").onclick=openInvoiceModal;
-    const temp=el("div"); temp.id="invTempWrap"; c.appendChild(temp);
-    const hint=el("div","card muted","اضغط «إضافة فاتورة» لتسجيل فاتورة مشتريات."); hint.id="invHint"; hint.style.textAlign="center"; c.appendChild(hint);
+  const canApp=canApproveInvoices();
+  c.innerHTML=pageTitle("الفواتير", canApp?"مشتريات الشهر وسجلّها":"إضافة فاتورة مشتريات");
+  const bar=el("div",null,"<button class='btn primary' id='newInvBtn'>+ إضافة فاتورة</button>"); bar.style.marginBottom="16px"; c.appendChild(bar);
+  $("newInvBtn").onclick=openInvoiceModal;
+
+  if(!canApp){
+    // ===== الموظف: جدول «طلباتي» =====
+    const card=el("div","card");
+    card.innerHTML="<h3 style='margin-bottom:10px'>طلباتي</h3><table><thead><tr><th>التاريخ والوقت</th><th>الحالة</th></tr></thead><tbody id='myInv'><tr><td colspan='2' class='muted'>جارٍ التحميل…</td></tr></tbody></table>";
+    c.appendChild(card);
+    cRef().collection("invoices").where("employeeUid","==",state.user.uid).onSnapshot(s=>{
+      const tb=$("myInv");if(!tb)return;const rows=[];s.forEach(d=>rows.push(d.data()));
+      rows.sort((a,b)=>((b.createdAt&&b.createdAt.seconds)||0)-((a.createdAt&&a.createdAt.seconds)||0));
+      tb.innerHTML=rows.length?"":"<tr><td colspan='2' class='muted'>لا توجد فواتير مُرسلة</td></tr>";
+      rows.forEach(x=>tb.appendChild(el("tr",null,"<td>"+fmtDT(x.createdAt)+"</td><td>"+statusTag3(x.status)+"</td>")));
+    },()=>{const tb=$("myInv");if(tb)tb.innerHTML="<tr><td colspan='2' style='color:var(--red)'>تعذّر التحميل</td></tr>";});
     return;
   }
-  // ===== واجهة المالك/المدير: بطاقتان (شهر) + جدول =====
-  c.innerHTML=pageTitle("الفواتير","مشتريات الشهر وسجلّها");
-  let head="";
-  if(can("invoices","add")){ head+="<button class='btn primary' id='newInvBtn'>+ إضافة فاتورة</button>"; }
-  c.innerHTML+="<div style='margin-bottom:16px'>"+head+"</div>";
-  c.innerHTML+="<div class='kpi-grid' style='margin-bottom:16px'>"+
-    kpi("عدد المشتريات (الشهر)","invCount","—")+
-    kpi("إجمالي المشتريات (الشهر)","invTotal","—")+
-   "</div>";
-  const card=el("div","card");
-  card.innerHTML="<table><thead><tr><th>التاريخ</th><th>المنتجات</th><th>المورد</th><th>الإجمالي</th><th>المُدخِل</th></tr></thead><tbody id='invRows'><tr><td colspan='5' class='muted'>جارٍ التحميل…</td></tr></tbody></table>";
-  c.appendChild(card);
-  if($("newInvBtn"))$("newInvBtn").onclick=openInvoiceModal;
 
-  // بطاقات الشهر
+  // ===== المالك/المدير: بطاقتان + جدول + عرض/اعتماد/رفض =====
+  c.innerHTML+="<div class='kpi-grid' style='margin-bottom:16px'>"+
+    kpi("عدد المشتريات (الشهر)","invCount","—")+kpi("إجمالي المشتريات (الشهر)","invTotal","—")+"</div>";
+  const card=el("div","card");
+  card.innerHTML="<table><thead><tr><th>التاريخ والوقت</th><th>المورد</th><th>الإجمالي</th><th>المُرسِل</th><th>الحالة</th><th>إجراء</th></tr></thead><tbody id='invRows'><tr><td colspan='6' class='muted'>جارٍ التحميل…</td></tr></tbody></table>";
+  c.appendChild(card);
   const cur=monthRange(0);
   cRef().collection("invoices").where("date",">=",cur.start).where("date","<",cur.next).onSnapshot(s=>{
-    let total=0,count=0; s.forEach(d=>{total+=Number(d.data().total)||0;count++;});
-    if($("invCount"))$("invCount").textContent=count;
-    if($("invTotal"))$("invTotal").textContent=money(total);
+    let total=0,count=0; s.forEach(d=>{const x=d.data(); if(x.status!=="rejected"){total+=Number(x.total)||0;count++;}});
+    if($("invCount"))$("invCount").textContent=count; if($("invTotal"))$("invTotal").textContent=money(total);
   },()=>{});
-  // الجدول (أحدث 100)
   cRef().collection("invoices").orderBy("createdAt","desc").limit(100).onSnapshot(s=>{
     const tb=$("invRows");if(!tb)return;tb.innerHTML="";
-    if(s.empty){tb.innerHTML="<tr><td colspan='5' class='muted'>لا توجد فواتير</td></tr>";return;}
+    if(s.empty){tb.innerHTML="<tr><td colspan='6' class='muted'>لا توجد فواتير</td></tr>";return;}
     s.forEach(d=>{const x=d.data();
-      const items=(x.items||[]).map(it=>esc(it.name)+" ×"+(it.qty||0)).join("، ");
-      const supplier=x.supplier?esc(x.supplier)+(x.supplierPhone?" ("+esc(x.supplierPhone)+")":""):"—";
-      tb.appendChild(el("tr",null,"<td>"+esc(x.date)+"</td><td>"+items+"</td><td class='muted'>"+supplier+"</td><td><b>"+money(x.total)+"</b></td><td class='muted'>"+esc(x.createdByName||"")+"</td>"));
+      const supplier=x.supplier?esc(x.supplier):"—";
+      const tr=el("tr",null,"<td>"+fmtDT(x.createdAt)+"</td><td class='muted'>"+supplier+"</td><td><b>"+money(x.total)+"</b></td><td class='muted'>"+esc(x.employeeName||x.createdByName||"")+"</td><td>"+statusTag3(x.status)+"</td><td></td>");
+      const act=tr.lastChild;
+      const v=el("button","btn sm","عرض"); v.onclick=()=>viewInvoice(x); act.appendChild(v);
+      if(x.status!=="approved"&&x.status!=="rejected"){
+        const ap=el("button","btn sm","اعتماد");ap.style.marginRight="6px";ap.onclick=()=>{cRef().collection("invoices").doc(d.id).update({status:"approved",approvedBy:state.user.uid,approvedAt:now()});logAction("approve_invoice",supplier);};act.appendChild(ap);
+        const rj=el("button","btn sm danger","رفض");rj.style.marginRight="6px";rj.onclick=()=>{cRef().collection("invoices").doc(d.id).update({status:"rejected",approvedBy:state.user.uid,approvedAt:now()});logAction("reject_invoice",supplier);};act.appendChild(rj);
+      }
+      tb.appendChild(tr);
     });
-  },()=>{const tb=$("invRows");if(tb)tb.innerHTML="<tr><td colspan='5' style='color:var(--red)'>تعذّر التحميل</td></tr>";});
+  },()=>{const tb=$("invRows");if(tb)tb.innerHTML="<tr><td colspan='6' style='color:var(--red)'>تعذّر التحميل</td></tr>";});
+}
+function viewInvoice(x){
+  const items=(x.items||[]).map(it=>"<div class='review-row'><span>"+esc(it.name)+" ×"+(it.qty||0)+"</span><b>"+money((Number(it.value)||0)*(Number(it.qty)||0))+"</b></div>").join("");
+  openModal("تفاصيل الفاتورة",
+    "<div class='review-row'><span>التاريخ والوقت</span><b>"+fmtDT(x.createdAt)+"</b></div>"+
+    "<div class='review-row'><span>المورد</span><b>"+esc(x.supplier||"—")+(x.supplierPhone?" ("+esc(x.supplierPhone)+")":"")+"</b></div>"+
+    "<div class='review-row'><span>المُرسِل</span><b>"+esc(x.employeeName||x.createdByName||"")+"</b></div>"+
+    "<div style='margin:10px 0'>"+items+"</div>"+
+    "<div class='review-row'><span>الإجمالي</span><b>"+money(x.total)+"</b></div>"+
+    "<div class='review-row'><span>الحالة</span>"+statusTag3(x.status)+"</div>"+
+    (x.photoUrl?"<a class='btn sm' href='"+x.photoUrl+"' target='_blank' style='margin-top:10px'>عرض الصورة</a>":""),
+    "تم",()=>true,true);
 }
 
 // صف منتج داخل الفاتورة
@@ -1271,11 +1318,12 @@ async function submitInvoice(data){
       items:data.items.map(({name,value,qty,lineTotal})=>({name,value,qty,lineTotal})),
       total:data.total, supplier:data.supplier||"", supplierPhone:data.supplierPhone||"",
       photoUrl, photoPath, date:new Date().toISOString().slice(0,10),
-      createdBy:state.user.uid, createdByName:state.profile.name||state.user.email, createdAt:now()
+      employeeUid:state.user.uid, employeeName:state.profile.name||state.user.email,
+      createdBy:state.user.uid, createdByName:state.profile.name||state.user.email,
+      status:"pending", createdAt:now()
     });
     logAction("add_invoice",(data.items[0]?data.items[0].name:"")+(data.items.length>1?" +"+(data.items.length-1):""));
-    if(invoiceEmployeeView()){ closeModal(); showInvoiceConfirmation(); }
-    else toast("تم حفظ الفاتورة بنجاح","ok");
+    toast("تم إرسال الفاتورة بنجاح","ok");
     return true;
   }catch(e){console.error(e);toast("تعذّر حفظ الفاتورة","err");return false;}
 }
@@ -2582,7 +2630,7 @@ function renderAudit(container,ref,title,inline){
   card.innerHTML=(card.innerHTML||"")+"<table><thead><tr><th>العملية</th><th>المستخدم</th><th>التفاصيل</th><th>الوقت</th></tr></thead><tbody id='auditRows'><tr><td colspan='4' class='muted'>جارٍ التحميل…</td></tr></tbody></table>";
   ref.orderBy("at","desc").limit(80).onSnapshot(s=>{const tb=document.getElementById("auditRows");if(!tb)return;tb.innerHTML="";
     if(s.empty){tb.innerHTML="<tr><td colspan='4' class='muted'>لا يوجد سجل</td></tr>";return;}
-    const names={login:"تسجيل دخول",create_company:"إنشاء شركة",suspend_company:"إيقاف شركة",activate_company:"تشغيل شركة",delete_company:"حذف شركة",update_subscription:"تعديل اشتراك",admin_enter:"دخول إداري",add_branch:"إضافة فرع",edit_branch:"تعديل فرع",delete_branch:"حذف فرع",add_user:"إضافة مستخدم",edit_permissions:"تعديل صلاحيات",submit_closing:"إرسال إقفال",approve_closing:"اعتماد إقفال",add_invoice:"إضافة فاتورة",add_product:"إضافة منتج",edit_product:"تعديل منتج",delete_product:"حذف منتج",add_category:"إضافة تصنيف",add_supplier:"إضافة مورد",edit_supplier:"تعديل مورد",delete_supplier:"حذف مورد",add_supplier_product:"إضافة منتج لمورد",update_price:"تحديث سعر",add_employee:"إضافة موظف",edit_employee:"تعديل موظف",save_payroll:"حفظ كشف رواتب",add_evaluation:"تقييم موظف",add_checklist:"إضافة قائمة",edit_checklist:"تعديل قائمة",delete_checklist:"حذف قائمة",add_task:"إضافة مهمة",submit_checklist:"تنفيذ قائمة",approve_checklist:"اعتماد تنفيذ",reject_checklist:"رفض تنفيذ",edit_profile:"تعديل الملف التعريفي",save_document:"حفظ وثيقة",change_theme:"تغيير الثيم",add_branch_eval:"تقييم فرع",add_recipe:"إضافة وصفة",edit_recipe:"تعديل وصفة",delete_recipe:"حذف وصفة",edit_slug:"تعديل رابط الشركة",suspend_account:"إيقاف حساب موظف",activate_account:"تفعيل حساب موظف",delete_account:"حذف حساب موظف",delete_employee:"حذف موظف",stock_count:"جرد مخزون",stock_order:"طلب مخزون",order_done:"إنهاء طلب",waste:"تسجيل تالف",section_visibility:"ظهور قسم"};
+    const names={login:"تسجيل دخول",create_company:"إنشاء شركة",suspend_company:"إيقاف شركة",activate_company:"تشغيل شركة",delete_company:"حذف شركة",update_subscription:"تعديل اشتراك",admin_enter:"دخول إداري",add_branch:"إضافة فرع",edit_branch:"تعديل فرع",delete_branch:"حذف فرع",add_user:"إضافة مستخدم",edit_permissions:"تعديل صلاحيات",submit_closing:"إرسال إقفال",approve_closing:"اعتماد إقفال",reject_closing:"رفض إقفال",add_invoice:"إرسال فاتورة",approve_invoice:"اعتماد فاتورة",reject_invoice:"رفض فاتورة",add_product:"إضافة منتج",edit_product:"تعديل منتج",delete_product:"حذف منتج",add_category:"إضافة تصنيف",add_supplier:"إضافة مورد",edit_supplier:"تعديل مورد",delete_supplier:"حذف مورد",add_supplier_product:"إضافة منتج لمورد",update_price:"تحديث سعر",add_employee:"إضافة موظف",edit_employee:"تعديل موظف",save_payroll:"حفظ كشف رواتب",add_evaluation:"تقييم موظف",add_checklist:"إضافة قائمة",edit_checklist:"تعديل قائمة",delete_checklist:"حذف قائمة",add_task:"إضافة مهمة",submit_checklist:"تنفيذ قائمة",approve_checklist:"اعتماد تنفيذ",reject_checklist:"رفض تنفيذ",edit_profile:"تعديل الملف التعريفي",save_document:"حفظ وثيقة",change_theme:"تغيير الثيم",add_branch_eval:"تقييم فرع",add_recipe:"إضافة وصفة",edit_recipe:"تعديل وصفة",delete_recipe:"حذف وصفة",edit_slug:"تعديل رابط الشركة",suspend_account:"إيقاف حساب موظف",activate_account:"تفعيل حساب موظف",delete_account:"حذف حساب موظف",delete_employee:"حذف موظف",stock_count:"جرد مخزون",stock_order:"طلب مخزون",order_done:"إنهاء طلب",waste:"تسجيل تالف",section_visibility:"ظهور قسم"};
     s.forEach(d=>{const x=d.data();const t=x.at&&x.at.toDate?x.at.toDate().toLocaleString("ar-SA-u-ca-gregory-nu-latn"):"—";
       tb.appendChild(el("tr",null,"<td>"+(names[x.action]||esc(x.action))+"</td><td class='muted'>"+esc(x.userName||"")+"</td><td class='muted'>"+esc(x.details||"")+"</td><td class='muted'>"+t+"</td>"));});
   },()=>{});
