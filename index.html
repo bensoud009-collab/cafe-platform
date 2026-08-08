@@ -168,7 +168,9 @@ tbody tr:hover{background:var(--surface-2)}
     <div class="main">
       <div class="topbar">
         <button class="btn ghost sm hamb" onclick="document.getElementById('sidebar').classList.toggle('open')">☰</button>
+        <button class="btn ghost sm" id="backBtn" title="رجوع" onclick="navBack()" style="display:none;font-size:15px;padding:5px 9px">←</button>
         <div style="flex:1"></div>
+        <button class="btn ghost sm" id="homeBtn" title="الرئيسية" onclick="navHome()" style="display:none;font-size:13px;padding:5px 8px">🏠</button>
         <button class="btn ghost sm" id="modeBtn" title="فاتح/غامق" onclick="toggleMode()" style="font-size:12px;padding:5px 8px">🌙</button>
         <div class="muted" style="font-size:13px" id="topDate"></div>
       </div>
@@ -432,7 +434,8 @@ auth.onAuthStateChanged(async user=>{
       // فحص إيقاف حساب الموظف
       if(state.profile.accountActive===false){ toast("حسابك موقوف، راجع صاحب الشركة","err"); return doLogout(); }
       applyTheme(cdata.theme);
-      buildShell(); renderCompanyNav(); openPage("dashboard");
+      buildShell(); renderCompanyNav();
+      if(cardsMode()) renderCardsHome(); else openPage("dashboard");
     }
     logAction("login");
     show("appScreen");
@@ -451,6 +454,11 @@ function buildShell(){
   $("topDate").textContent=new Date().toLocaleDateString(dloc,{weekday:"long",year:"numeric",month:"long",day:"numeric"});
   const lo=document.getElementById("logoutBtn"); if(lo)lo.textContent=t("logout");
   renderLangSwitchers(); applyMode(currentMode());
+  // إخفاء القائمة الجانبية للموظف والمدير (وضع البطاقات)
+  const sb=document.getElementById("sidebar");
+  if(sb) sb.style.display = cardsMode() ? "none" : "";
+  const main=document.querySelector(".main"); if(main) main.style.marginInlineStart = cardsMode() ? "0" : "";
+  updateNavButtons();
 }
 
 function navButton(label,icon,pageKey){
@@ -527,7 +535,41 @@ function renderAdminBanner(){
 function removeAdminBanner(){ const b=$("adminBanner"); if(b) b.remove(); }
 function setActiveNav(pageKey){[...document.querySelectorAll(".nav-item")].forEach(n=>n.classList.toggle("active",n.dataset.page===pageKey));}
 
-function openPage(key){
+// وضع البطاقات للموظف والمدير (بدون قائمة جانبية)
+function cardsMode(){ return state.role==="employee" || state.role==="manager"; }
+let pageHistory=[];
+function updateNavButtons(){
+  const cm=cardsMode();
+  const hamb=document.querySelector(".hamb"); if(hamb) hamb.style.display=cm?"none":"";
+  const hb=document.getElementById("homeBtn"); if(hb) hb.style.display=cm?"":"none";
+  const bb=document.getElementById("backBtn"); if(bb) bb.style.display=(cm&&pageHistory.length)?"":"none";
+}
+function navBack(){ const prev=pageHistory.pop(); if(prev!==undefined){ openPage(prev,true); } else { navHome(); } updateNavButtons(); }
+window.navBack=navBack;
+function navHome(){ pageHistory=[]; if(cardsMode()){ renderCardsHome(); } else { openPage("dashboard"); } updateNavButtons(); }
+window.navHome=navHome;
+function renderCardsHome(){
+  state.current="__home__"; setActiveNav("");
+  document.getElementById("sidebar").classList.remove("open");
+  const c=$("pageContent"); c.innerHTML=pageTitle("لوحة التحكم","أهلاً "+esc(state.profile.name||""));
+  const grid=el("div"); grid.style.cssText="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:16px";
+  MODULES.forEach(m=>{
+    if(m.key==="settings") return; // الإعدادات للمالك
+    const allowed = (m.key==="staff"||m.key==="recipes"||can(m.key,"view")||can(m.key,"add"));
+    if(!allowed) return;
+    const card=el("div","card"); card.style.cssText="cursor:pointer;min-height:120px;text-align:center;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px";
+    card.innerHTML="<div style='font-size:34px'>"+m.icon+"</div><div style='font-weight:800'>"+esc(t("nav_"+m.key)||m.name)+"</div>";
+    card.onclick=()=>openPage(m.key);
+    grid.appendChild(card);
+  });
+  c.appendChild(grid);
+  setTimeout(()=>translateTree(c),0);
+  updateNavButtons();
+}
+
+function openPage(key,isBack){
+  if(!isBack && state.current && state.current!==key && state.current!=="__home__") pageHistory.push(state.current);
+  if(!isBack && cardsMode() && state.current==="__home__"){ /* من الرئيسية للقسم: نبدأ سجل جديد */ pageHistory=[]; }
   state.current=key; setActiveNav(key);
   document.getElementById("sidebar").classList.remove("open");
   const c=$("pageContent"); c.innerHTML="";
@@ -537,6 +579,7 @@ function openPage(key){
   };
   if(routes[key]) routes[key](c);
   else pagePlaceholder(c,key);
+  updateNavButtons();
   setTimeout(()=>translateTree(c),0);
 }
 
