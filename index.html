@@ -169,7 +169,6 @@ tbody tr:hover{background:var(--surface-2)}
       <div class="topbar">
         <button class="btn ghost sm hamb" onclick="document.getElementById('sidebar').classList.toggle('open')">☰</button>
         <div style="flex:1"></div>
-        <button class="btn ghost sm" id="visBtn" title="ظهور القسم" onclick="visibilityCurrent()" style="display:none;font-size:13px;padding:5px 8px;filter:grayscale(1) opacity(.6)">👁</button>
         <button class="btn ghost sm" id="modeBtn" title="فاتح/غامق" onclick="toggleMode()" style="font-size:12px;padding:5px 8px">🌙</button>
         <div class="muted" style="font-size:13px" id="topDate"></div>
       </div>
@@ -432,7 +431,6 @@ auth.onAuthStateChanged(async user=>{
       state.profile=profDoc.exists?profDoc.data():{name:user.email,role:map.role,permissions:{}};
       // فحص إيقاف حساب الموظف
       if(state.profile.accountActive===false){ toast("حسابك موقوف، راجع صاحب الشركة","err"); return doLogout(); }
-      state.companyVis=cdata.sectionVisibility||{};
       applyTheme(cdata.theme);
       buildShell(); renderCompanyNav(); openPage("dashboard");
     }
@@ -467,16 +465,9 @@ function renderSuperNav(){
   nav.appendChild(navButton("الاشتراكات","💳","super_subs"));
   nav.appendChild(navButton("سجل العمليات","📜","super_audit"));
 }
-function sectionVisible(key){
-  if(state.role==="owner"||state.role==="super") return true;
-  const v=(state.companyVis||{})[key]; if(!v) return true;
-  if(state.role==="manager") return v.manager!==false;
-  if(state.role==="employee") return v.employee!==false;
-  return true;
-}
 function renderCompanyNav(){
   const nav=$("navList");nav.innerHTML="";
-  MODULES.forEach(m=>{ const allowed = (m.key==="staff" || m.key==="recipes" || can(m.key,"view")||can(m.key,"add")); if(allowed && sectionVisible(m.key)) nav.appendChild(navButton(t("nav_"+m.key)||m.name,m.icon,m.key)); });
+  MODULES.forEach(m=>{ if(m.key==="staff" || m.key==="recipes" || can(m.key,"view")||can(m.key,"add")) nav.appendChild(navButton(t("nav_"+m.key)||m.name,m.icon,m.key)); });
   setupInventoryNavBadge();
 }
 // شارة الطلبات الجديدة جنب «المخزون والجرد» (للمالك/المدير)
@@ -539,9 +530,6 @@ function setActiveNav(pageKey){[...document.querySelectorAll(".nav-item")].forEa
 function openPage(key){
   state.current=key; setActiveNav(key);
   document.getElementById("sidebar").classList.remove("open");
-  // منع الوصول لقسم مخفي (لغير المالك)
-  const companyModule = MODULES.some(m=>m.key===key);
-  if(companyModule && !sectionVisible(key)){ key="dashboard"; state.current="dashboard"; setActiveNav("dashboard"); }
   const c=$("pageContent"); c.innerHTML="";
   const routes={
     super_companies:pageSuperCompanies, super_subs:pageSuperSubs, super_audit:pageSuperAudit,
@@ -549,31 +537,7 @@ function openPage(key){
   };
   if(routes[key]) routes[key](c);
   else pagePlaceholder(c,key);
-  // إظهار زر العين في الشريط للمالك عندما يكون في قسم تشغيلي
-  const eyeBtn=document.getElementById("visBtn");
-  if(eyeBtn){
-    if(state.role==="owner" && MODULES.some(m=>m.key===key) && key!=="settings" && key!=="dashboard"){ eyeBtn.style.display=""; eyeBtn.dataset.key=key; }
-    else eyeBtn.style.display="none";
-  }
   setTimeout(()=>translateTree(c),0);
-}
-function visibilityCurrent(){ const k=(document.getElementById("visBtn")||{}).dataset?document.getElementById("visBtn").dataset.key:null; if(k) visibilityModal(k); }
-window.visibilityCurrent=visibilityCurrent;
-function visibilityModal(key){
-  const mod=MODULES.find(m=>m.key===key)||{name:key};
-  const v=(state.companyVis||{})[key]||{};
-  const mgr=v.manager!==false, emp=v.employee!==false;
-  openModal("ظهور قسم: "+esc(t("nav_"+key)||mod.name),
-    "<p class='muted' style='font-size:13px;margin-bottom:12px'>اختر من يرى هذا القسم (أنت كمالك تراه دائماً):</p>"+
-    "<label class='review-row' style='cursor:pointer'><span>يظهر لمدير الفرع</span><input type='checkbox' id='visMgr' "+(mgr?"checked":"")+"></label>"+
-    "<label class='review-row' style='cursor:pointer'><span>يظهر للموظف</span><input type='checkbox' id='visEmp' "+(emp?"checked":"")+"></label>",
-    "حفظ", async ()=>{
-      const nm={manager:$("visMgr").checked, employee:$("visEmp").checked};
-      state.companyVis=state.companyVis||{}; state.companyVis[key]=nm;
-      const upd={}; upd["sectionVisibility."+key]=nm;
-      try{ await cRef().update(upd); logAction("section_visibility",(t("nav_"+key)||mod.name)); toast("تم الحفظ","ok"); }catch(e){ toast("تعذّر الحفظ","err"); return false; }
-      return true;
-    });
 }
 
 function pageTitle(title,sub){return "<div class='page-title'><h2>"+esc(L(title))+"</h2>"+(sub?"<p>"+esc(L(sub))+"</p>":"")+"</div>";}
