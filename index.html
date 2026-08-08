@@ -171,6 +171,7 @@ tbody tr:hover{background:var(--surface-2)}
         <button class="btn ghost sm" id="backBtn" title="رجوع" onclick="navBack()" style="display:none;font-size:15px;padding:5px 9px">←</button>
         <div style="flex:1"></div>
         <button class="btn ghost sm" id="homeBtn" title="الرئيسية" onclick="navHome()" style="display:none;font-size:13px;padding:5px 8px">🏠</button>
+        <button class="btn ghost sm" id="langBtn" title="اللغة / Language" onclick="toggleLang()" style="display:none;font-size:12px;padding:5px 8px">EN</button>
         <button class="btn ghost sm" id="modeBtn" title="فاتح/غامق" onclick="toggleMode()" style="font-size:12px;padding:5px 8px">🌙</button>
         <div class="muted" style="font-size:13px" id="topDate"></div>
       </div>
@@ -995,7 +996,10 @@ function updateNavButtons(){
   const hamb=document.querySelector(".hamb"); if(hamb) hamb.style.display=cm?"none":"";
   const hb=document.getElementById("homeBtn"); if(hb) hb.style.display=cm?"":"none";
   const bb=document.getElementById("backBtn"); if(bb) bb.style.display=(cm&&pageHistory.length)?"":"none";
+  const lb=document.getElementById("langBtn"); if(lb){ lb.style.display=cm?"":"none"; lb.textContent=(LANG==="en"?"ع":"EN"); }
 }
+function toggleLang(){ setLang(LANG==="en"?"ar":"en"); }
+window.toggleLang=toggleLang;
 function navBack(){ const prev=pageHistory.pop(); if(prev!==undefined){ openPage(prev,true); } else { navHome(); } updateNavButtons(); }
 window.navBack=navBack;
 function navHome(){ pageHistory=[]; if(cardsMode()){ renderCardsHome(); } else { openPage("dashboard"); } updateNavButtons(); }
