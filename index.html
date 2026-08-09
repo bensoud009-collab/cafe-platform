@@ -1403,7 +1403,7 @@ function pageDashboard(c){
   const needCur = compare || cards.some(k=>["sales_month","closings_month","avg_closing"].includes(k));
   if(needCur){
     cRef().collection("dailyClosings").where("date",">=",cur.start).where("date","<",cur.next).onSnapshot(s=>{
-      let sum=0,count=0; s.forEach(d=>{sum+=Number(d.data().actualSales)||0;count++;});
+      let sum=0,count=0; s.forEach(d=>{const x=d.data(); if(x.status!=="approved")return; sum+=Number(x.actualSales)||0;count++;});
       if($("w_sales_month"))$("w_sales_month").textContent=money(sum);
       if($("w_closings_month"))$("w_closings_month").textContent=count;
       if($("w_avg_closing"))$("w_avg_closing").textContent=money(count?sum/count:0);
@@ -1412,7 +1412,7 @@ function pageDashboard(c){
   }
   if(compare || cards.includes("prev_month_sales")){
     cRef().collection("dailyClosings").where("date",">=",prev.start).where("date","<",prev.next).onSnapshot(s=>{
-      let sum=0; s.forEach(d=>sum+=Number(d.data().actualSales)||0);
+      let sum=0; s.forEach(d=>{const x=d.data(); if(x.status!=="approved")return; sum+=Number(x.actualSales)||0;});
       window.__prevMonthSales=sum;
       if($("w_prev_month_sales"))$("w_prev_month_sales").textContent=money(sum);
       if(compare) updateDelta();
@@ -1426,7 +1426,7 @@ function pageDashboard(c){
   }
   if(cards.includes("invoices_count")||cards.includes("invoices_total")){
     cRef().collection("invoices").where("date",">=",cur.start).where("date","<",cur.next).onSnapshot(s=>{
-      let total=0,count=0; s.forEach(d=>{total+=Number(d.data().total)||0;count++;});
+      let total=0,count=0; s.forEach(d=>{const x=d.data(); if(x.status!=="approved")return; total+=Number(x.total)||0;count++;});
       if($("w_invoices_count"))$("w_invoices_count").textContent=count;
       if($("w_invoices_total"))$("w_invoices_total").textContent=money(total);
     },()=>{});
@@ -1689,7 +1689,7 @@ function pageInvoices(c){
   c.appendChild(card);
   const cur=monthRange(0);
   cRef().collection("invoices").where("date",">=",cur.start).where("date","<",cur.next).onSnapshot(s=>{
-    let total=0,count=0; s.forEach(d=>{const x=d.data(); if(x.status!=="rejected"){total+=Number(x.total)||0;count++;}});
+    let total=0,count=0; s.forEach(d=>{const x=d.data(); if(x.status==="approved"){total+=Number(x.total)||0;count++;}});
     if($("invCount"))$("invCount").textContent=count; if($("invTotal"))$("invTotal").textContent=money(total);
   },()=>{});
   cRef().collection("invoices").orderBy("createdAt","desc").limit(100).onSnapshot(s=>{
