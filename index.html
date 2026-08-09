@@ -246,6 +246,12 @@ function t(k){ return (I18N[LANG]&&I18N[LANG][k]) || I18N.ar[k] || k; }
 
 // قاموس ترجمة عربي→إنجليزي للعبارات الظاهرة (يتوسّع تدريجياً)
 const EN={
+  "+ إضافة فاتورة":"+ Add invoice","+ إرسال إقفال":"+ Submit closing","+ إضافة منتج آخر":"+ Add another product",
+  "+ إضافة منتج":"+ Add product","+ إضافة موظف":"+ Add employee","+ إضافة مورد":"+ Add supplier","+ فرع جديد":"+ New branch",
+  "+ إضافة وصفة":"+ Add recipe","+ إضافة قائمة":"+ Add list","+ إضافة تقييم":"+ Add rating","+ إضافة جرد":"+ Add count",
+  "+ طلب مخزون":"+ Stock order","+ تسجيل تالف":"+ Log waste","+ إضافة بطاقة":"+ Add card","+ إضافة وثيقة":"+ Add document",
+  "+ إنشاء حساب في المنصة":"+ Create platform account","التاريخ والوقت يُسجّلان تلقائياً.":"Date & time are recorded automatically.",
+  "لم يتم تحديد أي ملف":"No file selected","اختيار ملف":"Choose file",
   "المبيعات الفعلية *":"Actual Sales *","مبيعات النظام *":"System Sales *","الفرع *":"Branch *",
   "المبيعات الفعلية (تلقائي = مجموع طرق الدفع)":"Actual Sales (auto = sum of payments)",
   "ماستركارد":"Mastercard","صورة الإقفال (اختيارية)":"Closing photo (optional)","صورة الفاتورة (اختيارية)":"Invoice photo (optional)",
@@ -1482,7 +1488,7 @@ function kpi(label,id,val){return "<div class='kpi'><div class='l'>"+esc(label)+
 // الموظف = يستطيع الإضافة لكن لا يعتمد (لا يرى الأرقام ولا سجل الإقفالات)
 function isEmployeeView(){ return state.role==="employee" || (can("sales","add") && !can("sales","approve")); }
 function canApproveSales(){ return can("sales","approve")||state.role==="owner"||state.role==="manager"; }
-function statusTag3(st){ return st==="approved"?"<span class='tag green'>تم الاعتماد</span>":st==="rejected"?"<span class='tag red'>مرفوضة</span>":"<span class='tag amber'>قيد المراجعة</span>"; }
+function statusTag3(st){ return st==="approved"?"<span class='tag green'>"+L("تم الاعتماد")+"</span>":st==="rejected"?"<span class='tag red'>"+L("مرفوضة")+"</span>":"<span class='tag amber'>"+L("قيد المراجعة")+"</span>"; }
 function fmtDT(ts){ try{ const d=ts&&ts.toDate?ts.toDate():null; if(!d)return "—"; const loc=(LANG==="en"?"en-GB":"ar-SA-u-ca-gregory-nu-latn"); return d.toLocaleDateString(loc)+" "+d.toLocaleTimeString(loc,{hour:"2-digit",minute:"2-digit"}); }catch(e){return "—";} }
 
 function pageSales(c){
@@ -1731,6 +1737,7 @@ function addInvItem(values){
     "<button type='button' class='btn sm inv-rm' style='padding:6px 8px'>×</button>";
   row.querySelector(".inv-rm").onclick=()=>{ if(wrap.querySelectorAll(".inv-item").length>1) row.remove(); };
   wrap.appendChild(row);
+  if(typeof translateTree==="function") translateTree(row);
 }
 
 function openInvoiceModal(){
