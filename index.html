@@ -976,9 +976,10 @@ function setupInventoryNavBadge(){
   try{
     const counts={o:0,c:0,w:0};
     const upd=()=>{ const n=counts.o+counts.c+counts.w; if(n){badge.textContent=n;badge.style.display="flex";}else badge.style.display="none"; };
-    cRef().collection("stockOrders").where("status","==","pending").onSnapshot(s=>{counts.o=s.size;upd();},()=>{});
-    cRef().collection("stockCounts").where("status","==","pending").onSnapshot(s=>{counts.c=s.size;upd();},()=>{});
-    cRef().collection("waste").where("status","==","pending").onSnapshot(s=>{counts.w=s.size;upd();},()=>{});
+    const cntPend=s=>{let n=0;s.forEach(d=>{const st=d.data().status; if(st!=="approved"&&st!=="rejected"&&st!=="done")n++;});return n;};
+    cRef().collection("stockOrders").onSnapshot(s=>{counts.o=cntPend(s);upd();},()=>{});
+    cRef().collection("stockCounts").onSnapshot(s=>{counts.c=cntPend(s);upd();},()=>{});
+    cRef().collection("waste").onSnapshot(s=>{counts.w=cntPend(s);upd();},()=>{});
   }catch(e){}
 }
 
@@ -1898,12 +1899,24 @@ function pageInventory(c){
     : [{k:"count",t:"الجرد",ic:"",d:"جرد الكميات"},{k:"order",t:"الطلب",ic:"",d:"اطلب نواقص المخزون"},{k:"waste",t:"تالف",ic:"",d:"تسجيل التالف"}];
   const grid=el("div"); grid.style.cssText="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:16px";
   sections.forEach(x=>{ const card=el("div","card"); card.style.cssText="cursor:pointer;min-height:120px;position:relative";
-    let badge=""; if(x.k==="order"&&owner) badge="<span id='orderBadge' style='display:none;position:absolute;top:10px;left:10px;background:var(--red);color:#fff;border-radius:999px;min-width:20px;height:20px;font-size:12px;display:none;align-items:center;justify-content:center;padding:0 5px'></span>";
+    let badge=""; if(x.k==="order"||x.k==="count"||x.k==="waste") badge="<span id='badge_"+x.k+"' style='position:absolute;top:10px;left:10px;background:var(--red);color:#fff;border-radius:999px;min-width:20px;height:20px;font-size:12px;display:none;align-items:center;justify-content:center;padding:0 5px'></span>";
     card.innerHTML=(x.ic?"<div style='font-size:30px'>"+x.ic+"</div>":"")+"<div style='font-weight:800'>"+x.t+"</div><div class='muted' style='font-size:13px;margin-top:4px'>"+x.d+"</div>"+badge;
-    card.onclick=()=>{ const f={products:pageProducts,count:invCount,order:invOrders,waste:invWaste}[x.k]; f(c); };
+    card.onclick=()=>{ const f={products:pageProducts,count:invCount,order:invOrders,waste:invWaste}[x.k]; f(c); setTimeout(()=>{ if(typeof translateTree==="function") translateTree(c); },60); };
     grid.appendChild(card);
   });
   c.appendChild(grid);
+  // شارة لكل بطاقة: تعدّ المعلّق في قسمها فقط (وتشمل القديمة new) — للمالك والمدير
+  if(invApprover()){
+    const setBadge=(coll,id)=>{
+      cRef().collection(coll).onSnapshot(s=>{
+        let n=0; s.forEach(d=>{const st=d.data().status; if(st!=="approved"&&st!=="rejected"&&st!=="done") n++;});
+        const b=$(id); if(b){ if(n){b.textContent=n;b.style.display="flex";}else b.style.display="none"; }
+      },()=>{});
+    };
+    setBadge("stockOrders","badge_order");
+    setBadge("stockCounts","badge_count");
+    setBadge("waste","badge_waste");
+  }
   // أحداث بطاقات الأرقام
   if(owner){
     if($("invAdd"))$("invAdd").onclick=()=>invAddCardModal(cards);
@@ -1917,11 +1930,6 @@ function pageInventory(c){
         if($("iw_inventory_value"))$("iw_inventory_value").textContent=money(val);
         if($("iw_inventory_low"))$("iw_inventory_low").textContent=low; },()=>{});
     }
-    // شارة الطلبات المعلّقة على البطاقة (جرد+طلب+تالف)
-    const cb={o:0,c:0,w:0}; const cbu=()=>{const b=$("orderBadge"); if(b){const n=cb.o+cb.c+cb.w; if(n){b.textContent=n;b.style.display="flex";}else b.style.display="none";}};
-    cRef().collection("stockOrders").where("status","==","pending").onSnapshot(s=>{cb.o=s.size;cbu();},()=>{});
-    cRef().collection("stockCounts").where("status","==","pending").onSnapshot(s=>{cb.c=s.size;cbu();},()=>{});
-    cRef().collection("waste").where("status","==","pending").onSnapshot(s=>{cb.w=s.size;cbu();},()=>{});
   }
 }
 function invAddCardModal(cur){
