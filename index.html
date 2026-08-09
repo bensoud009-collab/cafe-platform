@@ -181,6 +181,7 @@ tbody tr:hover{background:var(--surface-2)}
 </div>
 
 <div id="modalRoot"></div>
+<button id="helpFab" onclick="openHelp()" title="الدعم الفني" style="position:fixed;bottom:20px;inset-inline-end:20px;z-index:50;width:52px;height:52px;border-radius:50%;border:none;cursor:pointer;background:linear-gradient(135deg,var(--brand),var(--brand-2));color:#fff;font-size:22px;box-shadow:0 6px 20px rgba(0,0,0,.25);display:none">💬</button>
 <div id="toast"></div>
 
 <script>
@@ -930,6 +931,7 @@ function buildShell(){
   const sb=document.getElementById("sidebar");
   if(sb) sb.style.display = cardsMode() ? "none" : "";
   const main=document.querySelector(".main"); if(main) main.style.marginInlineStart = cardsMode() ? "0" : "";
+  const fab=document.getElementById("helpFab"); if(fab) fab.style.display="flex";
   updateNavButtons();
 }
 
@@ -3139,6 +3141,69 @@ function openModal(title,bodyHtml,okLabel,onOk,hideCancel,maxWidth){
 }
 function closeModal(){$("modalRoot").innerHTML="";}
 window.openPage=openPage;
+
+/* ================================================================== */
+/*  الدعم الفني — مساعد أسئلة شائعة مصنّف حسب الدور (مجاني)            */
+/* ================================================================== */
+// roles: من يرى السؤال. e=موظف، m=مدير، o=مالك
+const FAQ=[
+  // عامة
+  {roles:"emo", q:"كيف أبدّل اللغة؟", qen:"How do I switch language?", a:"اضغط زر اللغة (ع / EN) في الأعلى. المالك يجده في القائمة الجانبية بالأسفل.", aen:"Tap the language button (ع / EN) at the top. Owners find it in the sidebar."},
+  {roles:"emo", q:"كيف أغيّر بين الوضع الفاتح والغامق؟", qen:"Light/dark mode?", a:"اضغط أيقونة الشمس/القمر 🌙 في الأعلى.", aen:"Tap the sun/moon 🌙 icon at the top."},
+  {roles:"em", q:"كيف أرجع للصفحة الرئيسية؟", qen:"How to go home?", a:"اضغط أيقونة المنزل 🏠 في الأعلى للرجوع للبطاقات، أو السهم ← للرجوع خطوة.", aen:"Tap the home 🏠 icon to return to the cards, or the ← arrow to go back one step."},
+  // الإقفال
+  {roles:"emo", q:"كيف أسجّل إقفال يومي؟", qen:"How to submit a daily closing?", a:"من قسم «الإقفال اليومي» اضغط «+ إرسال إقفال»، اختر الفرع، أدخل مبيعات النظام وطرق الدفع (كاش/مدى/فيزا/ماستر). المبيعات الفعلية تُحسب تلقائياً من مجموع الدفعات. ثم راجع وأرسل.", aen:"In Daily Closing tap “+ Submit closing”, pick the branch, enter system sales and payment methods. Actual sales is auto-calculated. Then review and send."},
+  {roles:"emo", q:"وش الفرق بين المبيعات الفعلية ومبيعات النظام؟", qen:"Actual vs system sales?", a:"مبيعات النظام: من الكاشير (تدخلها بنفسك). المبيعات الفعلية: تُحسب تلقائياً = كاش + مدى + فيزا + ماستر. الفرق بينهما يكشف أي نقص أو زيادة.", aen:"System sales: from the register (you enter it). Actual sales: auto-summed from payments. The difference reveals any shortage/surplus."},
+  {roles:"e", q:"أرسلت إقفال، ليش ما أشوف تفاصيله؟", qen:"Why can't I see my closing details?", a:"بعد الإرسال تشوف في «طلباتي» التاريخ والوقت والحالة فقط (قيد المراجعة / تم الاعتماد / مرفوضة). التفاصيل تظهر للإدارة.", aen:"After sending, “My Requests” shows date, time and status only. Details are visible to management."},
+  {roles:"mo", q:"كيف أعتمد أو أرفض إقفال؟", qen:"How to approve/reject a closing?", a:"في «الإقفال اليومي» تشوف جدول الإقفالات، اضغط «عرض» للتفاصيل، ثم «اعتماد» أو «رفض».", aen:"In Daily Closing you see the table; tap “View” for details, then “Approve” or “Reject”."},
+  // الفواتير
+  {roles:"emo", q:"كيف أضيف فاتورة مشتريات؟", qen:"How to add a purchase invoice?", a:"من «الفواتير» اضغط «+ إضافة فاتورة»، أدخل المنتجات (الاسم/القيمة/الكمية)، والمورد اختياري، ثم راجع وأرسل.", aen:"In Invoices tap “+ Add invoice”, enter products (name/value/qty), supplier optional, then review and send."},
+  {roles:"mo", q:"كيف أعتمد فاتورة؟", qen:"How to approve an invoice?", a:"في «الفواتير» اضغط «عرض» على الفاتورة لرؤية أصنافها، ثم «اعتماد» أو «رفض».", aen:"In Invoices tap “View” to see items, then “Approve” or “Reject”."},
+  // المخزون
+  {roles:"emo", q:"كيف أسوّي جرد؟", qen:"How to do a stock count?", a:"من «المخزون» ادخل بطاقة «الجرد» ثم «+ إضافة جرد»، أدخل الكمية الفعلية لكل منتج. النظام يحسب العجز/الزيادة وقيمته.", aen:"In Inventory open “Stock Count” then “+ Add count”, enter actual quantities. The system computes shortage/surplus value."},
+  {roles:"emo", q:"كيف أطلب مخزون؟", qen:"How to order stock?", a:"من «المخزون» ادخل بطاقة «الطلب» ثم «+ طلب مخزون»، حدّد الكمية المطلوبة لكل منتج وأرسل. يصل تنبيه للإدارة.", aen:"In Inventory open “Orders” then “+ Stock order”, set the required quantity per product and send. Management gets a notification."},
+  {roles:"emo", q:"كيف أسجّل تالف؟", qen:"How to log waste?", a:"من «المخزون» ادخل بطاقة «تالف» ثم «+ تسجيل تالف»، اختر المنتج والكمية والسبب. يُخصم من المخزون وتُحسب تكلفته.", aen:"In Inventory open “Waste” then “+ Log waste”, pick product, quantity and reason. It's deducted from stock and cost is computed."},
+  {roles:"mo", q:"وش الرقم الأحمر جنب «المخزون والجرد»؟", qen:"What's the red number next to Inventory?", a:"عدد طلبات المخزون الجديدة من الموظفين. اضغطه ليوديك لقسم الطلب، وبعد المعالجة اضغط «تم» فيختفي.", aen:"Number of new stock orders from staff. Tap it to open Orders; mark “Done” to clear it."},
+  // الموظفين
+  {roles:"o", q:"كيف أضيف موظف وأنشئ له حساب؟", qen:"How to add an employee & create an account?", a:"«شؤون الموظفين» ← بطاقة «الموظفون» ← «+ إضافة موظف». بعد إضافته افتح تفاصيله واضغط «+ إنشاء حساب في المنصة»، تظهر كلمة المرور مرة واحدة — احفظها.", aen:"Staff → Employees → “+ Add employee”. Open details and tap “+ Create platform account”. The password shows once — save it."},
+  {roles:"o", q:"كيف أوقف أو أحذف حساب موظف؟", qen:"Suspend/delete an employee account?", a:"في تفاصيل الموظف: «إيقاف الحساب» يمنع دخوله مؤقتاً، «حذف الحساب» يلغي دخوله ويبقّي بياناته، «حذف الموظف» يحذف كل شيء.", aen:"In employee details: “Suspend” blocks login temporarily, “Delete account” removes login but keeps data, “Delete employee” removes everything."},
+  {roles:"o", q:"كيف أتحكم بصلاحيات موظف؟", qen:"How to set employee permissions?", a:"في تفاصيل الموظف (اللي له حساب) اضغط «الصلاحيات»، وأشّر على ما تسمح به لكل قسم (عرض/إضافة/تعديل/حذف).", aen:"In the employee's details tap “Permissions” and check what to allow per section."},
+  {roles:"e", q:"وين أشوف راتبي؟", qen:"Where do I see my salary?", a:"من «شؤون الموظفين» تلقى «راتبي» يعرض تفاصيل آخر شهر. لو ما ظهر، صاحب الشركة لسه ما اعتمد الكشف.", aen:"In Staff you'll find “My Salary” showing last month. If empty, the owner hasn't posted payroll yet."},
+  {roles:"e", q:"كيف أرسل رسالة لصاحب الشركة؟", qen:"How to message the owner?", a:"من «شؤون الموظفين» افتح «رسائلي» واكتب رسالتك الخاصة — تصل لصاحب الشركة فقط.", aen:"In Staff open “My Messages” and write privately to the owner."},
+  // مالك المنصة
+  {roles:"o", q:"كيف أنشئ شركة جديدة؟ (مالك المنصة)", qen:"Create a company? (platform owner)", a:"من لوحة مالك المنصة ← «الشركات» ← «+ إنشاء شركة»، أدخل الاسم واسم الرابط وبريد المالك وكلمة المرور والمدة.", aen:"From the platform panel → Companies → “+ Create company”, enter name, link, owner email, password and duration."},
+  {roles:"o", q:"كيف أغيّر رابط الشركة؟", qen:"Change company link?", a:"من «الشركات» افتح تفاصيل الشركة ← «تعديل الرابط»، واكتب اسماً إنجليزياً فريداً.", aen:"In Companies open the company → “Edit link”, enter a unique English name."},
+  {roles:"o", q:"كيف أغيّر لون المنصة (الثيم)؟", qen:"Change platform color?", a:"من «الإعدادات» ← «الألوان والثيم»، اختر لوناً. يُطبّق على شركتك لكل المستخدمين.", aen:"Settings → Theme, pick a color. Applies to your whole company."},
+];
+function currentRoleLetter(){ return state.role==="owner"||state.role==="super"?"o":state.role==="manager"?"m":"e"; }
+function normalizeAr(s){ return (s||"").replace(/[أإآ]/g,"ا").replace(/[ةه]/g,"ه").replace(/[ىي]/g,"ي").replace(/[ًٌٍَُِّْ]/g,"").replace(/\s+/g," ").trim().toLowerCase(); }
+function openHelp(){
+  const rl=currentRoleLetter();
+  const list=FAQ.filter(f=>f.roles.includes(rl));
+  const isEn=LANG==="en";
+  const render=(items)=>items.map((f,i)=>{
+    const q=isEn&&f.qen?f.qen:f.q, a=isEn&&f.aen?f.aen:f.a;
+    return "<details style='margin-bottom:8px;border:1px solid var(--line);border-radius:10px;padding:8px 12px'><summary style='cursor:pointer;font-weight:600'>"+esc(q)+"</summary><p class='muted' style='margin-top:8px;line-height:1.8'>"+esc(a)+"</p></details>";
+  }).join("");
+  openModal(isEn?"Support":"الدعم الفني",
+    "<input id='helpSearch' class='input' placeholder='"+(isEn?"Search your question…":"ابحث عن سؤالك…")+"' style='margin-bottom:12px'>"+
+    "<div id='helpResults'>"+render(list)+"</div>"+
+    "<p class='muted' style='font-size:12px;margin-top:12px'>"+(isEn?"Can't find an answer? Contact your company owner.":"ما لقيت جواب؟ تواصل مع صاحب الشركة.")+"</p>",
+    null,()=>true,true,560);
+  setTimeout(()=>{
+    const inp=$("helpSearch"); if(!inp) return;
+    inp.oninput=()=>{
+      const term=normalizeAr(inp.value); const termEn=(inp.value||"").toLowerCase().trim();
+      if(!term){ $("helpResults").innerHTML=render(list); translateTree($("helpResults")); return; }
+      const found=list.filter(f=>{
+        const hay=normalizeAr(f.q+" "+f.a)+" "+((f.qen||"")+" "+(f.aen||"")).toLowerCase();
+        return term.split(" ").some(w=>w&&hay.includes(w)) || (termEn&&hay.includes(termEn));
+      });
+      $("helpResults").innerHTML=found.length?render(found):"<p class='muted'>"+(isEn?"No matching answer. Contact your company owner.":"ما فيه جواب مطابق. تواصل مع صاحب الشركة.")+"</p>";
+    };
+  },30);
+}
+window.openHelp=openHelp;
 // تهيئة اللغة عند التحميل
 // الوضع فاتح/غامق (تفضيل شخصي محفوظ في المتصفح)
 function currentMode(){ try{ return localStorage.getItem("cafe_mode")||"light"; }catch(e){ return "light"; } }
@@ -3146,8 +3211,7 @@ function applyMode(m){
   document.documentElement.setAttribute("data-mode", m==="dark"?"dark":"light");
   const b=document.getElementById("modeBtn"); if(b) b.textContent = m==="dark"?"☀️":"🌙";
 }
-function toggleMode(){ const m=currentMode()==="dark"?"light":"dark"; try{localStorage.setItem("cafe_mode",m);}catch(e){} applyMode(m); }
-window.toggleMode=toggleMode;
+function toggleMode(){ const m=currentMode()==="dark"?"light":"dark"; try{localStorage.setItem("cafe_mode",m);}catch(e){} applyMode(m); }window.toggleMode=toggleMode;
 
 // شكل الأيقونات: ملوّنة / بدون لون (شخصي)
 function currentIcons(){ try{ return localStorage.getItem("cafe_icons")||"color"; }catch(e){ return "color"; } }
