@@ -1682,8 +1682,9 @@ function pageInvoices(c){
   }
 
   // ===== المالك/المدير: بطاقتان + جدول + عرض/اعتماد/رفض =====
-  c.innerHTML+="<div class='kpi-grid' style='margin-bottom:16px'>"+
-    kpi("عدد المشتريات (الشهر)","invCount","—")+kpi("إجمالي المشتريات (الشهر)","invTotal","—")+"</div>";
+  const kpiWrap=el("div","kpi-grid"); kpiWrap.style.marginBottom="16px";
+  kpiWrap.innerHTML=kpi("عدد المشتريات (الشهر)","invCount","—")+kpi("إجمالي المشتريات (الشهر)","invTotal","—");
+  c.appendChild(kpiWrap);
   const card=el("div","card");
   card.innerHTML="<table><thead><tr><th>التاريخ والوقت</th><th>المورد</th><th>الإجمالي</th><th>المُرسِل</th><th>الحالة</th><th>إجراء</th></tr></thead><tbody id='invRows'><tr><td colspan='6' class='muted'>جارٍ التحميل…</td></tr></tbody></table>";
   c.appendChild(card);
@@ -2353,7 +2354,7 @@ async function branchDetail(c,id,x){
   // مبيعات الفرع للشهر
   const cur=monthRange(0);
   cRef().collection("dailyClosings").where("date",">=",cur.start).where("date","<",cur.next).onSnapshot(s=>{
-    let sum=0;s.forEach(d=>{const y=d.data();if(y.branchId===id)sum+=Number(y.actualSales)||0;});
+    let sum=0;s.forEach(d=>{const y=d.data();if(y.branchId===id && y.status==="approved")sum+=Number(y.actualSales)||0;});
     if($("brSales"))$("brSales").textContent=money(sum);
   },()=>{});
   cRef().collection("employees").onSnapshot(s=>{let n=0;s.forEach(d=>{if(d.data().branchId===id)n++;});if($("brEmps"))$("brEmps").textContent=n;},()=>{});
