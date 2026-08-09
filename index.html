@@ -245,6 +245,14 @@ function t(k){ return (I18N[LANG]&&I18N[LANG][k]) || I18N.ar[k] || k; }
 
 // قاموس ترجمة عربي→إنجليزي للعبارات الظاهرة (يتوسّع تدريجياً)
 const EN={
+  "نظرة على أداء نشاطك":"Overview of your business performance","من":"From","إلى":"To","اختر الفترة واضغط «عرض».":"Pick a period and tap “Show”.",
+  "المبيعات":"Sales","المشتريات":"Purchases","التوالف":"Waste","الموظفون":"Employees",
+  "إجمالي المبيعات (معتمد)":"Total sales (approved)","عدد الإقفالات":"Closings","متوسط يومي":"Daily average",
+  "الفرق (فعلي−نظام)":"Difference (actual−system)","المبيعات حسب الفرع":"Sales by branch",
+  "إجمالي المشتريات (معتمد)":"Total purchases (approved)","عدد الفواتير":"Invoices","المشتريات حسب المورد":"Purchases by supplier",
+  "قيمة المخزون الحالية":"Current stock value","منتجات تحت الحد الأدنى":"Products below minimum",
+  "إجمالي تكلفة التوالف":"Total waste cost","التوالف حسب السبب":"Waste by reason",
+  "إجمالي الرواتب (آخر كشف)":"Total payroll (last)","متوسط تقييم الفروع":"Avg branch rating","تعذّر تحميل التقارير":"Couldn't load reports",
   "إرسال الجرد":"Submit count","إرسال التالف":"Submit waste","تفاصيل الجرد":"Count details",
   "تفاصيل الطلب":"Order details","تفاصيل التالف":"Waste details","سبب التلف *":"Waste reason *",
   "الكمية التالفة *":"Waste quantity *","اعتماد وخصم":"Approve & deduct","ملاحظة الإدارة (اختياري)":"Management note (optional)",
@@ -1070,7 +1078,7 @@ function openPage(key,isBack){
   const c=$("pageContent"); c.innerHTML="";
   const routes={
     super_companies:pageSuperCompanies, super_subs:pageSuperSubs, super_audit:pageSuperAudit,
-    dashboard:pageDashboard, sales:pageSales, invoices:pageInvoices, inventory:pageInventory, suppliers:pageSuppliers, staff:pageStaff, checklist:pageChecklist, recipes:pageRecipes, branches:pageBranches, employees:pageStaff, settings:pageSettings
+    dashboard:pageDashboard, sales:pageSales, invoices:pageInvoices, inventory:pageInventory, suppliers:pageSuppliers, staff:pageStaff, checklist:pageChecklist, recipes:pageRecipes, branches:pageBranches, employees:pageStaff, reports:pageReports, settings:pageSettings
   };
   if(routes[key]) routes[key](c);
   else pagePlaceholder(c,key);
@@ -1079,6 +1087,72 @@ function openPage(key,isBack){
 }
 
 function pageTitle(title,sub){return "<div class='page-title'><h2>"+esc(L(title))+"</h2>"+(sub?"<p>"+esc(L(sub))+"</p>":"")+"</div>";}
+
+function pageReports(c){
+  if(!(state.role==="owner"||state.role==="manager")){ pagePlaceholder(c,"reports"); return; }
+  const today=new Date(); const first=new Date(today.getFullYear(),today.getMonth(),1);
+  const iso=d=>d.toISOString().slice(0,10);
+  c.innerHTML=pageTitle("التقارير","نظرة على أداء نشاطك")+
+    "<div class='card' style='margin-bottom:16px'><div class='grid' style='grid-template-columns:1fr 1fr auto;gap:10px;align-items:end'>"+
+      "<label class='field'><span>من</span><input id='repFrom' class='input' type='date' value='"+iso(first)+"'></label>"+
+      "<label class='field'><span>إلى</span><input id='repTo' class='input' type='date' value='"+iso(today)+"'></label>"+
+      "<button class='btn primary' id='repRun'>عرض</button>"+
+    "</div></div>"+
+    "<div id='repBody'><p class='muted'>اختر الفترة واضغط «عرض».</p></div>";
+  $("repRun").onclick=()=>runReports($("repFrom").value,$("repTo").value);
+  runReports($("repFrom").value,$("repTo").value);
+}
+async function runReports(from,to){
+  const body=$("repBody"); if(!body) return;
+  body.innerHTML="<p class='muted'>جارٍ التحميل…</p>";
+  const toEnd=to; // inclusive by using <= via string compare on date field (YYYY-MM-DD)
+  try{
+    const [clo,inv,prods,waste,pay,evals]=await Promise.all([
+      cRef().collection("dailyClosings").where("date",">=",from).where("date","<=",toEnd).get(),
+      cRef().collection("invoices").where("date",">=",from).where("date","<=",toEnd).get(),
+      cRef().collection("products").get(),
+      cRef().collection("waste").where("date",">=",from).where("date","<=",toEnd).get(),
+      cRef().collection("payroll").get(),
+      cRef().collection("branchEvals").where("date",">=",from).where("date","<=",toEnd).get().catch(()=>({forEach:()=>{}}))
+    ]);
+    // المبيعات (معتمد)
+    let salesTot=0,salesCount=0,sysTot=0; const byBranch={};
+    clo.forEach(d=>{const x=d.data(); if(x.status!=="approved")return; const a=Number(x.actualSales)||0; salesTot+=a; sysTot+=Number(x.systemSales)||0; salesCount++; const b=x.branchName||"—"; byBranch[b]=(byBranch[b]||0)+a;});
+    const days=Math.max(1,Math.round((new Date(to)-new Date(from))/86400000)+1);
+    const avgDaily=salesTot/days; const diff=salesTot-sysTot;
+    // المشتريات (معتمد)
+    let buyTot=0,buyCount=0; const bySupplier={};
+    inv.forEach(d=>{const x=d.data(); if(x.status!=="approved")return; const t=Number(x.total)||0; buyTot+=t; buyCount++; const s=x.supplier||"—"; bySupplier[s]=(bySupplier[s]||0)+t;});
+    // المخزون
+    let stockVal=0,lowCount=0; prods.forEach(d=>{const x=d.data(); stockVal+=(Number(x.price)||0)*(Number(x.qty)||0); if((Number(x.min)||0)>0&&(Number(x.qty)||0)<=(Number(x.min)||0))lowCount++;});
+    // التوالف (معتمد)
+    let wasteTot=0; const byReason={};
+    waste.forEach(d=>{const x=d.data(); if(x.status!=="approved")return; const cst=Number(x.cost)||0; wasteTot+=cst; const r=x.reason||"أخرى"; byReason[r]=(byReason[r]||0)+cst;});
+    // الرواتب (آخر شهر مسجّل) + التقييم
+    let payrollTot=0; pay.forEach(d=>{const x=d.data(); payrollTot+=Number(x.net||x.total||0)||0;});
+    let evSum=0,evN=0; evals.forEach(d=>{const x=d.data(); evSum+=Number(x.pct||0); evN++;});
+    const kpicard=(t,v,color)=>"<div class='kpi'><div class='l'>"+t+"</div><div class='v'"+(color?" style='color:"+color+"'":"")+">"+v+"</div></div>";
+    const rowsHtml=(obj,fmt)=>{const ks=Object.keys(obj).sort((a,b)=>obj[b]-obj[a]); if(!ks.length)return "<p class='muted'>لا توجد بيانات</p>"; return "<table><tbody>"+ks.map(k=>"<tr><td>"+esc(k)+"</td><td style='text-align:left'><b>"+fmt(obj[k])+"</b></td></tr>").join("")+"</tbody></table>";};
+    body.innerHTML=
+      "<h3 style='margin:6px 0 10px'>المبيعات</h3><div class='kpi-grid' style='margin-bottom:8px'>"+
+        kpicard("إجمالي المبيعات (معتمد)",money(salesTot))+kpicard("عدد الإقفالات",salesCount)+
+        kpicard("متوسط يومي",money(avgDaily))+kpicard("الفرق (فعلي−نظام)",money(diff),diff<0?"var(--red)":"var(--green)")+
+      "</div><div class='card' style='margin-bottom:18px'><div class='muted' style='font-size:13px;margin-bottom:6px'>المبيعات حسب الفرع</div>"+rowsHtml(byBranch,money)+"</div>"+
+      "<h3 style='margin:6px 0 10px'>المشتريات</h3><div class='kpi-grid' style='margin-bottom:8px'>"+
+        kpicard("إجمالي المشتريات (معتمد)",money(buyTot))+kpicard("عدد الفواتير",buyCount)+
+      "</div><div class='card' style='margin-bottom:18px'><div class='muted' style='font-size:13px;margin-bottom:6px'>المشتريات حسب المورد</div>"+rowsHtml(bySupplier,money)+"</div>"+
+      "<h3 style='margin:6px 0 10px'>المخزون</h3><div class='kpi-grid' style='margin-bottom:18px'>"+
+        kpicard("قيمة المخزون الحالية",money(stockVal))+kpicard("منتجات تحت الحد الأدنى",lowCount,lowCount>0?"var(--amber)":"")+
+      "</div>"+
+      "<h3 style='margin:6px 0 10px'>التوالف</h3><div class='kpi-grid' style='margin-bottom:8px'>"+
+        kpicard("إجمالي تكلفة التوالف",money(wasteTot),wasteTot>0?"var(--red)":"")+
+      "</div><div class='card' style='margin-bottom:18px'><div class='muted' style='font-size:13px;margin-bottom:6px'>التوالف حسب السبب</div>"+rowsHtml(byReason,money)+"</div>"+
+      "<h3 style='margin:6px 0 10px'>الموظفون</h3><div class='kpi-grid'>"+
+        kpicard("إجمالي الرواتب (آخر كشف)",money(payrollTot))+kpicard("متوسط تقييم الفروع",evN?Math.round(evSum/evN)+"%":"—")+
+      "</div>";
+    if(typeof translateTree==="function") translateTree(body);
+  }catch(e){ console.error(e); body.innerHTML="<p style='color:var(--red)'>تعذّر تحميل التقارير</p>"; }
+}
 
 function pagePlaceholder(c,key){
   const m=MODULES.find(x=>x.key===key)||{name:key,icon:"🚧"};
