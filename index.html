@@ -172,7 +172,6 @@ tbody tr:hover{background:var(--surface-2)}
         <div style="flex:1"></div>
         <button class="btn ghost sm" id="homeBtn" title="الرئيسية" onclick="navHome()" style="display:none;font-size:13px;padding:5px 8px">🏠</button>
         <button class="btn ghost sm" id="profileBtn" title="ملف شخصي" onclick="openProfile()" style="font-size:14px;padding:5px 9px">👤</button>
-        <div class="muted" style="font-size:13px" id="topDate"></div>
       </div>
       <div class="content" id="pageContent"></div>
     </div>
@@ -922,8 +921,6 @@ function buildShell(){
   $("sideRole").textContent={super:t("role_super"),owner:t("role_owner"),manager:t("role_manager"),employee:t("role_employee")}[state.role]||state.role;
   $("sideUser").textContent=state.profile.name||"";
   $("sideEmail").textContent=state.user.email||"";
-  const dloc=(LANG==="en"?"en-GB":"ar-SA-u-ca-gregory-nu-latn");
-  $("topDate").textContent=new Date().toLocaleDateString(dloc,{weekday:"long",year:"numeric",month:"long",day:"numeric"});
   const lo=document.getElementById("logoutBtn"); if(lo)lo.textContent=t("logout");
   renderLangSwitchers(); applyMode(currentMode());
   // إخفاء القائمة الجانبية للموظف والمدير (وضع البطاقات)
@@ -3218,12 +3215,14 @@ function openProfile(){
       "<button class='btn' id='pfMode'>🌙 "+modeLabel+"</button>"+
       "<button class='btn' id='pfLang'>🌐 "+langLabel+"</button>"+
       "<button class='btn primary' id='pfHelp'>💬 "+(isEn?"Support":"المساعد الفني")+"</button>"+
+      "<button class='btn danger' id='pfLogout'>🚪 "+(isEn?"Sign out":"تسجيل الخروج")+"</button>"+
     "</div>",
     null,()=>true,true);
   setTimeout(()=>{
     if($("pfMode"))$("pfMode").onclick=()=>{ toggleMode(); closeModal(); };
     if($("pfLang"))$("pfLang").onclick=()=>{ toggleLang(); closeModal(); };
     if($("pfHelp"))$("pfHelp").onclick=()=>{ closeModal(); setTimeout(openHelp,120); };
+    if($("pfLogout"))$("pfLogout").onclick=()=>{ closeModal(); doLogout(); };
   },30);
 }
 window.openProfile=openProfile;
