@@ -197,6 +197,16 @@ const firebaseConfig = {
 
 // بريد/بُرُد مالك المنصة (Super Admin) — أول دخول لأي منهم يُنشئ حسابه تلقائياً
 const SUPER_ADMIN_EMAILS = ["ben.soud.009@gmail.com"];
+// باقات الاشتراك وحدود الفروع
+const PLANS = {
+  small:      {name:"صغيرة",   nameEn:"Small",      maxBranches:3},
+  medium:     {name:"متوسطة",  nameEn:"Medium",     maxBranches:6},
+  large:      {name:"كبيرة",   nameEn:"Large",      maxBranches:10},
+  enterprise: {name:"الشركات", nameEn:"Enterprise", maxBranches:Infinity}
+};
+function planOf(cd){ return (cd&&cd.plan&&PLANS[cd.plan])?cd.plan:"enterprise"; } // الشركات الحالية بلا باقة = غير محدودة
+function planMax(cd){ return PLANS[planOf(cd)].maxBranches; }
+function planLabel(cd){ const p=PLANS[planOf(cd)]; return LANG==="en"?p.nameEn:p.name; }
 
 /* ================================================================== */
 /*  2) ثوابت النظام                                                    */
@@ -245,6 +255,10 @@ function t(k){ return (I18N[LANG]&&I18N[LANG][k]) || I18N.ar[k] || k; }
 
 // قاموس ترجمة عربي→إنجليزي للعبارات الظاهرة (يتوسّع تدريجياً)
 const EN={
+  "الباقة":"Plan","الباقة *":"Plan *","تغيير الباقة":"Change plan","صغيرة (1-3 فروع)":"Small (1-3 branches)",
+  "متوسطة (4-6 فروع)":"Medium (4-6 branches)","كبيرة (7-10 فروع)":"Large (7-10 branches)","الشركات (غير محدودة)":"Enterprise (unlimited)",
+  "صغيرة":"Small","متوسطة":"Medium","كبيرة":"Large","الشركات":"Enterprise",
+  "تم تغيير الباقة":"Plan changed","الترقية أو التخفيض تُطبّق فوراً. التخفيض لا يحذف الفروع الزائدة، لكن يمنع إضافة جديد حتى تنزل تحت الحد.":"Upgrades/downgrades apply immediately. Downgrading won't delete extra branches but blocks adding new ones until under the limit.",
   "نظرة على أداء نشاطك":"Overview of your business performance","من":"From","إلى":"To","اختر الفترة واضغط «عرض».":"Pick a period and tap “Show”.",
   "المبيعات":"Sales","المشتريات":"Purchases","التوالف":"Waste","الموظفون":"Employees",
   "إجمالي المبيعات (معتمد)":"Total sales (approved)","عدد الإقفالات":"Closings","متوسط يومي":"Daily average",
@@ -1214,6 +1228,7 @@ async function companyDetailsModal(id,cd){
     "<div class='review-row'><span>اسم المالك</span><b>"+esc(cd.ownerName||"صاحب "+cd.name)+"</b></div>"+
     "<div class='review-row'><span>جوال المالك</span><b>"+esc(cd.ownerPhone||"—")+"</b></div>"+
     "<div class='review-row'><span>بريد المالك</span><b>"+esc(cd.ownerEmail||"—")+"</b></div>"+
+    "<div class='review-row'><span>الباقة</span><b>"+esc(planLabel(cd))+" ("+(planMax(cd)===Infinity?"∞":planMax(cd))+" فروع)</b></div>"+
     "<div class='review-row'><span>الفروع / الموظفون</span><b>"+branches+" / "+users+"</b></div>"+
     "<div class='review-row'><span>بداية الاشتراك</span><b>"+fmt(start)+"</b></div>"+
     "<div class='review-row'><span>نهاية الاشتراك</span><b>"+fmt(end)+"</b></div>"+
@@ -1221,16 +1236,31 @@ async function companyDetailsModal(id,cd){
     "<div class='review-row'><span>الحالة</span><b>"+(cd.status==="suspended"?"موقوفة":"نشطة")+"</b></div>"+
     "<div style='display:flex;gap:8px;flex-wrap:wrap;margin-top:16px'>"+
       "<button class='btn primary sm' id='cdEnter'>دخول إداري</button>"+
+      "<button class='btn sm' id='cdPlan'>تغيير الباقة</button>"+
       "<button class='btn sm' id='cdLink'>تعديل الرابط</button>"+
       "<button class='btn sm' id='cdSub'>تعديل الاشتراك</button>"+
       "<button class='btn danger sm' id='cdDel'>حذف نهائي</button>"+
     "</div>", null, ()=>true, true, 560);
   setTimeout(()=>{
     if($("cdEnter"))$("cdEnter").onclick=()=>{closeModal();enterCompanyAsAdmin(id,cd.name);};
+    if($("cdPlan"))$("cdPlan").onclick=()=>planModal(id,cd);
     if($("cdLink"))$("cdLink").onclick=()=>companySlugModal(id,cd);
     if($("cdSub"))$("cdSub").onclick=()=>subscriptionModal(id,cd);
     if($("cdDel"))$("cdDel").onclick=()=>deleteCompanyModal(id,cd);
   },30);
+}
+function planModal(id,cd){
+  const cur=planOf(cd);
+  const opt=(v)=>"<option value='"+v+"' "+(cur===v?"selected":"")+">"+PLANS[v].name+" ("+(PLANS[v].maxBranches===Infinity?"غير محدودة":PLANS[v].maxBranches+" فروع")+")</option>";
+  openModal("تغيير الباقة — "+esc(cd.name),
+    "<label class='field'><span>الباقة</span><select id='plSel' class='input'>"+opt("small")+opt("medium")+opt("large")+opt("enterprise")+"</select></label>"+
+    "<p class='muted' style='font-size:12px'>الترقية أو التخفيض تُطبّق فوراً. التخفيض لا يحذف الفروع الزائدة، لكن يمنع إضافة جديد حتى تنزل تحت الحد.</p>",
+    "حفظ", async ()=>{
+      const plan=$("plSel").value;
+      await db.collection("companies").doc(id).update({plan});
+      logAction("update_plan",cd.name+" → "+PLANS[plan].name);
+      toast("تم تغيير الباقة","ok"); closeModal(); return true;
+    });
 }
 
 // تعديل اسم رابط الشركة
@@ -1320,6 +1350,12 @@ function openNewCompanyModal(){
     "<label class='field'><span>كلمة المرور *</span>"+
       "<div style='display:flex;gap:8px'><input id='ncPass' class='input' placeholder='اكتبها أو ولّدها'>"+
       "<button type='button' class='btn' id='ncDice' title='توليد عشوائي' style='padding:0 14px'>🎲</button></div></label>"+
+    "<label class='field'><span>الباقة *</span><select id='ncPlan' class='input'>"+
+      "<option value='small'>صغيرة (1-3 فروع)</option>"+
+      "<option value='medium'>متوسطة (4-6 فروع)</option>"+
+      "<option value='large'>كبيرة (7-10 فروع)</option>"+
+      "<option value='enterprise'>الشركات (غير محدودة)</option>"+
+    "</select></label>"+
     "<div class='grid' style='grid-template-columns:1fr 1fr'>"+
       "<label class='field'><span>بداية الاشتراك</span><input id='ncStart' class='input' type='date' value='"+startVal+"'></label>"+
       "<label class='field'><span>المدة (أشهر)</span><input id='ncMonths' class='input' type='number' min='1' value='1'></label>"+
@@ -1339,6 +1375,7 @@ function companyLink(slug){ return location.origin+location.pathname+"?c="+slug;
 async function createCompany(){
   const name=$("ncName").value.trim(), owner=$("ncOwner").value.trim(), email=$("ncEmail").value.trim().toLowerCase(), phone=$("ncPhone").value.trim();
   const slug=slugify($("ncSlug").value), pass=$("ncPass").value, start=new Date($("ncStart").value), months=parseInt($("ncMonths").value)||1;
+  const plan=($("ncPlan")&&$("ncPlan").value)||"small";
   if(!name||!email){toast("أدخل اسم الشركة وبريد صاحبها","err");return false;}
   if(!slug){toast("أدخل اسم الرابط (إنجليزي)","err");return false;}
   if(!pass||pass.length<6){toast("كلمة المرور ٦ أحرف على الأقل (أو ولّدها 🎲)","err");return false;}
@@ -1352,7 +1389,7 @@ async function createCompany(){
     const ownerUid=cred.user.uid;
     await secondaryAuth.signOut();
     const compRef=db.collection("companies").doc();
-    await compRef.set({name,slug,code,ownerName:owner||("صاحب "+name),ownerEmail:email,ownerPhone:phone,ownerUid,status:"active",theme:"gold",
+    await compRef.set({name,slug,code,ownerName:owner||("صاحب "+name),ownerEmail:email,ownerPhone:phone,ownerUid,status:"active",theme:"gold",plan,
       subscription:{plan:"monthly",months,startsAt:(isNaN(start)?new Date():start).toISOString(),endsAt:end.toISOString(),active:true},
       createdAt:now(), createdBy:state.user.uid});
     await db.collection("users").doc(ownerUid).set({role:"owner",companyId:compRef.id,name:owner||("صاحب الشركة "+name),createdAt:now()});
@@ -2504,6 +2541,18 @@ function recipeModal(id,x){ x=x||{};
 function pageBranches(c){
   c.innerHTML=pageTitle("الفروع","بطاقات الفروع وتقييمها");
   if(can("branches","add")){const bar=el("div",null,"<button class='btn primary' id='newBranchBtn'>+ فرع جديد</button>");bar.style.marginBottom="16px";c.appendChild(bar);bar.firstChild.onclick=()=>branchModal();}
+  // شريط الباقة (للمالك/المدير)
+  if(state.role==="owner"||state.role==="manager"){
+    const pill=el("div","card"); pill.id="planPill"; pill.style.cssText="margin-bottom:16px;padding:10px 14px;font-size:13px";
+    pill.innerHTML="<span class='muted'>جارٍ التحميل…</span>"; c.appendChild(pill);
+    cRef().get().then(d=>{ const cd=d.data()||{}; const max=planMax(cd); cRef().collection("branches").get().then(bs=>{
+      const used=bs.size; const p=$("planPill"); if(!p)return;
+      const maxTxt=max===Infinity?"غير محدودة":max;
+      const warn=(max!==Infinity&&used>=max);
+      p.innerHTML="باقتك: <b>"+esc(planLabel(cd))+"</b> — الفروع: <b style='color:"+(warn?"var(--amber)":"inherit")+"'>"+used+" / "+maxTxt+"</b>"+(warn?" <span style='color:var(--amber)'>(وصلت الحد — للمزيد رقّي باقتك)</span>":"");
+      if(typeof translateTree==="function") translateTree(p);
+    }); }).catch(()=>{ const p=$("planPill"); if(p)p.style.display="none"; });
+  }
   const grid=el("div"); grid.id="brGrid"; grid.style.cssText="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:16px";
   c.appendChild(grid);
   cRef().collection("branches").orderBy("name").onSnapshot(async s=>{
@@ -2641,7 +2690,20 @@ function branchModal(id,x){x=x||{};
       const name=$("brName").value.trim();if(!name){toast("أدخل اسم الفرع","err");return false;}
       const data={name,address:$("brAddr").value.trim(),phone:$("brPhone").value.trim()};
       if(id){await cRef().collection("branches").doc(id).update(data);logAction("edit_branch",name);}
-      else{data.createdAt=now();await cRef().collection("branches").add(data);logAction("add_branch",name);}
+      else{
+        // فحص حد الباقة قبل إضافة فرع جديد
+        try{
+          const cd=(await cRef().get()).data()||{};
+          const max=planMax(cd);
+          const cur=(await cRef().collection("branches").get()).size;
+          if(cur>=max){
+            const lbl=planLabel(cd);
+            toast(LANG==="en"?("Branch limit reached for your "+lbl+" plan ("+max+"). Upgrade to add more."):("وصلت الحد الأقصى للفروع في باقتك ("+lbl+" — "+max+" فروع). رقّي باقتك لإضافة المزيد."),"err");
+            return false;
+          }
+        }catch(e){}
+        data.createdAt=now();await cRef().collection("branches").add(data);logAction("add_branch",name);
+      }
       openPage("branches"); return true;
     });
 }
@@ -3305,7 +3367,7 @@ function renderAudit(container,ref,title,inline){
   card.innerHTML=(card.innerHTML||"")+"<table><thead><tr><th>العملية</th><th>المستخدم</th><th>التفاصيل</th><th>الوقت</th></tr></thead><tbody id='auditRows'><tr><td colspan='4' class='muted'>جارٍ التحميل…</td></tr></tbody></table>";
   ref.orderBy("at","desc").limit(80).onSnapshot(s=>{const tb=document.getElementById("auditRows");if(!tb)return;tb.innerHTML="";
     if(s.empty){tb.innerHTML="<tr><td colspan='4' class='muted'>لا يوجد سجل</td></tr>";return;}
-    const names={login:"تسجيل دخول",create_company:"إنشاء شركة",suspend_company:"إيقاف شركة",activate_company:"تشغيل شركة",delete_company:"حذف شركة",update_subscription:"تعديل اشتراك",admin_enter:"دخول إداري",add_branch:"إضافة فرع",edit_branch:"تعديل فرع",delete_branch:"حذف فرع",add_user:"إضافة مستخدم",edit_permissions:"تعديل صلاحيات",submit_closing:"إرسال إقفال",approve_closing:"اعتماد إقفال",reject_closing:"رفض إقفال",add_invoice:"إرسال فاتورة",approve_invoice:"اعتماد فاتورة",reject_invoice:"رفض فاتورة",add_product:"إضافة منتج",edit_product:"تعديل منتج",delete_product:"حذف منتج",add_category:"إضافة تصنيف",add_supplier:"إضافة مورد",edit_supplier:"تعديل مورد",delete_supplier:"حذف مورد",add_supplier_product:"إضافة منتج لمورد",update_price:"تحديث سعر",add_employee:"إضافة موظف",edit_employee:"تعديل موظف",save_payroll:"حفظ كشف رواتب",add_evaluation:"تقييم موظف",add_checklist:"إضافة قائمة",edit_checklist:"تعديل قائمة",delete_checklist:"حذف قائمة",add_task:"إضافة مهمة",submit_checklist:"تنفيذ قائمة",approve_checklist:"اعتماد تنفيذ",reject_checklist:"رفض تنفيذ",edit_profile:"تعديل الملف التعريفي",save_document:"حفظ وثيقة",change_theme:"تغيير الثيم",add_branch_eval:"تقييم فرع",add_recipe:"إضافة وصفة",edit_recipe:"تعديل وصفة",delete_recipe:"حذف وصفة",edit_slug:"تعديل رابط الشركة",suspend_account:"إيقاف حساب موظف",activate_account:"تفعيل حساب موظف",delete_account:"حذف حساب موظف",delete_employee:"حذف موظف",stock_count:"إرسال جرد",approve_count:"اعتماد جرد",reject_count:"رفض جرد",stock_order:"إرسال طلب",approve_order:"اعتماد طلب",reject_order:"رفض طلب",order_done:"إنهاء طلب",waste:"إرسال تالف",approve_waste:"اعتماد تالف",reject_waste:"رفض تالف",section_visibility:"ظهور قسم"};
+    const names={login:"تسجيل دخول",create_company:"إنشاء شركة",suspend_company:"إيقاف شركة",activate_company:"تشغيل شركة",delete_company:"حذف شركة",update_subscription:"تعديل اشتراك",update_plan:"تغيير الباقة",admin_enter:"دخول إداري",add_branch:"إضافة فرع",edit_branch:"تعديل فرع",delete_branch:"حذف فرع",add_user:"إضافة مستخدم",edit_permissions:"تعديل صلاحيات",submit_closing:"إرسال إقفال",approve_closing:"اعتماد إقفال",reject_closing:"رفض إقفال",add_invoice:"إرسال فاتورة",approve_invoice:"اعتماد فاتورة",reject_invoice:"رفض فاتورة",add_product:"إضافة منتج",edit_product:"تعديل منتج",delete_product:"حذف منتج",add_category:"إضافة تصنيف",add_supplier:"إضافة مورد",edit_supplier:"تعديل مورد",delete_supplier:"حذف مورد",add_supplier_product:"إضافة منتج لمورد",update_price:"تحديث سعر",add_employee:"إضافة موظف",edit_employee:"تعديل موظف",save_payroll:"حفظ كشف رواتب",add_evaluation:"تقييم موظف",add_checklist:"إضافة قائمة",edit_checklist:"تعديل قائمة",delete_checklist:"حذف قائمة",add_task:"إضافة مهمة",submit_checklist:"تنفيذ قائمة",approve_checklist:"اعتماد تنفيذ",reject_checklist:"رفض تنفيذ",edit_profile:"تعديل الملف التعريفي",save_document:"حفظ وثيقة",change_theme:"تغيير الثيم",add_branch_eval:"تقييم فرع",add_recipe:"إضافة وصفة",edit_recipe:"تعديل وصفة",delete_recipe:"حذف وصفة",edit_slug:"تعديل رابط الشركة",suspend_account:"إيقاف حساب موظف",activate_account:"تفعيل حساب موظف",delete_account:"حذف حساب موظف",delete_employee:"حذف موظف",stock_count:"إرسال جرد",approve_count:"اعتماد جرد",reject_count:"رفض جرد",stock_order:"إرسال طلب",approve_order:"اعتماد طلب",reject_order:"رفض طلب",order_done:"إنهاء طلب",waste:"إرسال تالف",approve_waste:"اعتماد تالف",reject_waste:"رفض تالف",section_visibility:"ظهور قسم"};
     s.forEach(d=>{const x=d.data();const t=x.at&&x.at.toDate?x.at.toDate().toLocaleString("ar-SA-u-ca-gregory-nu-latn"):"—";
       tb.appendChild(el("tr",null,"<td>"+(names[x.action]||esc(x.action))+"</td><td class='muted'>"+esc(x.userName||"")+"</td><td class='muted'>"+esc(x.details||"")+"</td><td class='muted'>"+t+"</td>"));});
   },()=>{});
