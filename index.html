@@ -1669,10 +1669,12 @@ function pageSales(c){
       const tr=el("tr",null,"<td>"+fmtDT(x.createdAt)+"</td><td>"+esc(x.branchName||"—")+"</td><td>"+esc(x.employeeName)+"</td><td>"+statusTag3(x.status)+"</td><td></td>");
       const act=tr.lastChild;
       const v=el("button","btn sm","عرض"); v.onclick=()=>viewClosing(d.id,x); act.appendChild(v);
-      if(x.status!=="approved"&&x.status!=="rejected"){
+      if(x.status!=="approved"){
         const ap=el("button","btn sm","اعتماد");ap.style.marginRight="6px";
         ap.onclick=()=>{cRef().collection("dailyClosings").doc(d.id).update({status:"approved",approvedBy:state.user.uid,approvedAt:now()});logAction("approve_closing",x.date+" / "+x.branchName);};
         act.appendChild(ap);
+      }
+      if(x.status!=="rejected"){
         const rj=el("button","btn sm danger","رفض");rj.style.marginRight="6px";
         rj.onclick=()=>{cRef().collection("dailyClosings").doc(d.id).update({status:"rejected",approvedBy:state.user.uid,approvedAt:now()});logAction("reject_closing",x.date+" / "+x.branchName);};
         act.appendChild(rj);
@@ -1851,10 +1853,8 @@ function pageInvoices(c){
       const tr=el("tr",null,"<td>"+fmtDT(x.createdAt)+"</td><td class='muted'>"+supplier+"</td><td><b>"+money(x.total)+"</b></td><td class='muted'>"+esc(x.employeeName||x.createdByName||"")+"</td><td>"+statusTag3(x.status)+"</td><td></td>");
       const act=tr.lastChild;
       const v=el("button","btn sm","عرض"); v.onclick=()=>viewInvoice(x); act.appendChild(v);
-      if(x.status!=="approved"&&x.status!=="rejected"){
-        const ap=el("button","btn sm","اعتماد");ap.style.marginRight="6px";ap.onclick=()=>{cRef().collection("invoices").doc(d.id).update({status:"approved",approvedBy:state.user.uid,approvedAt:now()});logAction("approve_invoice",supplier);};act.appendChild(ap);
-        const rj=el("button","btn sm danger","رفض");rj.style.marginRight="6px";rj.onclick=()=>{cRef().collection("invoices").doc(d.id).update({status:"rejected",approvedBy:state.user.uid,approvedAt:now()});logAction("reject_invoice",supplier);};act.appendChild(rj);
-      }
+      if(x.status!=="approved"){ const ap=el("button","btn sm","اعتماد");ap.style.marginRight="6px";ap.onclick=()=>{cRef().collection("invoices").doc(d.id).update({status:"approved",approvedBy:state.user.uid,approvedAt:now()});logAction("approve_invoice",supplier);};act.appendChild(ap); }
+      if(x.status!=="rejected"){ const rj=el("button","btn sm danger","رفض");rj.style.marginRight="6px";rj.onclick=()=>{cRef().collection("invoices").doc(d.id).update({status:"rejected",approvedBy:state.user.uid,approvedAt:now()});logAction("reject_invoice",supplier);};act.appendChild(rj); }
       tb.appendChild(tr);
     });
   },()=>{const tb=$("invRows");if(tb)tb.innerHTML="<tr><td colspan='6' style='color:var(--red)'>تعذّر التحميل</td></tr>";});
@@ -2132,10 +2132,8 @@ async function invCount(c){
       const tr=el("tr",null,"<td>"+fmtDT(x.at)+"</td><td>"+esc(x.byName)+"</td><td class='muted'>"+((x.results||[]).length)+"</td>"+costTd+"<td>"+statusTag3(x.status)+"</td><td></td>");
       const act=tr.lastChild;
       const v=el("button","btn sm","عرض"); v.onclick=()=>viewCount(x); act.appendChild(v);
-      if(x.status!=="approved"&&x.status!=="rejected"){
-        const ap=el("button","btn sm","اعتماد");ap.style.marginRight="6px";ap.onclick=()=>approveCount(x.id,x);act.appendChild(ap);
-        const rj=el("button","btn sm danger","رفض");rj.style.marginRight="6px";rj.onclick=()=>{cRef().collection("stockCounts").doc(x.id).update({status:"rejected",approvedBy:state.user.uid,approvedAt:now()});logAction("reject_count",x.byName);};act.appendChild(rj);
-      }
+      if(x.status!=="approved"){ const ap=el("button","btn sm","اعتماد");ap.style.marginRight="6px";ap.onclick=()=>setCountStatus(x.id,x,"approved");act.appendChild(ap); }
+      if(x.status!=="rejected"){ const rj=el("button","btn sm danger","رفض");rj.style.marginRight="6px";rj.onclick=()=>setCountStatus(x.id,x,"rejected");act.appendChild(rj); }
       tb.appendChild(tr);
     });
   },()=>{const tb=$("cntRows");if(tb)tb.innerHTML="<tr><td colspan='6' style='color:var(--red)'>تعذّر التحميل</td></tr>";});
@@ -2157,6 +2155,28 @@ async function approveCount(id,x){
   for(const r of (x.results||[])){ if(r.productId!=null){ try{ await cRef().collection("branchStock").doc(bsId(bid,r.productId)).set({branchId:bid,productId:r.productId,name:r.name,qty:Number(r.actualQty)||0,updatedAt:now()},{merge:true}); }catch(e){} } }
   await cRef().collection("stockCounts").doc(id).update({status:"approved",approvedBy:state.user.uid,approvedAt:now()});
   logAction("approve_count",(x.results||[]).length+" منتج — "+(x.branchName||"")); toast("تم اعتماد الجرد وتحديث كميات الفرع","ok");
+}
+// هل يوجد جرد معتمد أحدث لنفس الفرع؟ (يمنع التراجع غير الآمن)
+async function newerApprovedCount(branchId, at, exceptId){
+  try{ const s=await cRef().collection("stockCounts").where("branchId","==",branchId).where("status","==","approved").get();
+    let f=false; s.forEach(d=>{ if(d.id===exceptId)return; const y=d.data(); if(y.at&&at&&y.at.seconds>at.seconds) f=true; }); return f;
+  }catch(e){ return false; }
+}
+async function setCountStatus(id,x,newStatus){
+  if(x.status===newStatus) return;
+  const bid=x.branchId;
+  if(newStatus==="approved"){
+    if(await newerApprovedCount(bid,x.at,id)){ toast("لا يمكن الاعتماد — يوجد جرد أحدث معتمد لهذا الفرع. سجّل جرداً جديداً بدلاً من ذلك.","err"); return; }
+    return approveCount(id,x);
+  }
+  // مغادرة الاعتماد (approved → rejected): إرجاع الكميات لما قبل هذا الجرد
+  if(x.status==="approved"){
+    if(await newerApprovedCount(bid,x.at,id)){ toast("لا يمكن التراجع — يوجد جرد أحدث معتمد لهذا الفرع. سجّل جرداً جديداً للتصحيح.","err"); return; }
+    for(const r of (x.results||[])){ if(r.productId!=null){ try{ await cRef().collection("branchStock").doc(bsId(bid,r.productId)).set({branchId:bid,productId:r.productId,name:r.name,qty:Number(r.systemQty)||0,updatedAt:now()},{merge:true}); }catch(e){} } }
+  }
+  await cRef().collection("stockCounts").doc(id).update({status:newStatus,approvedBy:state.user.uid,approvedAt:now()});
+  logAction(newStatus==="rejected"?"reject_count":"update_count",(x.branchName||""));
+  toast(newStatus==="rejected"?"تم رفض الجرد وإرجاع الكميات":"تم التحديث","ok");
 }
 async function invCountForm(c,br){
   const snap=await cRef().collection("products").orderBy("name").get();
@@ -2212,10 +2232,8 @@ async function invOrders(c){
       const tr=el("tr",null,"<td>"+fmtDT(x.at)+"</td><td>"+esc(x.byName)+"</td><td class='muted'>"+items+"</td><td>"+statusTag3(x.status)+"</td><td></td>");
       const act=tr.lastChild;
       const v=el("button","btn sm","عرض");v.onclick=()=>{ openModal("تفاصيل الطلب — "+esc(x.branchName||""),(x.items||[]).map(it=>"<div class='review-row'><span>"+esc(it.name)+"</span><b>×"+(it.qty||0)+"</b></div>").join("")+"<div class='review-row'><span>الحالة</span>"+statusTag3(x.status)+"</div>","تم",()=>true,true); };act.appendChild(v);
-      if(x.status!=="approved"&&x.status!=="rejected"){
-        const ap=el("button","btn sm","اعتماد");ap.style.marginRight="6px";ap.onclick=()=>{cRef().collection("stockOrders").doc(x.id).update({status:"approved",approvedBy:state.user.uid,approvedAt:now()});logAction("approve_order",x.byName);};act.appendChild(ap);
-        const rj=el("button","btn sm danger","رفض");rj.style.marginRight="6px";rj.onclick=()=>{cRef().collection("stockOrders").doc(x.id).update({status:"rejected",approvedBy:state.user.uid,approvedAt:now()});logAction("reject_order",x.byName);};act.appendChild(rj);
-      }
+      if(x.status!=="approved"){ const ap=el("button","btn sm","اعتماد");ap.style.marginRight="6px";ap.onclick=()=>{cRef().collection("stockOrders").doc(x.id).update({status:"approved",approvedBy:state.user.uid,approvedAt:now()});logAction("approve_order",x.byName);};act.appendChild(ap); }
+      if(x.status!=="rejected"){ const rj=el("button","btn sm danger","رفض");rj.style.marginRight="6px";rj.onclick=()=>{cRef().collection("stockOrders").doc(x.id).update({status:"rejected",approvedBy:state.user.uid,approvedAt:now()});logAction("reject_order",x.byName);};act.appendChild(rj); }
       tb.appendChild(tr);
     });
   },()=>{const tb=$("ordRows");if(tb)tb.innerHTML="<tr><td colspan='5' style='color:var(--red)'>تعذّر التحميل</td></tr>";});
@@ -2268,16 +2286,14 @@ async function invWaste(c){
       const tr=el("tr",null,"<td>"+fmtDT(x.at)+"</td><td><b>"+esc(x.name)+"</b></td><td>"+esc(x.qty)+"</td><td class='muted'>"+esc(x.reason||"—")+"</td><td style='color:var(--red)'>"+money(x.cost||0)+"</td><td>"+statusTag3(x.status)+"</td><td></td>");
       const act=tr.lastChild;
       const v=el("button","btn sm","عرض");v.onclick=()=>viewWaste(x.id,x);act.appendChild(v);
-      if(x.status!=="approved"&&x.status!=="rejected"){
-        const ap=el("button","btn sm","اعتماد");ap.style.marginRight="6px";ap.onclick=()=>viewWaste(x.id,x,true);act.appendChild(ap);
-        const rj=el("button","btn sm danger","رفض");rj.style.marginRight="6px";rj.onclick=()=>{cRef().collection("waste").doc(x.id).update({status:"rejected",approvedBy:state.user.uid,approvedAt:now()});logAction("reject_waste",x.name);};act.appendChild(rj);
-      }
+      if(x.status!=="approved"){ const ap=el("button","btn sm","اعتماد");ap.style.marginRight="6px";ap.onclick=()=>viewWaste(x.id,x,true);act.appendChild(ap); }
+      if(x.status!=="rejected"){ const rj=el("button","btn sm danger","رفض");rj.style.marginRight="6px";rj.onclick=()=>setWasteStatus(x.id,x,"rejected");act.appendChild(rj); }
       tb.appendChild(tr);
     });
   },()=>{const tb=$("wsRows");if(tb)tb.innerHTML="<tr><td colspan='7' style='color:var(--red)'>تعذّر التحميل</td></tr>";});
 }
 function viewWaste(id,x,doApprove){
-  const canAct=x.status!=="approved"&&x.status!=="rejected";
+  const canAct=x.status!=="approved";
   openModal("تفاصيل التالف — "+esc(x.branchName||""),
     "<div class='review-row'><span>التاريخ والوقت</span><b>"+fmtDT(x.at)+"</b></div>"+
     "<div class='review-row'><span>الفرع</span><b>"+esc(x.branchName||"")+"</b></div>"+
@@ -2295,6 +2311,24 @@ async function approveWaste(id,x,note){
   try{ const ref=cRef().collection("branchStock").doc(bsId(x.branchId,x.productId)); const pd=await ref.get(); const cur=pd.exists?(Number(pd.data().qty)||0):0; await ref.set({branchId:x.branchId,productId:x.productId,name:x.name,qty:Math.max(0,cur-(Number(x.qty)||0)),updatedAt:now()},{merge:true}); }catch(e){}
   await cRef().collection("waste").doc(id).update({status:"approved",note:note||"",approvedBy:state.user.uid,approvedAt:now()});
   logAction("approve_waste",x.name+" ×"+x.qty+" — "+(x.branchName||"")); toast("تم اعتماد التالف وخصمه من الفرع","ok");
+}
+// يوجد جرد معتمد أحدث لنفس الفرع بعد هذا التالف؟ (يجعل التراجع غير دقيق)
+async function newerCountAfterWaste(branchId, at){
+  try{ const s=await cRef().collection("stockCounts").where("branchId","==",branchId).where("status","==","approved").get();
+    let f=false; s.forEach(d=>{const y=d.data(); if(y.at&&at&&y.at.seconds>at.seconds) f=true;}); return f;
+  }catch(e){ return false; }
+}
+async function setWasteStatus(id,x,newStatus){
+  if(x.status===newStatus) return;
+  if(newStatus==="approved"){ return approveWaste(id,x,x.note||""); }
+  // مغادرة الاعتماد: إرجاع الكمية للمخزون (بشرط عدم وجود جرد أحدث)
+  if(x.status==="approved"){
+    if(await newerCountAfterWaste(x.branchId,x.at)){ toast("لا يمكن التراجع — يوجد جرد أحدث معتمد لهذا الفرع. سجّل جرداً جديداً للتصحيح.","err"); return; }
+    try{ const ref=cRef().collection("branchStock").doc(bsId(x.branchId,x.productId)); const pd=await ref.get(); const cur=pd.exists?(Number(pd.data().qty)||0):0; await ref.set({branchId:x.branchId,productId:x.productId,name:x.name,qty:cur+(Number(x.qty)||0),updatedAt:now()},{merge:true}); }catch(e){}
+  }
+  await cRef().collection("waste").doc(id).update({status:newStatus,approvedBy:state.user.uid,approvedAt:now()});
+  logAction(newStatus==="rejected"?"reject_waste":"update_waste",x.name+" — "+(x.branchName||""));
+  toast(newStatus==="rejected"?"تم رفض التالف وإرجاع الكمية":"تم التحديث","ok");
 }
 async function invWasteForm(c,br){
   const snap=await cRef().collection("products").orderBy("name").get();
@@ -3414,7 +3448,7 @@ function renderAudit(container,ref,title,inline){
   card.innerHTML=(card.innerHTML||"")+"<table><thead><tr><th>العملية</th><th>المستخدم</th><th>التفاصيل</th><th>الوقت</th></tr></thead><tbody id='auditRows'><tr><td colspan='4' class='muted'>جارٍ التحميل…</td></tr></tbody></table>";
   ref.orderBy("at","desc").limit(80).onSnapshot(s=>{const tb=document.getElementById("auditRows");if(!tb)return;tb.innerHTML="";
     if(s.empty){tb.innerHTML="<tr><td colspan='4' class='muted'>لا يوجد سجل</td></tr>";return;}
-    const names={login:"تسجيل دخول",create_company:"إنشاء شركة",suspend_company:"إيقاف شركة",activate_company:"تشغيل شركة",delete_company:"حذف شركة",update_subscription:"تعديل اشتراك",update_plan:"تغيير الباقة",admin_enter:"دخول إداري",add_branch:"إضافة فرع",edit_branch:"تعديل فرع",delete_branch:"حذف فرع",add_user:"إضافة مستخدم",edit_permissions:"تعديل صلاحيات",submit_closing:"إرسال إقفال",approve_closing:"اعتماد إقفال",reject_closing:"رفض إقفال",add_invoice:"إرسال فاتورة",approve_invoice:"اعتماد فاتورة",reject_invoice:"رفض فاتورة",add_product:"إضافة منتج",edit_product:"تعديل منتج",delete_product:"حذف منتج",add_category:"إضافة تصنيف",add_supplier:"إضافة مورد",edit_supplier:"تعديل مورد",delete_supplier:"حذف مورد",add_supplier_product:"إضافة منتج لمورد",update_price:"تحديث سعر",add_employee:"إضافة موظف",edit_employee:"تعديل موظف",save_payroll:"حفظ كشف رواتب",add_evaluation:"تقييم موظف",add_checklist:"إضافة قائمة",edit_checklist:"تعديل قائمة",delete_checklist:"حذف قائمة",add_task:"إضافة مهمة",submit_checklist:"تنفيذ قائمة",approve_checklist:"اعتماد تنفيذ",reject_checklist:"رفض تنفيذ",edit_profile:"تعديل الملف التعريفي",save_document:"حفظ وثيقة",change_theme:"تغيير الثيم",add_branch_eval:"تقييم فرع",add_recipe:"إضافة وصفة",edit_recipe:"تعديل وصفة",delete_recipe:"حذف وصفة",edit_slug:"تعديل رابط الشركة",suspend_account:"إيقاف حساب موظف",activate_account:"تفعيل حساب موظف",delete_account:"حذف حساب موظف",delete_employee:"حذف موظف",stock_count:"إرسال جرد",approve_count:"اعتماد جرد",reject_count:"رفض جرد",stock_order:"إرسال طلب",approve_order:"اعتماد طلب",reject_order:"رفض طلب",order_done:"إنهاء طلب",waste:"إرسال تالف",approve_waste:"اعتماد تالف",reject_waste:"رفض تالف",section_visibility:"ظهور قسم"};
+    const names={login:"تسجيل دخول",create_company:"إنشاء شركة",suspend_company:"إيقاف شركة",activate_company:"تشغيل شركة",delete_company:"حذف شركة",update_subscription:"تعديل اشتراك",update_plan:"تغيير الباقة",admin_enter:"دخول إداري",add_branch:"إضافة فرع",edit_branch:"تعديل فرع",delete_branch:"حذف فرع",add_user:"إضافة مستخدم",edit_permissions:"تعديل صلاحيات",submit_closing:"إرسال إقفال",approve_closing:"اعتماد إقفال",reject_closing:"رفض إقفال",add_invoice:"إرسال فاتورة",approve_invoice:"اعتماد فاتورة",reject_invoice:"رفض فاتورة",add_product:"إضافة منتج",edit_product:"تعديل منتج",delete_product:"حذف منتج",add_category:"إضافة تصنيف",add_supplier:"إضافة مورد",edit_supplier:"تعديل مورد",delete_supplier:"حذف مورد",add_supplier_product:"إضافة منتج لمورد",update_price:"تحديث سعر",add_employee:"إضافة موظف",edit_employee:"تعديل موظف",save_payroll:"حفظ كشف رواتب",add_evaluation:"تقييم موظف",add_checklist:"إضافة قائمة",edit_checklist:"تعديل قائمة",delete_checklist:"حذف قائمة",add_task:"إضافة مهمة",submit_checklist:"تنفيذ قائمة",approve_checklist:"اعتماد تنفيذ",reject_checklist:"رفض تنفيذ",edit_profile:"تعديل الملف التعريفي",save_document:"حفظ وثيقة",change_theme:"تغيير الثيم",add_branch_eval:"تقييم فرع",add_recipe:"إضافة وصفة",edit_recipe:"تعديل وصفة",delete_recipe:"حذف وصفة",edit_slug:"تعديل رابط الشركة",suspend_account:"إيقاف حساب موظف",activate_account:"تفعيل حساب موظف",delete_account:"حذف حساب موظف",delete_employee:"حذف موظف",stock_count:"إرسال جرد",approve_count:"اعتماد جرد",reject_count:"رفض جرد",stock_order:"إرسال طلب",approve_order:"اعتماد طلب",reject_order:"رفض طلب",order_done:"إنهاء طلب",waste:"إرسال تالف",approve_waste:"اعتماد تالف",reject_waste:"رفض تالف",update_count:"تعديل جرد",update_waste:"تعديل تالف",section_visibility:"ظهور قسم"};
     s.forEach(d=>{const x=d.data();const t=x.at&&x.at.toDate?x.at.toDate().toLocaleString("ar-SA-u-ca-gregory-nu-latn"):"—";
       tb.appendChild(el("tr",null,"<td>"+(names[x.action]||esc(x.action))+"</td><td class='muted'>"+esc(x.userName||"")+"</td><td class='muted'>"+esc(x.details||"")+"</td><td class='muted'>"+t+"</td>"));});
   },()=>{});
