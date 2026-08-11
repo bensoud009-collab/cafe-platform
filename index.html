@@ -216,7 +216,7 @@ const MODULES = [
   {key:"dashboard",  name:"لوحة التحكم", icon:""},
   {key:"sales",      name:"الإقفال اليومي", icon:""},
   {key:"invoices",   name:"الفواتير", icon:""},
-  {key:"inventory",  name:"المخزون والجرد", icon:""},
+  {key:"inventory",  name:"المخزون", icon:""},
   {key:"suppliers",  name:"الموردين", icon:""},
   {key:"staff",      name:"شؤون الموظفين", icon:""},
   {key:"checklist",  name:"قوائم التحقّق التشغيلي", icon:""},
@@ -255,6 +255,9 @@ function t(k){ return (I18N[LANG]&&I18N[LANG][k]) || I18N.ar[k] || k; }
 
 // قاموس ترجمة عربي→إنجليزي للعبارات الظاهرة (يتوسّع تدريجياً)
 const EN={
+  "فلترة بالتصنيف":"Filter by category","كل التصنيفات":"All categories","كتالوج منتجات الشركة (لكل الفروع)":"Company product catalog (all branches)",
+  "الجرد والطلب والتوالف — فرعك":"Counts, orders & waste — your branch","سعر التكلفة":"Cost price",
+  "جرد كميات هذا الفرع":"Count this branch's quantities","طلبات هذا الفرع":"This branch's orders","توالف هذا الفرع":"This branch's waste",
   "كتالوج منتجات الشركة (لكل الفروع)":"Company product catalog (all branches)","الفرع: ":"Branch: ",
   "لم يتم تعيين فرعك بعد. راجع صاحب الشركة.":"Your branch isn't assigned yet. Contact the owner.",
   "أضف فرعاً أولاً من قسم «الفروع».":"Add a branch first from the Branches section.",
@@ -1833,10 +1836,17 @@ function pageInvoices(c){
     return;
   }
 
-  // ===== المالك/المدير: بطاقتان + جدول + عرض/اعتماد/رفض =====
+  // ===== المالك/المدير: بطاقتان + فلتر تصنيف + جدول =====
   const kpiWrap=el("div","kpi-grid"); kpiWrap.style.marginBottom="16px";
   kpiWrap.innerHTML=kpi("عدد المشتريات (الشهر)","invCount","—")+kpi("إجمالي المشتريات (الشهر)","invTotal","—");
   c.appendChild(kpiWrap);
+  // فلتر التصنيف (يعتمد على أسماء المنتجات داخل الفاتورة)
+  const filtWrap=el("div"); filtWrap.style.cssText="max-width:280px;margin-bottom:16px";
+  filtWrap.innerHTML="<label class='field'><span>فلترة بالتصنيف</span><select id='invCatFilter' class='input'><option value=''>كل التصنيفات</option></select></label>";
+  c.appendChild(filtWrap);
+  const nameCat={};
+  loadCategories().then(cats=>{ const sel=$("invCatFilter"); if(sel&&cats.length) sel.innerHTML="<option value=''>كل التصنيفات</option>"+cats.map(k=>"<option value='"+esc(k)+"'>"+esc(k)+"</option>").join(""); });
+  cRef().collection("products").get().then(s=>{ s.forEach(d=>{const x=d.data(); if(x.name) nameCat[x.name]=x.category||"";}); });
   const card=el("div","card");
   card.innerHTML="<table><thead><tr><th>التاريخ والوقت</th><th>المورد</th><th>الإجمالي</th><th>المُرسِل</th><th>الحالة</th><th>إجراء</th></tr></thead><tbody id='invRows'><tr><td colspan='6' class='muted'>جارٍ التحميل…</td></tr></tbody></table>";
   c.appendChild(card);
@@ -1845,18 +1855,24 @@ function pageInvoices(c){
     let total=0,count=0; s.forEach(d=>{const x=d.data(); if(x.status==="approved"){total+=Number(x.total)||0;count++;}});
     if($("invCount"))$("invCount").textContent=count; if($("invTotal"))$("invTotal").textContent=money(total);
   },()=>{});
-  cRef().collection("invoices").orderBy("createdAt","desc").limit(100).onSnapshot(s=>{
-    const tb=$("invRows");if(!tb)return;tb.innerHTML="";
-    if(s.empty){tb.innerHTML="<tr><td colspan='6' class='muted'>لا توجد فواتير</td></tr>";return;}
-    s.forEach(d=>{const x=d.data();
+  let allInv=[];
+  const renderInv=()=>{
+    const tb=$("invRows");if(!tb)return; const filter=($("invCatFilter")&&$("invCatFilter").value)||"";
+    const rows=allInv.filter(x=>{ if(!filter)return true; return (x.items||[]).some(it=>(nameCat[it.name]||"")===filter); });
+    tb.innerHTML=""; if(!rows.length){tb.innerHTML="<tr><td colspan='6' class='muted'>لا توجد فواتير</td></tr>";return;}
+    rows.forEach(x=>{
       const supplier=x.supplier?esc(x.supplier):"—";
       const tr=el("tr",null,"<td>"+fmtDT(x.createdAt)+"</td><td class='muted'>"+supplier+"</td><td><b>"+money(x.total)+"</b></td><td class='muted'>"+esc(x.employeeName||x.createdByName||"")+"</td><td>"+statusTag3(x.status)+"</td><td></td>");
       const act=tr.lastChild;
       const v=el("button","btn sm","عرض"); v.onclick=()=>viewInvoice(x); act.appendChild(v);
-      if(x.status!=="approved"){ const ap=el("button","btn sm","اعتماد");ap.style.marginRight="6px";ap.onclick=()=>{cRef().collection("invoices").doc(d.id).update({status:"approved",approvedBy:state.user.uid,approvedAt:now()});logAction("approve_invoice",supplier);};act.appendChild(ap); }
-      if(x.status!=="rejected"){ const rj=el("button","btn sm danger","رفض");rj.style.marginRight="6px";rj.onclick=()=>{cRef().collection("invoices").doc(d.id).update({status:"rejected",approvedBy:state.user.uid,approvedAt:now()});logAction("reject_invoice",supplier);};act.appendChild(rj); }
+      if(x.status!=="approved"){ const ap=el("button","btn sm","اعتماد");ap.style.marginRight="6px";ap.onclick=()=>{cRef().collection("invoices").doc(x.id).update({status:"approved",approvedBy:state.user.uid,approvedAt:now()});logAction("approve_invoice",supplier);};act.appendChild(ap); }
+      if(x.status!=="rejected"){ const rj=el("button","btn sm danger","رفض");rj.style.marginRight="6px";rj.onclick=()=>{cRef().collection("invoices").doc(x.id).update({status:"rejected",approvedBy:state.user.uid,approvedAt:now()});logAction("reject_invoice",supplier);};act.appendChild(rj); }
       tb.appendChild(tr);
     });
+  };
+  const fSel=$("invCatFilter"); if(fSel) fSel.onchange=renderInv;
+  cRef().collection("invoices").orderBy("createdAt","desc").limit(100).onSnapshot(s=>{
+    allInv=[]; s.forEach(d=>allInv.push({id:d.id,...d.data()})); renderInv();
   },()=>{const tb=$("invRows");if(tb)tb.innerHTML="<tr><td colspan='6' style='color:var(--red)'>تعذّر التحميل</td></tr>";});
 }
 function viewInvoice(x){
@@ -1999,10 +2015,33 @@ function saveInvPrefs(prefs){
   cRef().collection("users").doc(state.user.uid).update({invPrefs:prefs}).then(()=>{ state.profile.invPrefs=prefs; openPage("inventory"); }).catch(()=>toast("تعذّر الحفظ","err"));
 }
 function pageInventory(c){
+  // المالك: المخزون = كتالوج المنتجات فقط (الجرد/الطلب/التوالف انتقلت داخل بطاقة الفرع)
+  if(state.role==="owner"){ pageProducts(c,true); return; }
+  // الموظف/المدير: مربوطون بفرعهم — يسجّلون الجرد/الطلب/التوالف لفرعهم
+  const prefs=(state.profile&&state.profile.invPrefs)||{cards:[]};
+  const cards=Array.isArray(prefs.cards)?prefs.cards:[];
+  c.innerHTML=pageTitle("المخزون","الجرد والطلب والتوالف — فرعك");
+  const sections=[{k:"count",t:"الجرد",ic:"",d:"جرد الكميات"},{k:"order",t:"الطلب",ic:"",d:"اطلب نواقص المخزون"},{k:"waste",t:"تالف",ic:"",d:"تسجيل التالف"}];
+  const grid=el("div"); grid.style.cssText="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:16px";
+  sections.forEach(x=>{ const card=el("div","card"); card.style.cssText="cursor:pointer;min-height:120px;position:relative";
+    let badge="<span id='badge_"+x.k+"' style='position:absolute;top:10px;left:10px;background:var(--red);color:#fff;border-radius:999px;min-width:20px;height:20px;font-size:12px;display:none;align-items:center;justify-content:center;padding:0 5px'></span>";
+    card.innerHTML="<div style='font-weight:800'>"+x.t+"</div><div class='muted' style='font-size:13px;margin-top:4px'>"+x.d+"</div>"+badge;
+    card.onclick=()=>{ const f={count:invCount,order:invOrders,waste:invWaste}[x.k]; f(c); setTimeout(()=>{ if(typeof translateTree==="function") translateTree(c); },60); };
+    grid.appendChild(card);
+  });
+  c.appendChild(grid);
+  // شارات المعلّق لفرع الموظف (المدير مُعتمِد)
+  if(invApprover()){
+    const bid=state.profile.branchId;
+    const setBadge=(coll,id)=>{ let q=cRef().collection(coll); q.onSnapshot(s=>{ let n=0; s.forEach(d=>{const y=d.data(); if(bid&&y.branchId!==bid)return; const st=y.status; if(st!=="approved"&&st!=="rejected"&&st!=="done")n++;}); const b=$(id); if(b){ if(n){b.textContent=n;b.style.display="flex";}else b.style.display="none"; } },()=>{}); };
+    setBadge("stockOrders","badge_order"); setBadge("stockCounts","badge_count"); setBadge("waste","badge_waste");
+  }
+}
+function pageInventory_OLD(c){
   const owner=canSeeCost();
   const prefs=(state.profile&&state.profile.invPrefs)||{cards:[]};
   const cards=Array.isArray(prefs.cards)?prefs.cards:[];
-  c.innerHTML=pageTitle("المخزون والجرد","إدارة المخزون والجرد والطلبات");
+  c.innerHTML=pageTitle("المخزون","إدارة المخزون والجرد والطلبات");
   // أدوات بطاقات الأرقام (للمالك/المدير فقط)
   if(owner){
     c.innerHTML+="<div style='display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px'>"+
@@ -2101,10 +2140,13 @@ async function branchStockMap(branchId){ const m={}; try{ const s=await cRef().c
 function bsId(branchId,productId){ return branchId+"__"+productId; }
 
 /* ---------- الجرد (لكل فرع) ---------- */
-async function invCount(c){
-  c.innerHTML="<button class='btn sm' id='cntBack' style='margin-bottom:14px'>← رجوع للمخزون</button>"+pageTitle("الجرد","إدخال الكميات الفعلية");
-  $("cntBack").onclick=()=>openPage("inventory");
-  const br=await invBranchBar(c, ()=>invCount(c)); if(!br) return;
+async function invCount(c, forcedBr, backFn){
+  const back=backFn||(()=>openPage("inventory"));
+  c.innerHTML="<button class='btn sm' id='cntBack' style='margin-bottom:14px'>← رجوع</button>"+pageTitle("الجرد","إدخال الكميات الفعلية");
+  $("cntBack").onclick=back;
+  let br;
+  if(forcedBr){ br=forcedBr; c.insertAdjacentHTML("beforeend","<div class='muted' style='margin-bottom:12px'>الفرع: <b>"+esc(br.name)+"</b></div>"); }
+  else { br=await invBranchBar(c, ()=>invCount(c)); if(!br) return; }
   const bar=el("div"); bar.style.marginBottom="16px"; bar.innerHTML="<button class='btn primary' id='newCount'>+ إضافة جرد</button>";
   c.appendChild(bar); $("newCount").onclick=()=>invCountForm(c,br);
   const app=invApprover();
@@ -2128,6 +2170,7 @@ async function invCount(c){
     rows.sort((a,b)=>((b.at&&b.at.seconds)||0)-((a.at&&a.at.seconds)||0));
     tb.innerHTML=""; if(!rows.length){tb.innerHTML="<tr><td colspan='6' class='muted'>لا يوجد</td></tr>";return;}
     rows.forEach(x=>{
+      x.branchName=x.branchName||br.name;
       const costTd=canSeeCost()?"<td style='color:var(--red)'>"+money(x.shortageValue||0)+"</td>":"";
       const tr=el("tr",null,"<td>"+fmtDT(x.at)+"</td><td>"+esc(x.byName)+"</td><td class='muted'>"+((x.results||[]).length)+"</td>"+costTd+"<td>"+statusTag3(x.status)+"</td><td></td>");
       const act=tr.lastChild;
@@ -2202,10 +2245,13 @@ async function invCountForm(c,br){
 }
 
 /* ---------- الطلب (لكل فرع) ---------- */
-async function invOrders(c){
-  c.innerHTML="<button class='btn sm' id='ordBack' style='margin-bottom:14px'>← رجوع للمخزون</button>"+pageTitle("الطلب","طلبات المخزون");
-  $("ordBack").onclick=()=>openPage("inventory");
-  const br=await invBranchBar(c, ()=>invOrders(c)); if(!br) return;
+async function invOrders(c, forcedBr, backFn){
+  const back=backFn||(()=>openPage("inventory"));
+  c.innerHTML="<button class='btn sm' id='ordBack' style='margin-bottom:14px'>← رجوع</button>"+pageTitle("الطلب","طلبات المخزون");
+  $("ordBack").onclick=back;
+  let br;
+  if(forcedBr){ br=forcedBr; c.insertAdjacentHTML("beforeend","<div class='muted' style='margin-bottom:12px'>الفرع: <b>"+esc(br.name)+"</b></div>"); }
+  else { br=await invBranchBar(c, ()=>invOrders(c)); if(!br) return; }
   const bar=el("div"); bar.style.marginBottom="16px"; bar.innerHTML="<button class='btn primary' id='newOrder'>+ طلب مخزون</button>";
   c.appendChild(bar); $("newOrder").onclick=()=>invOrderForm(c,br);
   const app=invApprover();
@@ -2257,10 +2303,13 @@ async function invOrderForm(c,br){
 }
 
 /* ---------- تالف (لكل فرع) ---------- */
-async function invWaste(c){
-  c.innerHTML="<button class='btn sm' id='wsBack' style='margin-bottom:14px'>← رجوع للمخزون</button>"+pageTitle("تالف","تسجيل الهدر والتلف");
-  $("wsBack").onclick=()=>openPage("inventory");
-  const br=await invBranchBar(c, ()=>invWaste(c)); if(!br) return;
+async function invWaste(c, forcedBr, backFn){
+  const back=backFn||(()=>openPage("inventory"));
+  c.innerHTML="<button class='btn sm' id='wsBack' style='margin-bottom:14px'>← رجوع</button>"+pageTitle("تالف","تسجيل الهدر والتلف");
+  $("wsBack").onclick=back;
+  let br;
+  if(forcedBr){ br=forcedBr; c.insertAdjacentHTML("beforeend","<div class='muted' style='margin-bottom:12px'>الفرع: <b>"+esc(br.name)+"</b></div>"); }
+  else { br=await invBranchBar(c, ()=>invWaste(c)); if(!br) return; }
   const bar=el("div"); bar.style.marginBottom="16px"; bar.innerHTML="<button class='btn primary' id='newWaste'>+ تسجيل تالف</button>";
   c.appendChild(bar); $("newWaste").onclick=()=>invWasteForm(c,br);
   const app=invApprover();
@@ -2352,27 +2401,34 @@ async function invWasteForm(c,br){
 }
 
 
-function pageProducts(c){
+async function pageProducts(c,standalone){
   const manage = can("inventory","add")||can("inventory","edit");
-  c.innerHTML="<button class='btn sm' id='prodBack' style='margin-bottom:14px'>← رجوع للمخزون</button>"+pageTitle("المنتجات","كتالوج منتجات الشركة (لكل الفروع)");
+  const backBtn = standalone?"":"<button class='btn sm' id='prodBack' style='margin-bottom:14px'>← رجوع للمخزون</button>";
+  c.innerHTML=backBtn+pageTitle("المخزون","كتالوج منتجات الشركة (لكل الفروع)");
   let bar="";
   if(can("inventory","add")) bar+="<button class='btn primary' id='newProdBtn'>+ إضافة منتج</button> ";
   if(manage) bar+="<button class='btn sm' id='catBtn'>إدارة التصنيفات</button>";
   c.innerHTML+="<div style='margin-bottom:16px'>"+bar+"</div>";
+  // فلتر التصنيف
+  const catsList=await loadCategories();
+  const catSel="<label class='field' style='max-width:280px;margin-bottom:16px'><span>فلترة بالتصنيف</span><select id='prodCatFilter' class='input'><option value=''>كل التصنيفات</option>"+catsList.map(k=>"<option value='"+esc(k)+"'>"+esc(k)+"</option>").join("")+"</select></label>";
+  c.innerHTML+=catSel;
   c.innerHTML+="<div class='kpi-grid' style='margin-bottom:16px'>"+kpi("عدد المنتجات","prodCount","—")+"</div>";
   const card=el("div","card");
-  const costCols=canSeeCost()?"<th>سعر الوحدة</th>":"";
+  const costCols=canSeeCost()?"<th>سعر التكلفة</th>":"";
   card.innerHTML="<table><thead><tr><th>المنتج</th><th>التصنيف</th><th>الحد الأدنى</th>"+costCols+"<th>المورد</th><th>إجراء</th></tr></thead><tbody id='prodRows'><tr><td colspan='6' class='muted'>جارٍ التحميل…</td></tr></tbody></table>";
   c.appendChild(card);
   if($("prodBack"))$("prodBack").onclick=()=>openPage("inventory");
   if($("newProdBtn"))$("newProdBtn").onclick=()=>productModal();
   if($("catBtn"))$("catBtn").onclick=categoriesModal;
-
-  cRef().collection("products").orderBy("name").onSnapshot(s=>{
+  let allProds=[];
+  const render=()=>{
+    const filter=($("prodCatFilter")&&$("prodCatFilter").value)||"";
+    const rows=allProds.filter(x=>!filter||(x.category||"")===filter);
     const tb=$("prodRows");if(!tb)return;tb.innerHTML="";
-    if($("prodCount"))$("prodCount").textContent=s.size;
-    if(s.empty){tb.innerHTML="<tr><td colspan='6' class='muted'>لا توجد منتجات</td></tr>";}
-    s.forEach(d=>{const x=d.data();
+    if($("prodCount"))$("prodCount").textContent=rows.length;
+    if(!rows.length){tb.innerHTML="<tr><td colspan='6' class='muted'>لا توجد منتجات</td></tr>";return;}
+    rows.forEach(x=>{
       const min=Number(x.min)||0, price=Number(x.price)||0;
       const costCells=canSeeCost()?"<td>"+money(price)+"</td>":"";
       let supplier=x.supplier?esc(x.supplier):"—";
@@ -2380,10 +2436,14 @@ function pageProducts(c){
         "<td class='muted'>"+esc(x.category||"—")+"</td><td class='muted'>"+min+" "+esc(x.unit||"")+"</td>"+costCells+"<td class='muted'>"+supplier+"</td><td></td>");
       const act=tr.lastChild;
       if(x.url){ const open=el("button","btn sm","🔗 طلب"); open.onclick=()=>window.open(x.url,"_blank"); act.appendChild(open); }
-      if(can("inventory","edit")){ const e=el("button","btn sm","تعديل"); e.style.marginRight="6px"; e.onclick=()=>productModal(d.id,x); act.appendChild(e); }
-      if(can("inventory","delete")){ const dl=el("button","btn sm danger","حذف"); dl.style.marginRight="6px"; dl.onclick=()=>{if(confirm("حذف المنتج؟")){cRef().collection("products").doc(d.id).delete();logAction("delete_product",x.name);}}; act.appendChild(dl); }
+      if(can("inventory","edit")){ const e=el("button","btn sm","تعديل"); e.style.marginRight="6px"; e.onclick=()=>productModal(x.id,x); act.appendChild(e); }
+      if(can("inventory","delete")){ const dl=el("button","btn sm danger","حذف"); dl.style.marginRight="6px"; dl.onclick=()=>{if(confirm("حذف المنتج؟")){cRef().collection("products").doc(x.id).delete();logAction("delete_product",x.name);}}; act.appendChild(dl); }
       tb.appendChild(tr);
     });
+  };
+  if($("prodCatFilter"))$("prodCatFilter").onchange=render;
+  cRef().collection("products").orderBy("name").onSnapshot(s=>{
+    allProds=[]; s.forEach(d=>allProds.push({id:d.id,...d.data()})); render();
   },()=>{const tb=$("prodRows");if(tb)tb.innerHTML="<tr><td colspan='6' style='color:var(--red)'>تعذّر التحميل</td></tr>";});
 }
 
@@ -2671,6 +2731,24 @@ async function branchDetail(c,id,x){
     "<div class='kpi' id='brEvalCard' style='cursor:pointer'><div class='l'>تقييم الفرع</div><div class='v' id='brEvalAvg'>—</div><div class='muted' style='font-size:12px'>اضغط للتقييم</div></div>";
   c.appendChild(grid);
   $("brEvalCard").onclick=()=>branchEvalPage(c,id,x);
+  // بطاقات المخزون لكل فرع (جرد/طلب/توالف) — للمالك/المدير
+  if(invApprover()){
+    const br={id:id,name:x.name};
+    const backFn=()=>branchDetail(c,id,x);
+    const invGrid=el("div"); invGrid.style.cssText="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:16px;margin-bottom:16px";
+    const mk=(key,title,desc)=>{ const card=el("div","card"); card.style.cssText="cursor:pointer;min-height:110px;position:relative";
+      card.innerHTML="<div style='font-weight:800'>"+title+"</div><div class='muted' style='font-size:13px;margin-top:4px'>"+desc+"</div><span id='bbadge_"+key+"' style='position:absolute;top:10px;left:10px;background:var(--red);color:#fff;border-radius:999px;min-width:20px;height:20px;font-size:12px;display:none;align-items:center;justify-content:center;padding:0 5px'></span>";
+      card.onclick=()=>{ const f={count:invCount,order:invOrders,waste:invWaste}[key]; f(c,br,backFn); setTimeout(()=>{ if(typeof translateTree==="function") translateTree(c); },60); };
+      invGrid.appendChild(card);
+    };
+    mk("count","الجرد","جرد كميات هذا الفرع");
+    mk("order","الطلب","طلبات هذا الفرع");
+    mk("waste","تالف","توالف هذا الفرع");
+    c.appendChild(invGrid);
+    // شارات المعلّق لهذا الفرع
+    const setBB=(coll,key)=>{ cRef().collection(coll).where("branchId","==",id).onSnapshot(s=>{ let n=0; s.forEach(d=>{const st=d.data().status; if(st!=="approved"&&st!=="rejected"&&st!=="done")n++;}); const b=$("bbadge_"+key); if(b){ if(n){b.textContent=n;b.style.display="flex";}else b.style.display="none"; } },()=>{}); };
+    setBB("stockCounts","count"); setBB("stockOrders","order"); setBB("waste","waste");
+  }
   // مبيعات الفرع للشهر
   const cur=monthRange(0);
   cRef().collection("dailyClosings").where("date",">=",cur.start).where("date","<",cur.next).onSnapshot(s=>{
