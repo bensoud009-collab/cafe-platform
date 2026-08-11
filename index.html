@@ -957,6 +957,10 @@ auth.onAuthStateChanged(async user=>{
       applyTheme(cdata.theme);
       buildShell(); renderCompanyNav();
       if(cardsMode()) renderCardsHome(); else openPage("dashboard");
+      // نافذة ترحيب المالك (أول دخول فقط) — إجبار تغيير الرمز
+      if(state.role==="owner" && cdata.ownerWelcomed!==true && !impersonation){
+        setTimeout(()=>welcomeOwnerModal(cdata.name),400);
+      }
     }
     logAction("login");
     show("appScreen");
@@ -3638,6 +3642,49 @@ function openProfile(){
   },30);
 }
 window.openProfile=openProfile;
+
+// نافذة ترحيب المالك عند أول دخول — إجبار تغيير كلمة المرور
+function welcomeOwnerModal(companyName){
+  // نافذة مخصّصة غير قابلة للإغلاق حتى تغيير الرمز
+  const ov=el("div"); ov.id="welcomeOverlay";
+  ov.style.cssText="position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;padding:20px";
+  ov.innerHTML=
+    "<div class='card' style='max-width:460px;width:100%;text-align:center'>"+
+      "<div style='font-size:40px;margin-bottom:6px'>🌿</div>"+
+      "<h2 style='font-size:22px;margin-bottom:12px'>حيّاك الله "+esc(companyName)+"</h2>"+
+      "<p style='line-height:1.9;color:var(--muted);margin-bottom:8px'>نبارك لك الانضمام إلى عائلة <b>رُواق</b>، ونتشرّف بوجودك معنا. وحرصاً منّا على خصوصيتك، نرجو منك تغيير الرمز الخاص بك.</p>"+
+      "<div style='text-align:start;margin-top:14px'>"+
+        "<label class='field'><span>كلمة المرور الجديدة</span><input id='wcPass' class='input' type='password' autocomplete='new-password' placeholder='6 أحرف على الأقل'></label>"+
+        "<label class='field'><span>تأكيد كلمة المرور</span><input id='wcPass2' class='input' type='password' autocomplete='new-password'></label>"+
+      "</div>"+
+      "<div id='wcErr' style='color:var(--red);font-size:13px;min-height:18px;margin:4px 0'></div>"+
+      "<button class='btn primary' id='wcSave' style='width:100%'>حفظ ومتابعة</button>"+
+    "</div>";
+  document.body.appendChild(ov);
+  $("wcSave").onclick=async ()=>{
+    const p1=$("wcPass").value, p2=$("wcPass2").value; const err=$("wcErr");
+    err.textContent="";
+    if(p1.length<6){ err.textContent="كلمة المرور 6 أحرف على الأقل"; return; }
+    if(p1!==p2){ err.textContent="كلمتا المرور غير متطابقتين"; return; }
+    $("wcSave").disabled=true; $("wcSave").textContent="جارٍ الحفظ…";
+    try{
+      await auth.currentUser.updatePassword(p1);
+      try{ await cRef().update({ownerWelcomed:true}); }catch(e){}
+      logAction("owner_welcomed");
+      ov.remove();
+      toast("تم تغيير كلمة المرور، حيّاك الله 🌿","ok");
+    }catch(e){
+      $("wcSave").disabled=false; $("wcSave").textContent="حفظ ومتابعة";
+      if(e && e.code==="auth/requires-recent-login"){
+        err.textContent="لأمان حسابك، سجّل خروج ثم دخول وأعد المحاولة.";
+      }else{
+        err.textContent="تعذّر تغيير كلمة المرور. حاول مرة أخرى.";
+      }
+      console.error(e);
+    }
+  };
+}
+window.welcomeOwnerModal=welcomeOwnerModal;
 // تهيئة اللغة عند التحميل
 // الوضع فاتح/غامق (تفضيل شخصي محفوظ في المتصفح)
 function currentMode(){ try{ return localStorage.getItem("cafe_mode")||"light"; }catch(e){ return "light"; } }
