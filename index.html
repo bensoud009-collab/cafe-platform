@@ -2439,9 +2439,11 @@ async function pageProducts(c,standalone){
       const tr=el("tr",null,"<td><b>"+esc(x.name)+"</b>"+(x.expiry?"<div class='muted' style='font-size:12px'>ينتهي: "+esc(x.expiry)+"</div>":"")+"</td>"+
         "<td class='muted'>"+esc(x.category||"—")+"</td><td class='muted'>"+min+" "+esc(x.unit||"")+"</td>"+costCells+"<td class='muted'>"+supplier+"</td><td></td>");
       const act=tr.lastChild;
-      if(x.url){ const open=el("button","btn sm","🔗 طلب"); open.onclick=()=>window.open(x.url,"_blank"); act.appendChild(open); }
-      if(can("inventory","edit")){ const e=el("button","btn sm","تعديل"); e.style.marginRight="6px"; e.onclick=()=>productModal(x.id,x); act.appendChild(e); }
-      if(can("inventory","delete")){ const dl=el("button","btn sm danger","حذف"); dl.style.marginRight="6px"; dl.onclick=()=>{if(confirm("حذف المنتج؟")){cRef().collection("products").doc(x.id).delete();logAction("delete_product",x.name);}}; act.appendChild(dl); }
+      const items=[];
+      if(x.url) items.push({label:"🔗 طلب", fn:()=>window.open(x.url,"_blank")});
+      if(can("inventory","edit")) items.push({label:"✏️ تعديل", fn:()=>productModal(x.id,x)});
+      if(can("inventory","delete")) items.push({label:"🗑️ حذف", danger:true, fn:()=>{if(confirm("حذف المنتج؟")){cRef().collection("products").doc(x.id).delete();logAction("delete_product",x.name);}}});
+      if(items.length){ const kb=el("button","btn sm","⋮"); kb.style.cssText="padding:4px 12px;font-size:18px;line-height:1"; kb.onclick=(e)=>{e.stopPropagation();openActionMenu(kb,items);}; act.appendChild(kb); }
       tb.appendChild(tr);
     });
   };
