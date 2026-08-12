@@ -3582,8 +3582,6 @@ const FAQ=[
   {roles:"e", q:"وين أشوف راتبي؟", qen:"Where do I see my salary?", a:"من «شؤون الموظفين» تلقى «راتبي» يعرض تفاصيل آخر شهر. لو ما ظهر، صاحب الشركة لسه ما اعتمد الكشف.", aen:"In Staff you'll find “My Salary” showing last month. If empty, the owner hasn't posted payroll yet."},
   {roles:"e", q:"كيف أرسل رسالة لصاحب الشركة؟", qen:"How to message the owner?", a:"من «شؤون الموظفين» افتح «رسائلي» واكتب رسالتك الخاصة — تصل لصاحب الشركة فقط.", aen:"In Staff open “My Messages” and write privately to the owner."},
   // مالك المنصة
-  {roles:"o", q:"كيف أنشئ شركة جديدة؟ (مالك المنصة)", qen:"Create a company? (platform owner)", a:"من لوحة مالك المنصة ← «الشركات» ← «+ إنشاء شركة»، أدخل الاسم واسم الرابط وبريد المالك وكلمة المرور والمدة.", aen:"From the platform panel → Companies → “+ Create company”, enter name, link, owner email, password and duration."},
-  {roles:"o", q:"كيف أغيّر رابط الشركة؟", qen:"Change company link?", a:"من «الشركات» افتح تفاصيل الشركة ← «تعديل الرابط»، واكتب اسماً إنجليزياً فريداً.", aen:"In Companies open the company → “Edit link”, enter a unique English name."},
   {roles:"o", q:"كيف أغيّر لون المنصة (الثيم)؟", qen:"Change platform color?", a:"من «الإعدادات» ← «الألوان والثيم»، اختر لوناً. يُطبّق على شركتك لكل المستخدمين.", aen:"Settings → Theme, pick a color. Applies to your whole company."},
 ];
 function currentRoleLetter(){ return state.role==="owner"||state.role==="super"?"o":state.role==="manager"?"m":"e"; }
@@ -3663,6 +3661,17 @@ function welcomeOwnerModal(companyName){
       "<button class='btn primary' id='wcSave' style='width:100%'>حفظ ومتابعة</button>"+
     "</div>";
   document.body.appendChild(ov);
+  // مؤشّر قوة كلمة المرور
+  const pwScore=(p)=>{ let s=0; if(!p)return 0; if(p.length>=6)s++; if(p.length>=10)s++; if(/[A-Z]/.test(p)&&/[a-z]/.test(p))s++; if(/\d/.test(p))s++; if(/[^A-Za-z0-9]/.test(p))s++; return Math.min(s,5); };
+  const wcInput=$("wcPass");
+  if(wcInput) wcInput.oninput=()=>{
+    const p=wcInput.value; const s=pwScore(p);
+    const pct=[0,25,45,65,85,100][s];
+    const info=[["","var(--line)"],["ضعيفة جداً","var(--red)"],["ضعيفة","var(--red)"],["متوسطة","var(--amber)"],["جيدة","#4a9d5b"],["قوية","var(--green)"]][s];
+    const bar=$("wcBar"), lbl=$("wcStrength");
+    if(bar){ bar.style.width=pct+"%"; bar.style.background=info[1]; }
+    if(lbl){ lbl.textContent=p?("قوة كلمة المرور: "+info[0]):""; lbl.style.color=info[1]; }
+  };
   $("wcSave").onclick=async ()=>{
     const p1=$("wcPass").value, p2=$("wcPass2").value; const err=$("wcErr");
     err.textContent="";
