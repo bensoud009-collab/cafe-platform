@@ -956,7 +956,16 @@ auth.onAuthStateChanged(async user=>{
       if(state.profile.accountActive===false){ toast("حسابك موقوف، راجع صاحب الشركة","err"); return doLogout(); }
       applyTheme(cdata.theme);
       buildShell(); renderCompanyNav();
-      if(cardsMode()) renderCardsHome(); else openPage("dashboard");
+      // استعادة القسم من الرابط (#) بعد التحديث، وإلا الافتراضي
+      const validPages=["dashboard","sales","invoices","inventory","suppliers","staff","checklist","recipes","branches","reports","settings","super_companies","super_subs","super_audit"];
+      const hash=(location.hash||"").replace("#","");
+      if(hash && validPages.includes(hash) && !cardsMode()){
+        openPage(hash);
+      } else if(cardsMode()){
+        renderCardsHome();
+      } else {
+        openPage("dashboard");
+      }
       // نافذة ترحيب المالك (أول دخول فقط) — إجبار تغيير الرمز
       if(state.role==="owner" && cdata.ownerWelcomed!==true && !impersonation.active){
         setTimeout(()=>welcomeOwnerModal(cdata.name),400);
@@ -1112,6 +1121,8 @@ function openPage(key,isBack){
   else pagePlaceholder(c,key);
   updateNavButtons();
   setTimeout(()=>translateTree(c),0);
+  // حفظ القسم الحالي في الرابط (#) للبقاء عليه بعد التحديث
+  try{ if(key && key!=="__home__"){ const base=location.pathname+location.search; history.replaceState(null,"","#"+key); } }catch(e){}
 }
 
 function pageTitle(title,sub){return "<div class='page-title'><h2>"+esc(L(title))+"</h2>"+(sub?"<p>"+esc(L(sub))+"</p>":"")+"</div>";}
@@ -1390,6 +1401,33 @@ function openNewCompanyModal(){
 
 function slugify(s){ return (s||"").toString().trim().toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-+|-+$/g,""); }
 function companyLink(slug){ return location.origin+location.pathname+"?c="+slug; }
+
+// قائمة خيارات منسدلة صغيرة تظهر عند زر ⋮
+function openActionMenu(anchor, items){
+  document.querySelectorAll(".actionMenuPop").forEach(m=>m.remove());
+  const menu=document.createElement("div"); menu.className="actionMenuPop";
+  menu.style.cssText="position:fixed;z-index:10000;background:var(--card,#fff);border:1px solid var(--line,#e4e8f0);border-radius:12px;box-shadow:0 8px 28px rgba(0,0,0,.18);padding:6px;min-width:150px;display:flex;flex-direction:column;gap:2px";
+  items.forEach(it=>{
+    const b=document.createElement("button");
+    b.textContent=it.label;
+    b.style.cssText="text-align:start;background:none;border:none;padding:10px 12px;border-radius:8px;cursor:pointer;font-size:14px;color:"+(it.danger?"var(--red)":"inherit");
+    b.onmouseenter=()=>b.style.background="var(--line,#eef1f5)";
+    b.onmouseleave=()=>b.style.background="none";
+    b.onclick=(e)=>{ e.stopPropagation(); menu.remove(); it.fn(); };
+    menu.appendChild(b);
+  });
+  document.body.appendChild(menu);
+  const r=anchor.getBoundingClientRect();
+  let top=r.bottom+6, left=r.left;
+  const mw=menu.offsetWidth, mh=menu.offsetHeight;
+  if(left+mw>window.innerWidth-8) left=window.innerWidth-mw-8;
+  if(left<8) left=8;
+  if(top+mh>window.innerHeight-8) top=r.top-mh-6;
+  menu.style.top=top+"px"; menu.style.left=left+"px";
+  const close=(e)=>{ if(!menu.contains(e.target)){ menu.remove(); document.removeEventListener("click",close); document.removeEventListener("scroll",close,true); } };
+  setTimeout(()=>{ document.addEventListener("click",close); document.addEventListener("scroll",close,true); },10);
+}
+window.openActionMenu=openActionMenu;
 
 async function createCompany(){
   const name=$("ncName").value.trim(), owner=$("ncOwner").value.trim(), email=$("ncEmail").value.trim().toLowerCase(), phone=$("ncPhone").value.trim();
