@@ -122,6 +122,8 @@ tbody tr:hover{background:var(--surface-2)}
 .spinner{width:34px;height:34px;border:3px solid var(--line);border-top-color:var(--brand);border-radius:50%;animation:spin 1s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
 .review-row{display:flex;justify-content:space-between;padding:9px 0;border-bottom:1px dashed var(--line)}
+.sec{background:var(--surface-2,#eef1f7);border:1px solid var(--line);border-radius:12px;padding:13px;margin-bottom:13px}
+.sec-title{font-weight:800;margin-bottom:9px;font-size:14.5px}
 .review-row b{color:var(--brand-2)}
 .photo-prev{margin-top:8px;border-radius:10px;max-height:180px;border:1px solid var(--line)}
 
@@ -255,6 +257,10 @@ function t(k){ return (I18N[LANG]&&I18N[LANG][k]) || I18N.ar[k] || k; }
 
 // قاموس ترجمة عربي→إنجليزي للعبارات الظاهرة (يتوسّع تدريجياً)
 const EN={
+  "صافي المبيعات":"Net Sales","صافي المبيعات *":"Net Sales *","عدد الطلبات":"Orders","عدد الطلبات *":"Orders *",
+  "متوسط الفاتورة":"Avg Ticket","الكاش":"Cash","الشبكة":"Card","النظام":"System","الفعلي":"Actual",
+  "الفرق":"Variance","مجموع الفعلي":"Actual total","أونلاين":"Online","مدى":"Mada","فيزا":"Visa","ماستركارد":"Mastercard","ماستر":"Master",
+  "مدى / فيزا / ماستر":"Mada / Visa / Master","النظام / الفعلي":"System / Actual",
   "فلترة بالتصنيف":"Filter by category","كل التصنيفات":"All categories","كتالوج منتجات الشركة (لكل الفروع)":"Company product catalog (all branches)",
   "الجرد والطلب والتوالف — فرعك":"Counts, orders & waste — your branch","سعر التكلفة":"Cost price",
   "جرد كميات هذا الفرع":"Count this branch's quantities","طلبات هذا الفرع":"This branch's orders","توالف هذا الفرع":"This branch's waste",
@@ -1730,22 +1736,41 @@ function pageSales(c){
 }
 // عرض تفاصيل الإقفال (للإدارة، بدون تعديل)
 function viewClosing(id,x){
-  const diff=(Number(x.actualSales)||0)-(Number(x.systemSales)||0);
-  const paySum=(Number(x.cash)||0)+(Number(x.mada)||0)+(Number(x.visa)||0)+(Number(x.mastercard)||0);
-  openModal("تفاصيل الإقفال — "+esc(x.branchName||""),
-    "<div class='review-row'><span>التاريخ والوقت</span><b>"+fmtDT(x.createdAt)+"</b></div>"+
-    "<div class='review-row'><span>المُرسِل</span><b>"+esc(x.employeeName)+"</b></div>"+
-    "<div class='review-row'><span>المبيعات الفعلية</span><b>"+money(x.actualSales)+"</b></div>"+
-    "<div class='review-row'><span>مبيعات النظام</span><b>"+money(x.systemSales)+"</b></div>"+
-    "<div class='review-row'><span>الفرق</span><b style='color:"+(diff===0?"var(--green)":"var(--amber)")+"'>"+money(diff)+"</b></div>"+
-    "<div class='review-row'><span>الكاش</span><b>"+money(x.cash)+"</b></div>"+
-    "<div class='review-row'><span>مدى</span><b>"+money(x.mada)+"</b></div>"+
-    "<div class='review-row'><span>فيزا</span><b>"+money(x.visa)+"</b></div>"+
-    "<div class='review-row'><span>ماستر</span><b>"+money(x.mastercard)+"</b></div>"+
-    "<div class='review-row'><span>مجموع الدفعات</span><b>"+money(paySum)+"</b></div>"+
-    "<div class='review-row'><span>الحالة</span>"+statusTag3(x.status)+"</div>"+
-    (x.photoUrl?"<a class='btn sm' href='"+x.photoUrl+"' target='_blank' style='margin-top:10px'>عرض الصورة</a>":""),
-    "تم",()=>true,true);
+  const showVar=canApproveSales();
+  const vRow=(t,val)=>"<div class='review-row'><span>"+t+"</span><b style='color:"+(val>0?"var(--green)":val<0?"var(--red)":"inherit")+"'>"+(val>0?"+":"")+money(val)+"</b></div>";
+  // إقفال جديد (فيه net) أم قديم (فيه actualSales فقط)
+  const isNew = x.net!=null || x.orders!=null || x.cashSys!=null;
+  let inner="<div class='review-row'><span>التاريخ والوقت</span><b>"+fmtDT(x.createdAt)+"</b></div>"+
+    "<div class='review-row'><span>المُرسِل</span><b>"+esc(x.employeeName)+"</b></div>";
+  if(isNew){
+    const net=Number(x.net)||0, orders=Number(x.orders)||0, at=Number(x.at)|| (orders>0?net/orders:0);
+    const cashSys=Number(x.cashSys)||0, cashPhy=Number(x.cashPhy)||0;
+    const cardSys=Number(x.cardSys)||0, cardPhy=Number(x.cardPhy)|| ((Number(x.mada)||0)+(Number(x.visa)||0)+(Number(x.mastercard)||0));
+    inner+="<div class='sec-title' style='margin:12px 0 4px'>المبيعات</div>"+
+      "<div class='review-row'><span>صافي المبيعات</span><b>"+money(net)+"</b></div>"+
+      "<div class='review-row'><span>عدد الطلبات</span><b>"+orders+"</b></div>"+
+      "<div class='review-row'><span>متوسط الفاتورة</span><b>"+money(at)+"</b></div>"+
+      "<div class='sec-title' style='margin:12px 0 4px'>الكاش</div>"+
+      "<div class='review-row'><span>النظام / الفعلي</span><b>"+money(cashSys)+" · "+money(cashPhy)+"</b></div>"+
+      (showVar?vRow("الفرق",cashPhy-cashSys):"")+
+      "<div class='sec-title' style='margin:12px 0 4px'>الشبكة</div>"+
+      "<div class='review-row'><span>النظام</span><b>"+money(cardSys)+"</b></div>"+
+      "<div class='review-row'><span>مدى / فيزا / ماستر</span><b>"+money(x.mada)+" · "+money(x.visa)+" · "+money(x.mastercard)+"</b></div>"+
+      "<div class='review-row'><span>مجموع الفعلي</span><b>"+money(cardPhy)+"</b></div>"+
+      (showVar?vRow("الفرق",cardPhy-cardSys):"")+
+      "<div class='review-row' style='margin-top:8px'><span>أونلاين</span><b>"+money(x.online)+"</b></div>";
+  } else {
+    const diff=(Number(x.actualSales)||0)-(Number(x.systemSales)||0);
+    const paySum=(Number(x.cash)||0)+(Number(x.mada)||0)+(Number(x.visa)||0)+(Number(x.mastercard)||0);
+    inner+="<div class='review-row'><span>المبيعات الفعلية</span><b>"+money(x.actualSales)+"</b></div>"+
+      "<div class='review-row'><span>مبيعات النظام</span><b>"+money(x.systemSales)+"</b></div>"+
+      (showVar?"<div class='review-row'><span>الفرق</span><b style='color:"+(diff===0?"var(--green)":"var(--amber)")+"'>"+money(diff)+"</b></div>":"")+
+      "<div class='review-row'><span>الكاش / مدى / فيزا / ماستر</span><b>"+money(x.cash)+" · "+money(x.mada)+" · "+money(x.visa)+" · "+money(x.mastercard)+"</b></div>"+
+      "<div class='review-row'><span>مجموع الدفعات</span><b>"+money(paySum)+"</b></div>";
+  }
+  inner+="<div class='review-row'><span>الحالة</span>"+statusTag3(x.status)+"</div>"+
+    (x.photoUrl?"<a class='btn sm' href='"+esc(normUrl(x.photoUrl))+"' target='_blank' style='margin-top:10px'>عرض الصورة</a>":"");
+  openModal("تفاصيل الإقفال — "+esc(x.branchName||""), inner, "تم",()=>true,true);
 }
 
 // بطاقة تأكيد مؤقتة تظهر للموظف بعد الإرسال وتختفي بعد 5 دقائق
@@ -1770,55 +1795,102 @@ function showEmployeeConfirmation(){
 }
 
 async function openClosingModal(){
-  // تحميل الفروع للاختيار
   let branches=[];try{const bs=await cRef().collection("branches").get();bs.forEach(b=>branches.push({id:b.id,...b.data()}));}catch(e){}
   const brOptions=branches.length?branches.map(b=>"<option value='"+b.id+"'>"+esc(b.name)+"</option>").join(""):"<option value=''>لا توجد فروع</option>";
+  const showVar=canApproveSales(); // الفروقات تظهر للمدير/المالك فقط
   openModal("إرسال إقفال يومي",
     "<label class='field'><span>الفرع *</span><select id='clBranch'>"+brOptions+"</select></label>"+
-    "<label class='field'><span>مبيعات النظام *</span><input id='clSystem' class='input' type='number' inputmode='decimal' placeholder='0.00'></label>"+
-    "<div class='grid' style='grid-template-columns:1fr 1fr'>"+
-      "<label class='field'><span>الكاش</span><input id='clCash' class='input clpay' type='number' inputmode='decimal' placeholder='0.00'></label>"+
-      "<label class='field'><span>مدى</span><input id='clMada' class='input clpay' type='number' inputmode='decimal' placeholder='0.00'></label>"+
-      "<label class='field'><span>فيزا</span><input id='clVisa' class='input clpay' type='number' inputmode='decimal' placeholder='0.00'></label>"+
-      "<label class='field'><span>ماستركارد</span><input id='clMaster' class='input clpay' type='number' inputmode='decimal' placeholder='0.00'></label>"+
+    // المبيعات
+    "<div class='sec'><div class='sec-title'>المبيعات</div>"+
+      "<div class='grid' style='grid-template-columns:1fr 1fr'>"+
+        "<label class='field'><span>صافي المبيعات *</span><input id='clNet' class='input clc' type='number' inputmode='decimal' placeholder='0.00'></label>"+
+        "<label class='field'><span>عدد الطلبات *</span><input id='clOrders' class='input clc' type='number' inputmode='numeric' placeholder='0'></label>"+
+      "</div>"+
+      "<div class='review-row' style='border:0;padding:2px 0 0'><span>متوسط الفاتورة</span><b id='clAT'>0.00</b></div>"+
     "</div>"+
-    "<label class='field'><span>المبيعات الفعلية (تلقائي = مجموع طرق الدفع)</span><input id='clActual' class='input' type='number' readonly disabled value='0.00' style='opacity:.75;font-weight:800'></label>"+
+    // الكاش
+    "<div class='sec'><div class='sec-title'>الكاش</div>"+
+      "<div class='grid' style='grid-template-columns:1fr 1fr'>"+
+        "<label class='field'><span>النظام</span><input id='clCashSys' class='input clc' type='number' inputmode='decimal' placeholder='0.00'></label>"+
+        "<label class='field'><span>الفعلي</span><input id='clCashPhy' class='input clc' type='number' inputmode='decimal' placeholder='0.00'></label>"+
+      "</div>"+
+      (showVar?"<div class='review-row' style='border:0;padding:2px 0 0'><span>الفرق</span><b id='clCashVar'>0.00</b></div>":"")+
+    "</div>"+
+    // الشبكة (مقسّمة)
+    "<div class='sec'><div class='sec-title'>الشبكة</div>"+
+      "<label class='field'><span>النظام</span><input id='clCardSys' class='input clc' type='number' inputmode='decimal' placeholder='0.00'></label>"+
+      "<div class='muted' style='font-size:13px;margin-bottom:6px'>الفعلي</div>"+
+      "<div class='grid' style='grid-template-columns:1fr 1fr 1fr'>"+
+        "<label class='field'><span>مدى</span><input id='clMada' class='input clc' type='number' inputmode='decimal' placeholder='0.00'></label>"+
+        "<label class='field'><span>فيزا</span><input id='clVisa' class='input clc' type='number' inputmode='decimal' placeholder='0.00'></label>"+
+        "<label class='field'><span>ماستركارد</span><input id='clMaster' class='input clc' type='number' inputmode='decimal' placeholder='0.00'></label>"+
+      "</div>"+
+      "<div class='review-row' style='border:0;padding:2px 0 0'><span>مجموع الفعلي</span><b id='clCardPhy'>0.00</b></div>"+
+      (showVar?"<div class='review-row' style='border:0;padding:2px 0 0'><span>الفرق</span><b id='clCardVar'>0.00</b></div>":"")+
+    "</div>"+
+    // أونلاين
+    "<label class='field'><span>أونلاين</span><input id='clOnline' class='input' type='number' inputmode='decimal' placeholder='0.00'></label>"+
     "<label class='field'><span>صورة الإقفال (اختيارية)</span><input id='clPhoto' class='input' type='file' accept='image/*' capture='environment'></label>"+
     "<img id='clPrev' class='photo-prev hidden'>",
     "مراجعة قبل الإرسال", reviewClosing);
-  const recompute=()=>{ const v=id=>parseFloat(($(id)&&$(id).value)||0)||0; const s=v("clCash")+v("clMada")+v("clVisa")+v("clMaster"); if($("clActual"))$("clActual").value=s.toFixed(2); };
-  document.querySelectorAll("#modalRoot .clpay").forEach(i=>i.oninput=recompute);
+  const v=id=>parseFloat(($(id)&&$(id).value)||0)||0;
+  const paint=(id,val)=>{const e=$(id);if(!e)return;e.textContent=(val>0?"+":"")+money(val);e.style.color=val>0?"var(--green)":val<0?"var(--red)":"inherit";};
+  const recompute=()=>{
+    const net=v("clNet"),orders=v("clOrders");
+    if($("clAT"))$("clAT").textContent=money(orders>0?net/orders:0);
+    if($("clCashVar")) paint("clCashVar", v("clCashPhy")-v("clCashSys"));
+    const cardPhy=v("clMada")+v("clVisa")+v("clMaster");
+    if($("clCardPhy"))$("clCardPhy").textContent=money(cardPhy);
+    if($("clCardVar")) paint("clCardVar", cardPhy-v("clCardSys"));
+  };
+  document.querySelectorAll("#modalRoot .clc").forEach(i=>i.oninput=recompute);
   const ph=$("clPhoto");ph.onchange=()=>{const f=ph.files[0];if(f){const u=URL.createObjectURL(f);$("clPrev").src=u;$("clPrev").classList.remove("hidden");}};
 }
 
 function reviewClosing(){
   const g=id=>$(id)?$(id).value:"";
+  const v=id=>parseFloat(g(id))||0;
   const branchSel=$("clBranch"); const branchName=branchSel&&branchSel.selectedOptions[0]?branchSel.selectedOptions[0].textContent:"";
-  const cash=parseFloat(g("clCash"))||0, mada=parseFloat(g("clMada"))||0, visa=parseFloat(g("clVisa"))||0, mastercard=parseFloat(g("clMaster"))||0;
-  const paySum=cash+mada+visa+mastercard;
+  const net=v("clNet"), orders=parseInt(g("clOrders"))||0;
+  const cashSys=v("clCashSys"), cashPhy=v("clCashPhy");
+  const cardSys=v("clCardSys"), mada=v("clMada"), visa=v("clVisa"), mastercard=v("clMaster");
+  const cardPhy=mada+visa+mastercard;
+  const online=v("clOnline");
+  const at=orders>0?net/orders:0;
+  const cashVar=cashPhy-cashSys, cardVar=cardPhy-cardSys;
+  const actualSales=cashPhy+cardPhy+online; // المبيعات الفعلية = مجموع المقبوضات الفعلية
   const data={branchId:branchSel?branchSel.value:"",branchName,
-    actualSales:paySum, systemSales:parseFloat(g("clSystem"))||0,
-    cash, mada, visa, mastercard};
+    net, orders, at, cashSys, cashPhy, cashVar,
+    cardSys, mada, visa, mastercard, cardPhy, cardVar,
+    online, actualSales:net, receiptsTotal:(cashPhy+cardPhy+online), systemSales:net};
   const file=$("clPhoto").files[0];
   if(!data.branchId){toast("اختر الفرع","err");return false;}
-  if(!g("clSystem")){toast("أدخل مبيعات النظام","err");return false;}
-  if(paySum<=0){toast("أدخل طرق الدفع (الكاش/الشبكة)","err");return false;}
-  const diff=data.actualSales-data.systemSales;
-  // شاشة المراجعة قبل الإرسال
+  if(!g("clNet")){toast("أدخل صافي المبيعات","err");return false;}
+  if(orders<=0){toast("أدخل عدد الطلبات","err");return false;}
+  const vRow=(t,val)=>"<div class='review-row'><span>"+t+"</span><b style='color:"+(val>0?"var(--green)":val<0?"var(--red)":"inherit")+"'>"+(val>0?"+":"")+money(val)+"</b></div>";
   if(!canApproveSales()){
     openModal("تأكيد الإرسال",
       "<div class='review-row'><span>الفرع</span><b>"+esc(branchName)+"</b></div>"+
-      "<p class='muted' style='margin-top:12px;font-size:14px'>تأكّد من صحة البيانات قبل الإرسال. تُسجّل تلقائياً بالتاريخ والوقت واسمك وتُرسل للإدارة.</p>",
+      "<div class='review-row'><span>صافي المبيعات</span><b>"+money(net)+"</b></div>"+
+      "<div class='review-row'><span>عدد الطلبات</span><b>"+orders+"</b></div>"+
+      "<div class='review-row'><span>متوسط الفاتورة</span><b>"+money(at)+"</b></div>"+
+      "<p class='muted' style='margin-top:12px;font-size:14px'>تأكّد من البيانات. تُسجّل تلقائياً بالتاريخ والوقت واسمك وتُرسل للإدارة.</p>",
       "إرسال الإقفال", ()=>submitClosing(data,file));
     return false;
   }
   openModal("مراجعة الإقفال",
     "<div class='review-row'><span>الفرع</span><b>"+esc(branchName)+"</b></div>"+
-    "<div class='review-row'><span>المبيعات الفعلية</span><b>"+money(data.actualSales)+"</b></div>"+
-    "<div class='review-row'><span>مبيعات النظام</span><b>"+money(data.systemSales)+"</b></div>"+
-    "<div class='review-row'><span>الفرق (فعلي − نظام)</span><b style='color:"+(diff===0?"var(--green)":"var(--amber)")+"'>"+money(diff)+"</b></div>"+
-    "<div class='review-row'><span>الكاش / مدى / فيزا / ماستر</span><b>"+money(data.cash)+" · "+money(data.mada)+" · "+money(data.visa)+" · "+money(data.mastercard)+"</b></div>"+
-    "<div class='review-row'><span>مجموع طرق الدفع</span><b style='color:"+(Math.abs(paySum-data.actualSales)<0.01?"var(--green)":"var(--red)")+"'>"+money(paySum)+"</b></div>"+
+    "<div class='sec-title' style='margin:12px 0 4px'>المبيعات</div>"+
+    "<div class='review-row'><span>صافي المبيعات</span><b>"+money(net)+"</b></div>"+
+    "<div class='review-row'><span>عدد الطلبات</span><b>"+orders+"</b></div>"+
+    "<div class='review-row'><span>متوسط الفاتورة</span><b>"+money(at)+"</b></div>"+
+    "<div class='sec-title' style='margin:12px 0 4px'>الكاش</div>"+
+    "<div class='review-row'><span>النظام / الفعلي</span><b>"+money(cashSys)+" · "+money(cashPhy)+"</b></div>"+vRow("الفرق",cashVar)+
+    "<div class='sec-title' style='margin:12px 0 4px'>الشبكة</div>"+
+    "<div class='review-row'><span>النظام</span><b>"+money(cardSys)+"</b></div>"+
+    "<div class='review-row'><span>مدى / فيزا / ماستر</span><b>"+money(mada)+" · "+money(visa)+" · "+money(mastercard)+"</b></div>"+
+    "<div class='review-row'><span>مجموع الفعلي</span><b>"+money(cardPhy)+"</b></div>"+vRow("الفرق",cardVar)+
+    "<div class='review-row' style='margin-top:8px'><span>أونلاين</span><b>"+money(online)+"</b></div>"+
     "<p class='muted' style='margin-top:10px;font-size:13px'>التاريخ والوقت واسم المُرسِل تُسجّل تلقائياً."+(file?" أرفقت الصورة ✅":" (بدون صورة)")+"</p>",
     "اعتماد الإرسال", ()=>submitClosing(data,file));
   return false;
@@ -1926,7 +1998,7 @@ function viewInvoice(x){
     "<div style='margin:10px 0'>"+items+"</div>"+
     "<div class='review-row'><span>الإجمالي</span><b>"+money(x.total)+"</b></div>"+
     "<div class='review-row'><span>الحالة</span>"+statusTag3(x.status)+"</div>"+
-    (x.photoUrl?"<a class='btn sm' href='"+x.photoUrl+"' target='_blank' style='margin-top:10px'>عرض الصورة</a>":""),
+    (x.photoUrl?"<a class='btn sm' href='"+esc(normUrl(x.photoUrl))+"' target='_blank' style='margin-top:10px'>عرض الصورة</a>":""),
     "تم",()=>true,true);
 }
 
@@ -2478,7 +2550,7 @@ async function pageProducts(c,standalone){
         "<td class='muted'>"+esc(x.category||"—")+"</td><td class='muted'>"+min+" "+esc(x.unit||"")+"</td>"+costCells+"<td class='muted'>"+supplier+"</td><td></td>");
       const act=tr.lastChild;
       const items=[];
-      if(x.url) items.push({label:"🔗 طلب", fn:()=>window.open(x.url,"_blank")});
+      if(x.url) items.push({label:"🔗 طلب", fn:()=>{ const u=normUrl(x.url); if(/^https?:\/\//i.test(u)) window.open(u,"_blank","noopener"); }});
       if(can("inventory","edit")) items.push({label:"✏️ تعديل", fn:()=>productModal(x.id,x)});
       if(can("inventory","delete")) items.push({label:"🗑️ حذف", danger:true, fn:()=>{if(confirm("حذف المنتج؟")){cRef().collection("products").doc(x.id).delete();logAction("delete_product",x.name);}}});
       if(items.length){ const kb=el("button","btn sm","⋮"); kb.style.cssText="padding:4px 12px;font-size:18px;line-height:1"; kb.onclick=(e)=>{e.stopPropagation();openActionMenu(kb,items);}; act.appendChild(kb); }
