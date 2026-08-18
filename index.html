@@ -219,6 +219,7 @@ const MODULES = [
   {key:"sales",      name:"الإقفال اليومي", icon:""},
   {key:"invoices",   name:"الفواتير", icon:""},
   {key:"inventory",  name:"المخزون", icon:""},
+  {key:"expenses",   name:"المصروفات", icon:""},
   {key:"suppliers",  name:"الموردين", icon:""},
   {key:"staff",      name:"شؤون الموظفين", icon:""},
   {key:"checklist",  name:"قوائم التحقّق التشغيلي", icon:""},
@@ -257,6 +258,11 @@ function t(k){ return (I18N[LANG]&&I18N[LANG][k]) || I18N.ar[k] || k; }
 
 // قاموس ترجمة عربي→إنجليزي للعبارات الظاهرة (يتوسّع تدريجياً)
 const EN={
+  "المصروفات":"Expenses","مصروفات الفرع التشغيلية":"Branch operating expenses","تسجيل مصروف":"Log expense","+ تسجيل مصروف":"+ Log expense",
+  "مصروفات هذا الفرع":"This branch's expenses","الفئة":"Category","المبلغ":"Amount","البيان":"Description","الفئة *":"Category *","المبلغ *":"Amount *",
+  "إيجار":"Rent","رواتب":"Salaries","كهرباء وماء":"Utilities","صيانة":"Maintenance","مشتريات":"Purchases","تسويق":"Marketing","أخرى":"Other",
+  "تفاصيل المصروف":"Expense details","صافي الربح":"Net Profit","إجمالي المصروفات (معتمد)":"Total expenses (approved)","المصروفات حسب الفئة":"Expenses by category",
+  "− المشتريات":"− Purchases","− المصروفات":"− Expenses","− التوالف":"− Waste","تم اعتماد المصروف":"Expense approved","تم رفض المصروف":"Expense rejected","تم إرسال المصروف":"Expense sent",
   "صافي المبيعات":"Net Sales","صافي المبيعات *":"Net Sales *","عدد الطلبات":"Orders","عدد الطلبات *":"Orders *",
   "متوسط الفاتورة":"Avg Ticket","الكاش":"Cash","الشبكة":"Card","النظام":"System","الفعلي":"Actual",
   "الفرق":"Variance","مجموع الفعلي":"Actual total","أونلاين":"Online","مدى":"Mada","فيزا":"Visa","ماستركارد":"Mastercard","ماستر":"Master",
@@ -836,6 +842,16 @@ firebase.initializeApp(firebaseConfig);
 const auth = firebase.auth();
 const db   = firebase.firestore();
 const storage = firebase.storage();
+// رفع صورة مع مهلة زمنية: لو تعذّر (Storage غير مفعّل) أو تأخّر، يرجع "" بدل أن يتجمّد
+async function tryUploadImage(path,file,ms){
+  ms=ms||8000;
+  try{
+    return await Promise.race([
+      (async()=>{ const snap=await storage.ref(path).put(file); return await snap.ref.getDownloadURL(); })(),
+      new Promise((_,rej)=>setTimeout(()=>rej(new Error("upload-timeout")),ms))
+    ]);
+  }catch(e){ console.warn("تعذّر رفع الصورة، سيُحفظ بدون صورة:",e&&e.message); return ""; }
+}
 // نسخة ثانوية لإنشاء المستخدمين دون تسجيل خروج المدير الحالي
 const secondaryApp  = firebase.initializeApp(firebaseConfig, "secondary");
 const secondaryAuth = secondaryApp.auth();
@@ -963,7 +979,7 @@ auth.onAuthStateChanged(async user=>{
       applyTheme(cdata.theme);
       buildShell(); renderCompanyNav();
       // استعادة القسم من الرابط (#) بعد التحديث، وإلا الافتراضي
-      const validPages=["dashboard","sales","invoices","inventory","suppliers","staff","checklist","recipes","branches","reports","settings","super_companies","super_subs","super_audit"];
+      const validPages=["dashboard","sales","invoices","inventory","expenses","suppliers","staff","checklist","recipes","branches","reports","settings","super_companies","super_subs","super_audit"];
       const hash=(location.hash||"").replace("#","");
       if(hash && validPages.includes(hash) && !cardsMode()){
         openPage(hash);
@@ -1121,7 +1137,7 @@ function openPage(key,isBack){
   const c=$("pageContent"); c.innerHTML="";
   const routes={
     super_companies:pageSuperCompanies, super_subs:pageSuperSubs, super_audit:pageSuperAudit,
-    dashboard:pageDashboard, sales:pageSales, invoices:pageInvoices, inventory:pageInventory, suppliers:pageSuppliers, staff:pageStaff, checklist:pageChecklist, recipes:pageRecipes, branches:pageBranches, employees:pageStaff, reports:pageReports, settings:pageSettings
+    dashboard:pageDashboard, sales:pageSales, invoices:pageInvoices, inventory:pageInventory, expenses:pageExpenses, suppliers:pageSuppliers, staff:pageStaff, checklist:pageChecklist, recipes:pageRecipes, branches:pageBranches, employees:pageStaff, reports:pageReports, settings:pageSettings
   };
   if(routes[key]) routes[key](c);
   else pagePlaceholder(c,key);
@@ -1152,13 +1168,14 @@ async function runReports(from,to){
   body.innerHTML="<p class='muted'>جارٍ التحميل…</p>";
   const toEnd=to; // inclusive by using <= via string compare on date field (YYYY-MM-DD)
   try{
-    const [clo,inv,prods,waste,pay,evals]=await Promise.all([
+    const [clo,inv,prods,waste,pay,evals,exps]=await Promise.all([
       cRef().collection("dailyClosings").where("date",">=",from).where("date","<=",toEnd).get(),
       cRef().collection("invoices").where("date",">=",from).where("date","<=",toEnd).get(),
       cRef().collection("products").get(),
       cRef().collection("waste").where("date",">=",from).where("date","<=",toEnd).get(),
       cRef().collection("payroll").get(),
-      cRef().collection("branchEvals").where("date",">=",from).where("date","<=",toEnd).get().catch(()=>({forEach:()=>{}}))
+      cRef().collection("branchEvals").where("date",">=",from).where("date","<=",toEnd).get().catch(()=>({forEach:()=>{}})),
+      cRef().collection("expenses").where("date",">=",from).where("date","<=",toEnd).get().catch(()=>({forEach:()=>{}}))
     ]);
     // المبيعات (معتمد)
     let salesTot=0,salesCount=0,sysTot=0; const byBranch={};
@@ -1178,6 +1195,11 @@ async function runReports(from,to){
     // التوالف (معتمد)
     let wasteTot=0; const byReason={};
     waste.forEach(d=>{const x=d.data(); if(x.status!=="approved")return; const cst=Number(x.cost)||0; wasteTot+=cst; const r=x.reason||"أخرى"; byReason[r]=(byReason[r]||0)+cst;});
+    // المصروفات (معتمد)
+    let expTot=0; const byCat={};
+    exps.forEach(d=>{const x=d.data(); if(x.status!=="approved")return; const a=Number(x.amount)||0; expTot+=a; const cat=x.category||"أخرى"; byCat[cat]=(byCat[cat]||0)+a;});
+    // صافي الربح = المبيعات − (المشتريات + المصروفات + التوالف)
+    const netProfit=salesTot-(buyTot+expTot+wasteTot);
     // الرواتب (آخر شهر مسجّل) + التقييم
     let payrollTot=0; pay.forEach(d=>{const x=d.data(); payrollTot+=Number(x.net||x.total||0)||0;});
     let evSum=0,evN=0; evals.forEach(d=>{const x=d.data(); evSum+=Number(x.pct||0); evN++;});
@@ -1197,6 +1219,16 @@ async function runReports(from,to){
       "<h3 style='margin:6px 0 10px'>التوالف</h3><div class='kpi-grid' style='margin-bottom:8px'>"+
         kpicard("إجمالي تكلفة التوالف",money(wasteTot),wasteTot>0?"var(--red)":"")+
       "</div><div class='card' style='margin-bottom:18px'><div class='muted' style='font-size:13px;margin-bottom:6px'>التوالف حسب السبب</div>"+rowsHtml(byReason,money)+"</div>"+
+      "<h3 style='margin:6px 0 10px'>المصروفات</h3><div class='kpi-grid' style='margin-bottom:8px'>"+
+        kpicard("إجمالي المصروفات (معتمد)",money(expTot),expTot>0?"var(--red)":"")+
+      "</div><div class='card' style='margin-bottom:18px'><div class='muted' style='font-size:13px;margin-bottom:6px'>المصروفات حسب الفئة</div>"+rowsHtml(byCat,money)+"</div>"+
+      "<h3 style='margin:6px 0 10px'>صافي الربح</h3><div class='card' style='margin-bottom:18px;background:linear-gradient(160deg,var(--teal-deep,#2d4551),var(--ink,#18212b));color:#f3ede1'>"+
+        "<div class='review-row' style='border-color:rgba(255,255,255,.15)'><span style='color:rgba(244,239,228,.75)'>المبيعات</span><b style='color:#fff'>"+money(salesTot)+"</b></div>"+
+        "<div class='review-row' style='border-color:rgba(255,255,255,.15)'><span style='color:rgba(244,239,228,.75)'>− المشتريات</span><b style='color:#e3c98f'>"+money(buyTot)+"</b></div>"+
+        "<div class='review-row' style='border-color:rgba(255,255,255,.15)'><span style='color:rgba(244,239,228,.75)'>− المصروفات</span><b style='color:#e3c98f'>"+money(expTot)+"</b></div>"+
+        "<div class='review-row' style='border-color:rgba(255,255,255,.15)'><span style='color:rgba(244,239,228,.75)'>− التوالف</span><b style='color:#e3c98f'>"+money(wasteTot)+"</b></div>"+
+        "<div class='review-row' style='border:0;padding-top:10px'><span style='font-weight:800'>صافي الربح</span><b style='font-size:22px;color:"+(netProfit>=0?"#7fd0a0":"#e8a09a")+"'>"+money(netProfit)+"</b></div>"+
+      "</div>"+
       "<h3 style='margin:6px 0 10px'>الموظفون</h3><div class='kpi-grid'>"+
         kpicard("إجمالي الرواتب (آخر كشف)",money(payrollTot))+kpicard("متوسط تقييم الفروع",evN?Math.round(evSum/evN)+"%":"—")+
       "</div>";
@@ -1900,17 +1932,10 @@ async function submitClosing(data,file){
   try{
     const ref=cRef().collection("dailyClosings").doc();
     let photoUrl="", photoPath="";
-    // الصورة اختيارية: نرفعها فقط إذا وُجدت وكانت خدمة Storage مفعّلة
     if(file){
-      try{
-        photoPath="companies/"+state.companyId+"/closings/"+ref.id+".jpg";
-        const snap=await storage.ref(photoPath).put(file);
-        photoUrl=await snap.ref.getDownloadURL();
-      }catch(err){
-        console.warn("تعذّر رفع الصورة (Storage غير مفعّل) — سيُحفظ الإقفال بدون صورة",err);
-        photoUrl=""; photoPath="";
-        toast("حُفظ الإقفال بدون صورة (خدمة الصور غير مفعّلة)","");
-      }
+      photoPath="companies/"+state.companyId+"/closings/"+ref.id+".jpg";
+      photoUrl=await tryUploadImage(photoPath,file);
+      if(!photoUrl){ photoPath=""; toast("حُفظ الإقفال بدون صورة (خدمة الصور غير مفعّلة)",""); }
     }
     await ref.set({...data, photoUrl, photoPath,
       date:new Date().toISOString().slice(0,10),
@@ -2075,9 +2100,9 @@ async function submitInvoice(data){
     const ref=cRef().collection("invoices").doc();
     let photoUrl="",photoPath="";
     if(data._file){
-      try{ photoPath="companies/"+state.companyId+"/invoices/"+ref.id+".jpg";
-        const snap=await storage.ref(photoPath).put(data._file); photoUrl=await snap.ref.getDownloadURL();
-      }catch(err){ photoUrl="";photoPath=""; toast("حُفظت الفاتورة بدون صورة (خدمة الصور غير مفعّلة)",""); }
+      photoPath="companies/"+state.companyId+"/invoices/"+ref.id+".jpg";
+      photoUrl=await tryUploadImage(photoPath,data._file);
+      if(!photoUrl){ photoPath=""; toast("حُفظت الفاتورة بدون صورة (خدمة الصور غير مفعّلة)",""); }
     }
     await ref.set({
       items:data.items.map(({name,value,qty,lineTotal})=>({name,value,qty,lineTotal})),
@@ -2514,6 +2539,79 @@ async function invWasteForm(c,br){
     });
 }
 
+/* ==================== المصروفات (لكل فرع) ==================== */
+const EXPENSE_CATEGORIES=["إيجار","رواتب","كهرباء وماء","صيانة","مشتريات","تسويق","أخرى"];
+async function pageExpenses(c, forcedBr, backFn){
+  const back=backFn||(()=>{ if(cardsMode()) renderCardsHome(); else openPage("dashboard"); });
+  c.innerHTML=(forcedBr?"<button class='btn sm' id='exBack' style='margin-bottom:14px'>← رجوع</button>":"")+pageTitle("المصروفات","مصروفات الفرع التشغيلية");
+  if($("exBack"))$("exBack").onclick=back;
+  let br;
+  if(forcedBr){ br=forcedBr; c.insertAdjacentHTML("beforeend","<div class='muted' style='margin-bottom:12px'>الفرع: <b>"+esc(br.name)+"</b></div>"); }
+  else { br=await invBranchBar(c, ()=>pageExpenses(c)); if(!br) return; }
+  const bar=el("div"); bar.style.marginBottom="16px"; bar.innerHTML="<button class='btn primary' id='newExp'>+ تسجيل مصروف</button>";
+  c.appendChild(bar); $("newExp").onclick=()=>expenseForm(c,br);
+  const app=invApprover();
+  const card=el("div","card");
+  if(!app){
+    card.innerHTML="<h3 style='margin-bottom:10px'>طلباتي</h3><table><thead><tr><th>التاريخ والوقت</th><th>الحالة</th></tr></thead><tbody id='exRows'><tr><td colspan='2' class='muted'>جارٍ التحميل…</td></tr></tbody></table>";
+    c.appendChild(card);
+    cRef().collection("expenses").where("byUid","==",state.user.uid).onSnapshot(s=>{
+      const tb=$("exRows");if(!tb)return;const rows=[];s.forEach(d=>rows.push(d.data()));
+      rows.sort((a,b)=>((b.at&&b.at.seconds)||0)-((a.at&&a.at.seconds)||0));
+      tb.innerHTML=rows.length?"":"<tr><td colspan='2' class='muted'>لا يوجد</td></tr>";
+      rows.forEach(x=>tb.appendChild(el("tr",null,"<td>"+fmtDT(x.at)+"</td><td>"+statusTag3(x.status)+"</td>")));
+    },()=>{const tb=$("exRows");if(tb)tb.innerHTML="<tr><td colspan='2' style='color:var(--red)'>تعذّر التحميل</td></tr>";});
+    return;
+  }
+  card.innerHTML="<table><thead><tr><th>التاريخ والوقت</th><th>الفئة</th><th>البيان</th><th>المبلغ</th><th>المُسجِّل</th><th>الحالة</th><th>إجراء</th></tr></thead><tbody id='exRows'><tr><td colspan='7' class='muted'>جارٍ التحميل…</td></tr></tbody></table>";
+  c.appendChild(card);
+  cRef().collection("expenses").where("branchId","==",br.id).onSnapshot(s=>{
+    const tb=$("exRows");if(!tb)return;const rows=[];s.forEach(d=>rows.push({id:d.id,...d.data()}));
+    rows.sort((a,b)=>((b.at&&b.at.seconds)||0)-((a.at&&a.at.seconds)||0));
+    tb.innerHTML=""; if(!rows.length){tb.innerHTML="<tr><td colspan='7' class='muted'>لا يوجد</td></tr>";return;}
+    rows.forEach(x=>{
+      const tr=el("tr",null,"<td>"+fmtDT(x.at)+"</td><td class='muted'>"+esc(x.category||"—")+"</td><td>"+esc(x.note||"—")+"</td><td style='color:var(--red)'>"+money(x.amount||0)+"</td><td class='muted'>"+esc(x.byName||"")+"</td><td>"+statusTag3(x.status)+"</td><td></td>");
+      const act=tr.lastChild;
+      const v=el("button","btn sm","عرض");v.onclick=()=>viewExpense(x);act.appendChild(v);
+      if(x.status!=="approved"){ const ap=el("button","btn sm","اعتماد");ap.style.marginRight="6px";ap.onclick=()=>setExpenseStatus(x.id,x,"approved");act.appendChild(ap); }
+      if(x.status!=="rejected"){ const rj=el("button","btn sm danger","رفض");rj.style.marginRight="6px";rj.onclick=()=>setExpenseStatus(x.id,x,"rejected");act.appendChild(rj); }
+      tb.appendChild(tr);
+    });
+  },()=>{const tb=$("exRows");if(tb)tb.innerHTML="<tr><td colspan='7' style='color:var(--red)'>تعذّر التحميل</td></tr>";});
+}
+function viewExpense(x){
+  openModal("تفاصيل المصروف — "+esc(x.branchName||""),
+    "<div class='review-row'><span>التاريخ والوقت</span><b>"+fmtDT(x.at)+"</b></div>"+
+    "<div class='review-row'><span>الفرع</span><b>"+esc(x.branchName||"")+"</b></div>"+
+    "<div class='review-row'><span>الفئة</span><b>"+esc(x.category||"—")+"</b></div>"+
+    "<div class='review-row'><span>البيان</span><b>"+esc(x.note||"—")+"</b></div>"+
+    "<div class='review-row'><span>المبلغ</span><b style='color:var(--red)'>"+money(x.amount||0)+"</b></div>"+
+    "<div class='review-row'><span>المُسجِّل</span><b>"+esc(x.byName||"")+"</b></div>"+
+    "<div class='review-row'><span>الحالة</span>"+statusTag3(x.status)+"</div>",
+    "تم",()=>true,true);
+}
+async function setExpenseStatus(id,x,newStatus){
+  if(x.status===newStatus) return;
+  await cRef().collection("expenses").doc(id).update({status:newStatus,approvedBy:state.user.uid,approvedAt:now()});
+  logAction(newStatus==="approved"?"approve_expense":newStatus==="rejected"?"reject_expense":"update_expense",(x.category||"")+" "+money(x.amount||0)+" — "+(x.branchName||""));
+  toast(newStatus==="approved"?"تم اعتماد المصروف":newStatus==="rejected"?"تم رفض المصروف":"تم التحديث","ok");
+}
+async function expenseForm(c,br){
+  const catOpts=EXPENSE_CATEGORIES.map(r=>"<option value='"+esc(r)+"'>"+esc(r)+"</option>").join("");
+  openModal("تسجيل مصروف — "+esc(br.name),
+    "<label class='field'><span>الفئة *</span><select id='exCat'>"+catOpts+"</select></label>"+
+    "<label class='field'><span>المبلغ *</span><input id='exAmount' class='input' type='number' inputmode='decimal' placeholder='0.00'></label>"+
+    "<label class='field'><span>البيان (اختياري)</span><input id='exNote' class='input' placeholder='وصف المصروف'></label>"+
+    "<div class='muted' style='font-size:12px'>يُرسل للإدارة، ويُحتسب ضمن صافي الربح بعد الاعتماد.</div>",
+    "إرسال", async ()=>{
+      const amount=parseFloat($("exAmount").value)||0;
+      if(amount<=0){toast("أدخل المبلغ","err");return false;}
+      await cRef().collection("expenses").add({branchId:br.id,branchName:br.name,category:$("exCat").value,amount,note:$("exNote").value.trim(),status:"pending",byName:state.profile.name||state.user.email,byUid:state.user.uid,date:todayStr(),at:now()});
+      logAction("expense",$("exCat").value+" "+money(amount)+" — "+br.name);
+      toast("تم إرسال المصروف","ok"); return true;
+    });
+}
+
 
 async function pageProducts(c,standalone){
   const manage = can("inventory","add")||can("inventory","edit");
@@ -2788,7 +2886,7 @@ function recipeModal(id,x){ x=x||{};
       const data={name,body:$("recBody").value};
       const file=$("recPhoto")?$("recPhoto").files[0]:null;
       const ref=id?cRef().collection("recipes").doc(id):cRef().collection("recipes").doc();
-      if(file){ try{const path="companies/"+state.companyId+"/recipes/"+ref.id+".jpg";const snap=await storage.ref(path).put(file);data.photoUrl=await snap.ref.getDownloadURL();}catch(e){ toast("حُفظت بدون صورة (الصور غير مفعّلة)",""); } }
+      if(file){ const path="companies/"+state.companyId+"/recipes/"+ref.id+".jpg"; data.photoUrl=await tryUploadImage(path,file); if(!data.photoUrl) toast("حُفظت بدون صورة (الصور غير مفعّلة)",""); }
       if(id){await ref.update(data);logAction("edit_recipe",name);}
       else{data.createdAt=now();await ref.set(data);logAction("add_recipe",name);}
       return true;
@@ -2854,16 +2952,17 @@ async function branchDetail(c,id,x){
     const invGrid=el("div"); invGrid.style.cssText="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:16px;margin-bottom:16px";
     const mk=(key,title,desc)=>{ const card=el("div","card"); card.style.cssText="cursor:pointer;min-height:110px;position:relative";
       card.innerHTML="<div style='font-weight:800'>"+title+"</div><div class='muted' style='font-size:13px;margin-top:4px'>"+desc+"</div><span id='bbadge_"+key+"' style='position:absolute;top:10px;left:10px;background:var(--red);color:#fff;border-radius:999px;min-width:20px;height:20px;font-size:12px;display:none;align-items:center;justify-content:center;padding:0 5px'></span>";
-      card.onclick=()=>{ const f={count:invCount,order:invOrders,waste:invWaste}[key]; f(c,br,backFn); setTimeout(()=>{ if(typeof translateTree==="function") translateTree(c); },60); };
+      card.onclick=()=>{ const f={count:invCount,order:invOrders,waste:invWaste,expenses:pageExpenses}[key]; f(c,br,backFn); setTimeout(()=>{ if(typeof translateTree==="function") translateTree(c); },60); };
       invGrid.appendChild(card);
     };
     mk("count","الجرد","جرد كميات هذا الفرع");
     mk("order","الطلب","طلبات هذا الفرع");
     mk("waste","تالف","توالف هذا الفرع");
+    mk("expenses","المصروفات","مصروفات هذا الفرع");
     c.appendChild(invGrid);
     // شارات المعلّق لهذا الفرع
     const setBB=(coll,key)=>{ cRef().collection(coll).where("branchId","==",id).onSnapshot(s=>{ let n=0; s.forEach(d=>{const st=d.data().status; if(st!=="approved"&&st!=="rejected"&&st!=="done")n++;}); const b=$("bbadge_"+key); if(b){ if(n){b.textContent=n;b.style.display="flex";}else b.style.display="none"; } },()=>{}); };
-    setBB("stockCounts","count"); setBB("stockOrders","order"); setBB("waste","waste");
+    setBB("stockCounts","count"); setBB("stockOrders","order"); setBB("waste","waste"); setBB("expenses","expenses");
   }
   // مبيعات الفرع للشهر
   const cur=monthRange(0);
@@ -2941,7 +3040,7 @@ async function submitBranchEval(id,x,crit){
     const ref=cRef().collection("branchEvals").doc();
     const results=[];
     for(let i=0;i<crit.length;i++){let photoUrl="";
-      if(files[i]){try{const path="companies/"+state.companyId+"/branchEval/"+ref.id+"_"+i+".jpg";const snap=await storage.ref(path).put(files[i]);photoUrl=await snap.ref.getDownloadURL();}catch(e){photoUrl="";}}
+      if(files[i]){const path="companies/"+state.companyId+"/branchEval/"+ref.id+"_"+i+".jpg";photoUrl=await tryUploadImage(path,files[i]);}
       results.push({name:crit[i],ok:!!vals[i],note:notes[i]||"",photoUrl});
     }
     const yes=results.filter(r=>r.ok).length; const pct=Math.round(yes/results.length*100);
@@ -3474,8 +3573,7 @@ async function submitRun(id,x,tasks){
     const results=[];
     for(let i=0;i<tasks.length;i++){
       let photoUrl="";
-      if(files[i]){ try{ const path="companies/"+state.companyId+"/checklist/"+ref.id+"_"+i+".jpg";
-        const snap=await storage.ref(path).put(files[i]); photoUrl=await snap.ref.getDownloadURL(); }catch(e){ photoUrl=""; } }
+      if(files[i]){ const path="companies/"+state.companyId+"/checklist/"+ref.id+"_"+i+".jpg"; photoUrl=await tryUploadImage(path,files[i]); }
       results.push({taskId:tasks[i].id,text:tasks[i].text,ok:!!vals[i],note:notes[i]||"",photoUrl});
     }
     const okCount=results.filter(r=>r.ok).length; const pct=Math.round(okCount/results.length*100);
@@ -3642,7 +3740,7 @@ function renderAudit(container,ref,title,inline){
   card.innerHTML=(card.innerHTML||"")+"<table><thead><tr><th>العملية</th><th>المستخدم</th><th>التفاصيل</th><th>الوقت</th></tr></thead><tbody id='auditRows'><tr><td colspan='4' class='muted'>جارٍ التحميل…</td></tr></tbody></table>";
   ref.orderBy("at","desc").limit(80).onSnapshot(s=>{const tb=document.getElementById("auditRows");if(!tb)return;tb.innerHTML="";
     if(s.empty){tb.innerHTML="<tr><td colspan='4' class='muted'>لا يوجد سجل</td></tr>";return;}
-    const names={login:"تسجيل دخول",create_company:"إنشاء شركة",suspend_company:"إيقاف شركة",activate_company:"تشغيل شركة",delete_company:"حذف شركة",update_subscription:"تعديل اشتراك",update_plan:"تغيير الباقة",admin_enter:"دخول إداري",add_branch:"إضافة فرع",edit_branch:"تعديل فرع",delete_branch:"حذف فرع",add_user:"إضافة مستخدم",edit_permissions:"تعديل صلاحيات",submit_closing:"إرسال إقفال",approve_closing:"اعتماد إقفال",reject_closing:"رفض إقفال",add_invoice:"إرسال فاتورة",approve_invoice:"اعتماد فاتورة",reject_invoice:"رفض فاتورة",add_product:"إضافة منتج",edit_product:"تعديل منتج",delete_product:"حذف منتج",add_category:"إضافة تصنيف",add_supplier:"إضافة مورد",edit_supplier:"تعديل مورد",delete_supplier:"حذف مورد",add_supplier_product:"إضافة منتج لمورد",update_price:"تحديث سعر",add_employee:"إضافة موظف",edit_employee:"تعديل موظف",save_payroll:"حفظ كشف رواتب",add_evaluation:"تقييم موظف",add_checklist:"إضافة قائمة",edit_checklist:"تعديل قائمة",delete_checklist:"حذف قائمة",add_task:"إضافة مهمة",submit_checklist:"تنفيذ قائمة",approve_checklist:"اعتماد تنفيذ",reject_checklist:"رفض تنفيذ",edit_profile:"تعديل الملف التعريفي",save_document:"حفظ وثيقة",change_theme:"تغيير الثيم",add_branch_eval:"تقييم فرع",add_recipe:"إضافة وصفة",edit_recipe:"تعديل وصفة",delete_recipe:"حذف وصفة",edit_slug:"تعديل رابط الشركة",suspend_account:"إيقاف حساب موظف",activate_account:"تفعيل حساب موظف",delete_account:"حذف حساب موظف",delete_employee:"حذف موظف",stock_count:"إرسال جرد",approve_count:"اعتماد جرد",reject_count:"رفض جرد",stock_order:"إرسال طلب",approve_order:"اعتماد طلب",reject_order:"رفض طلب",order_done:"إنهاء طلب",waste:"إرسال تالف",approve_waste:"اعتماد تالف",reject_waste:"رفض تالف",update_count:"تعديل جرد",update_waste:"تعديل تالف",section_visibility:"ظهور قسم",owner_welcomed:"ترحيب المالك"};
+    const names={login:"تسجيل دخول",create_company:"إنشاء شركة",suspend_company:"إيقاف شركة",activate_company:"تشغيل شركة",delete_company:"حذف شركة",update_subscription:"تعديل اشتراك",update_plan:"تغيير الباقة",admin_enter:"دخول إداري",add_branch:"إضافة فرع",edit_branch:"تعديل فرع",delete_branch:"حذف فرع",add_user:"إضافة مستخدم",edit_permissions:"تعديل صلاحيات",submit_closing:"إرسال إقفال",approve_closing:"اعتماد إقفال",reject_closing:"رفض إقفال",add_invoice:"إرسال فاتورة",approve_invoice:"اعتماد فاتورة",reject_invoice:"رفض فاتورة",add_product:"إضافة منتج",edit_product:"تعديل منتج",delete_product:"حذف منتج",add_category:"إضافة تصنيف",add_supplier:"إضافة مورد",edit_supplier:"تعديل مورد",delete_supplier:"حذف مورد",add_supplier_product:"إضافة منتج لمورد",update_price:"تحديث سعر",add_employee:"إضافة موظف",edit_employee:"تعديل موظف",save_payroll:"حفظ كشف رواتب",add_evaluation:"تقييم موظف",add_checklist:"إضافة قائمة",edit_checklist:"تعديل قائمة",delete_checklist:"حذف قائمة",add_task:"إضافة مهمة",submit_checklist:"تنفيذ قائمة",approve_checklist:"اعتماد تنفيذ",reject_checklist:"رفض تنفيذ",edit_profile:"تعديل الملف التعريفي",save_document:"حفظ وثيقة",change_theme:"تغيير الثيم",add_branch_eval:"تقييم فرع",add_recipe:"إضافة وصفة",edit_recipe:"تعديل وصفة",delete_recipe:"حذف وصفة",edit_slug:"تعديل رابط الشركة",suspend_account:"إيقاف حساب موظف",activate_account:"تفعيل حساب موظف",delete_account:"حذف حساب موظف",delete_employee:"حذف موظف",stock_count:"إرسال جرد",approve_count:"اعتماد جرد",reject_count:"رفض جرد",stock_order:"إرسال طلب",approve_order:"اعتماد طلب",reject_order:"رفض طلب",order_done:"إنهاء طلب",waste:"إرسال تالف",approve_waste:"اعتماد تالف",reject_waste:"رفض تالف",update_count:"تعديل جرد",update_waste:"تعديل تالف",expense:"تسجيل مصروف",approve_expense:"اعتماد مصروف",reject_expense:"رفض مصروف",update_expense:"تعديل مصروف",section_visibility:"ظهور قسم",owner_welcomed:"ترحيب المالك"};
     s.forEach(d=>{const x=d.data();const t=x.at&&x.at.toDate?x.at.toDate().toLocaleString("ar-SA-u-ca-gregory-nu-latn"):"—";
       tb.appendChild(el("tr",null,"<td>"+(names[x.action]||esc(x.action))+"</td><td class='muted'>"+esc(x.userName||"")+"</td><td class='muted'>"+esc(x.details||"")+"</td><td class='muted'>"+t+"</td>"));});
   },()=>{});
