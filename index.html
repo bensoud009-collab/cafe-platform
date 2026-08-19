@@ -1030,24 +1030,6 @@ function renderSuperNav(){
 function renderCompanyNav(){
   const nav=$("navList");nav.innerHTML="";
   MODULES.forEach(m=>{ if(m.key==="staff" || m.key==="recipes" || can(m.key,"view")||can(m.key,"add")) nav.appendChild(navButton(t("nav_"+m.key)||m.name,m.icon,m.key)); });
-  setupInventoryNavBadge();
-}
-// شارة الطلبات الجديدة جنب «المخزون والجرد» (للمالك/المدير)
-function setupInventoryNavBadge(){
-  if(!(canSeeCost())) return;
-  const btn=document.querySelector('.nav-item[data-page="inventory"]'); if(!btn) return;
-  let badge=btn.querySelector(".navbadge");
-  if(!badge){ badge=el("span","navbadge"); badge.style.cssText="margin-inline-start:auto;background:var(--red);color:#fff;border-radius:999px;min-width:20px;height:20px;font-size:11px;display:none;align-items:center;justify-content:center;padding:0 5px;cursor:pointer";
-    badge.onclick=(e)=>{ e.stopPropagation(); if(window.gotoInvOrders) window.gotoInvOrders(); };
-    btn.appendChild(badge); }
-  try{
-    const counts={o:0,c:0,w:0};
-    const upd=()=>{ const n=counts.o+counts.c+counts.w; if(n){badge.textContent=n;badge.style.display="flex";}else badge.style.display="none"; };
-    const cntPend=s=>{let n=0;s.forEach(d=>{const st=d.data().status; if(st!=="approved"&&st!=="rejected"&&st!=="done")n++;});return n;};
-    cRef().collection("stockOrders").onSnapshot(s=>{counts.o=cntPend(s);upd();},()=>{});
-    cRef().collection("stockCounts").onSnapshot(s=>{counts.c=cntPend(s);upd();},()=>{});
-    cRef().collection("waste").onSnapshot(s=>{counts.w=cntPend(s);upd();},()=>{});
-  }catch(e){}
 }
 
 // مولّد كلمة مرور عشوائية قوية
@@ -2921,13 +2903,31 @@ function pageBranches(c){
       const arr=byBranch[d.id]||[]; const avg=arr.length?arr.reduce((a,b)=>a+b,0)/arr.length:0;
       const stars=Math.round(avg/20); // 0-100% → 0-5
       let starHtml=""; for(let i=1;i<=5;i++) starHtml+="<span style='color:"+(i<=stars?"var(--brand)":"var(--line)")+"'>★</span>";
-      const card=el("div","card");card.style.cssText="cursor:pointer;min-height:130px";
-      card.innerHTML="<div style='font-weight:800;margin-top:6px'>"+esc(x.name)+"</div>"+
+      const card=el("div","card");card.style.cssText="cursor:pointer;min-height:130px;position:relative";
+      card.innerHTML="<span id='brbadge_"+d.id+"' style='position:absolute;top:12px;left:12px;background:var(--red);color:#fff;border-radius:999px;min-width:22px;height:22px;font-size:12px;font-weight:700;display:none;align-items:center;justify-content:center;padding:0 6px'></span>"+
+        "<div style='font-weight:800;margin-top:6px'>"+esc(x.name)+"</div>"+
         "<div style='font-size:18px;margin-top:6px'>"+starHtml+"</div>"+
         "<div class='muted' style='font-size:12px;margin-top:4px'>"+(arr.length?"متوسط "+Math.round(avg)+"%":"لا تقييم بعد")+"</div>";
       card.onclick=()=>branchDetail(c,d.id,x);
       g.appendChild(card);
     });
+    // شارة المعلّق لكل فرع (جرد/طلب/تالف/مصروفات/إقفال/فواتير) — للمالك/المدير
+    if(invApprover()){
+      const pend={}; const bump=(bid,n)=>{pend[bid]=(pend[bid]||0)+n;};
+      const paint=()=>{ s.forEach(d=>{ const b=$("brbadge_"+d.id); if(b){ const n=pend[d.id]||0; if(n){b.textContent=n;b.style.display="flex";}else b.style.display="none"; } }); };
+      const per={}; // per-collection per-branch counts
+      const watch=(coll)=>{ cRef().collection(coll).onSnapshot(cs=>{
+        cs.forEach(dd=>{}); // reset then recount
+        // rebuild counts for this collection
+        const local={}; cs.forEach(dd=>{const y=dd.data(); const st=y.status; if(st!=="approved"&&st!=="rejected"&&st!=="done"){ local[y.branchId]=(local[y.branchId]||0)+1; }});
+        per[coll]=local;
+        // recompute total pend
+        for(const k in pend) delete pend[k];
+        Object.values(per).forEach(m=>{ for(const bid in m) bump(bid,m[bid]); });
+        paint();
+      },()=>{}); };
+      ["stockCounts","stockOrders","waste","expenses","dailyClosings","invoices"].forEach(watch);
+    }
   },()=>{const g=$("brGrid");if(g)g.innerHTML="<div class='card' style='grid-column:1/-1;color:var(--red)'>تعذّر التحميل</div>";});
 }
 
