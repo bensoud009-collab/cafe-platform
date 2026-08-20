@@ -842,6 +842,34 @@ firebase.initializeApp(firebaseConfig);
 const auth = firebase.auth();
 const db   = firebase.firestore();
 const storage = firebase.storage();
+// ضغط الصورة وتحويلها Base64 (بدون Storage) — يُحفظ داخل قاعدة البيانات مباشرة
+function compressToBase64(file, maxDim, quality){
+  maxDim=maxDim||1200; quality=quality||0.6;
+  return new Promise((resolve)=>{
+    try{
+      const reader=new FileReader();
+      reader.onload=e=>{
+        const img=new Image();
+        img.onload=()=>{
+          let w=img.width,h=img.height;
+          if(w>h && w>maxDim){ h=Math.round(h*maxDim/w); w=maxDim; }
+          else if(h>=w && h>maxDim){ w=Math.round(w*maxDim/h); h=maxDim; }
+          const cv=document.createElement("canvas"); cv.width=w; cv.height=h;
+          cv.getContext("2d").drawImage(img,0,0,w,h);
+          let out=cv.toDataURL("image/jpeg",quality);
+          // لو أكبر من ~850 كيلو، اضغط أكثر
+          if(out.length>850000){ out=cv.toDataURL("image/jpeg",0.4); }
+          if(out.length>950000){ const cv2=document.createElement("canvas"); const s=0.7; cv2.width=Math.round(w*s); cv2.height=Math.round(h*s); cv2.getContext("2d").drawImage(img,0,0,cv2.width,cv2.height); out=cv2.toDataURL("image/jpeg",0.5); }
+          resolve(out);
+        };
+        img.onerror=()=>resolve("");
+        img.src=e.target.result;
+      };
+      reader.onerror=()=>resolve("");
+      reader.readAsDataURL(file);
+    }catch(e){ resolve(""); }
+  });
+}
 // رفع صورة مع مهلة زمنية: لو تعذّر (Storage غير مفعّل) أو تأخّر، يرجع "" بدل أن يتجمّد
 async function tryUploadImage(path,file,ms){
   ms=ms||8000;
@@ -1783,7 +1811,7 @@ function viewClosing(id,x){
       "<div class='review-row'><span>مجموع الدفعات</span><b>"+money(paySum)+"</b></div>";
   }
   inner+="<div class='review-row'><span>الحالة</span>"+statusTag3(x.status)+"</div>"+
-    (x.photoUrl?"<a class='btn sm' href='"+esc(normUrl(x.photoUrl))+"' target='_blank' style='margin-top:10px'>عرض الصورة</a>":"");
+    (x.photoUrl?"<div style='margin-top:10px'><div class='muted' style='font-size:13px;margin-bottom:6px'>صورة الإقفال</div><img src='"+x.photoUrl+"' style='max-width:100%;border-radius:10px;border:1px solid var(--line)'></div>":"");
   openModal("تفاصيل الإقفال — "+esc(x.branchName||""), inner, "تم",()=>true,true);
 }
 
@@ -1913,13 +1941,9 @@ function reviewClosing(){
 async function submitClosing(data,file){
   try{
     const ref=cRef().collection("dailyClosings").doc();
-    let photoUrl="", photoPath="";
-    if(file){
-      photoPath="companies/"+state.companyId+"/closings/"+ref.id+".jpg";
-      photoUrl=await tryUploadImage(photoPath,file);
-      if(!photoUrl){ photoPath=""; toast("حُفظ الإقفال بدون صورة (خدمة الصور غير مفعّلة)",""); }
-    }
-    await ref.set({...data, photoUrl, photoPath,
+    let photoUrl="";
+    if(file){ photoUrl=await compressToBase64(file); if(!photoUrl) toast("تعذّرت معالجة الصورة، حُفظ بدونها",""); }
+    await ref.set({...data, photoUrl, photoPath:"",
       date:new Date().toISOString().slice(0,10),
       employeeUid:state.user.uid, employeeName:state.profile.name||state.user.email,
       status:"pending", createdAt:now()});
@@ -2005,7 +2029,7 @@ function viewInvoice(x){
     "<div style='margin:10px 0'>"+items+"</div>"+
     "<div class='review-row'><span>الإجمالي</span><b>"+money(x.total)+"</b></div>"+
     "<div class='review-row'><span>الحالة</span>"+statusTag3(x.status)+"</div>"+
-    (x.photoUrl?"<a class='btn sm' href='"+esc(normUrl(x.photoUrl))+"' target='_blank' style='margin-top:10px'>عرض الصورة</a>":""),
+    (x.photoUrl?"<div style='margin-top:10px'><div class='muted' style='font-size:13px;margin-bottom:6px'>صورة الفاتورة</div><img src='"+x.photoUrl+"' style='max-width:100%;border-radius:10px;border:1px solid var(--line)'></div>":""),
     "تم",()=>true,true);
 }
 
@@ -2080,16 +2104,12 @@ function reviewInvoice(){
 async function submitInvoice(data){
   try{
     const ref=cRef().collection("invoices").doc();
-    let photoUrl="",photoPath="";
-    if(data._file){
-      photoPath="companies/"+state.companyId+"/invoices/"+ref.id+".jpg";
-      photoUrl=await tryUploadImage(photoPath,data._file);
-      if(!photoUrl){ photoPath=""; toast("حُفظت الفاتورة بدون صورة (خدمة الصور غير مفعّلة)",""); }
-    }
+    let photoUrl="";
+    if(data._file){ photoUrl=await compressToBase64(data._file); if(!photoUrl) toast("تعذّرت معالجة الصورة، حُفظت بدونها",""); }
     await ref.set({
       items:data.items.map(({name,value,qty,lineTotal})=>({name,value,qty,lineTotal})),
       total:data.total, supplier:data.supplier||"", supplierPhone:data.supplierPhone||"",
-      photoUrl, photoPath, date:new Date().toISOString().slice(0,10),
+      photoUrl, photoPath:"", date:new Date().toISOString().slice(0,10),
       employeeUid:state.user.uid, employeeName:state.profile.name||state.user.email,
       createdBy:state.user.uid, createdByName:state.profile.name||state.user.email,
       status:"pending", createdAt:now()
