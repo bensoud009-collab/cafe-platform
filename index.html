@@ -249,10 +249,10 @@ try{ const sv=localStorage.getItem("cafe_lang"); if(sv) LANG=sv; }catch(e){}
 const I18N={
   ar:{ app_title:"منصة إدارة المقاهي والمطاعم", login_sub:"سجّل الدخول للمتابعة", email:"البريد الإلكتروني", password:"كلمة المرور", login:"دخول", logout:"تسجيل الخروج",
     role_super:"مالك المنصة", role_owner:"صاحب الشركة", role_manager:"مدير فرع", role_employee:"موظف",
-    nav_dashboard:"لوحة التحكم", nav_sales:"الإقفال اليومي", nav_invoices:"الفواتير", nav_inventory:"المخزون والجرد", nav_suppliers:"الموردين", nav_staff:"شؤون الموظفين", nav_checklist:"قوائم التحقّق التشغيلي", nav_recipes:"الوصفات", nav_reports:"التقارير", nav_branches:"الفروع", nav_settings:"الإعدادات" },
+    nav_dashboard:"لوحة التحكم", nav_sales:"الإقفال اليومي", nav_invoices:"الفواتير", nav_inventory:"المخزون", nav_expenses:"المصروفات", nav_suppliers:"الموردين", nav_staff:"شؤون الموظفين", nav_checklist:"قوائم التحقّق التشغيلي", nav_recipes:"الوصفات", nav_reports:"التقارير", nav_branches:"الفروع", nav_settings:"الإعدادات" },
   en:{ app_title:"Cafés & Restaurants Management", login_sub:"Sign in to continue", email:"Email", password:"Password", login:"Sign in", logout:"Sign out",
     role_super:"Platform Owner", role_owner:"Company Owner", role_manager:"Branch Manager", role_employee:"Employee",
-    nav_dashboard:"Dashboard", nav_sales:"Daily Closing", nav_invoices:"Invoices", nav_inventory:"Inventory", nav_suppliers:"Suppliers", nav_staff:"Staff", nav_checklist:"Checklists", nav_recipes:"Recipes", nav_reports:"Reports", nav_branches:"Branches", nav_settings:"Settings" }
+    nav_dashboard:"Dashboard", nav_sales:"Daily Closing", nav_invoices:"Invoices", nav_inventory:"Inventory", nav_expenses:"Expenses", nav_suppliers:"Suppliers", nav_staff:"Staff", nav_checklist:"Checklists", nav_recipes:"Recipes", nav_reports:"Reports", nav_branches:"Branches", nav_settings:"Settings" }
 };
 function t(k){ return (I18N[LANG]&&I18N[LANG][k]) || I18N.ar[k] || k; }
 
