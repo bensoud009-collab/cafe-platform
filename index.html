@@ -249,7 +249,6 @@ const MODULES = [
   {key:"sales",      name:"الإقفال اليومي", icon:""},
   {key:"invoices",   name:"الفواتير", icon:""},
   {key:"inventory",  name:"المخزون", icon:""},
-  {key:"transfers",  name:"التحويلات", icon:""},
   {key:"expenses",   name:"المصروفات", icon:""},
   {key:"suppliers",  name:"الموردين", icon:""},
   {key:"staff",      name:"شؤون الموظفين", icon:""},
@@ -1015,6 +1014,15 @@ const EN={
   "منتهية":"Expired",
   "نبارك لك الانضمام إلى عائلة":"We're glad you've joined the family of",
   "حيّاك الله":"Welcome",
+  "المنتجات":"Products",
+  "كتالوج المنتجات والتصنيفات":"Products & categories catalog",
+  "جرد المستودع والتحويلات":"Warehouse count & transfers",
+  "جرد المستودع والتحويلات بين المستودعات والفروع":"Warehouse count & transfers between warehouses and branches",
+  "جرد المستودع":"Warehouse count",
+  "لا توجد مستودعات — أضف مستودعاً":"No warehouses — add one",
+  "تحويل بين المستودعات والفروع":"Transfer between warehouses and branches",
+  "أمين المستودع (يعتمد التحويلات)":"Warehouse keeper (approves transfers)",
+  "المنتجات والمستودع":"Products & warehouse",
   "التحويلات":"Transfers","تحويل الأصناف بين المستودعات والفروع":"Transfer items between warehouses and branches",
   "تحويل جديد":"New transfer","+ تحويل جديد":"+ New transfer","لا توجد تحويلات":"No transfers",
   "من موقع *":"From location *","إلى موقع *":"To location *","من":"From","إلى":"To","المُرسِل":"Sent by",
@@ -1279,12 +1287,14 @@ auth.onAuthStateChanged(async user=>{
       if(cdata.status==="suspended"){ toast("انتهى اشتراك الشركة أو تم إيقافه، راجع الإدارة","err"); return doLogout(); }
       state.companyName=cdata.name;
       state.profile=profDoc.exists?profDoc.data():{name:user.email,role:map.role,permissions:{}};
+      // دمج بيانات الموظف (الفرع + أمين المستودع) لضمان وصولها للملف
+      if(state.profile.employeeId){ try{ const ed=await cRef().collection("employees").doc(state.profile.employeeId).get(); if(ed.exists){ const e=ed.data(); if(!state.profile.branchId&&e.branchId) state.profile.branchId=e.branchId; if(!state.profile.branchName&&e.branchName) state.profile.branchName=e.branchName; if(state.profile.isWarehouseKeeper==null) state.profile.isWarehouseKeeper=!!e.isWarehouseKeeper; } }catch(e){} }
       // فحص إيقاف حساب الموظف
       if(state.profile.accountActive===false){ toast("حسابك موقوف، راجع صاحب الشركة","err"); return doLogout(); }
       applyTheme(cdata.theme);
       buildShell(); renderCompanyNav();
       // استعادة القسم من الرابط (#) بعد التحديث، وإلا الافتراضي
-      const validPages=["dashboard","sales","invoices","inventory","transfers","expenses","suppliers","staff","checklist","recipes","branches","reports","settings","super_companies","super_subs","super_audit","super_maint"];
+      const validPages=["dashboard","sales","invoices","inventory","expenses","suppliers","staff","checklist","recipes","branches","reports","settings","super_companies","super_subs","super_audit","super_maint"];
       const hash=(location.hash||"").replace("#","");
       if(hash && validPages.includes(hash) && !cardsMode()){
         openPage(hash);
@@ -1335,7 +1345,7 @@ function renderSuperNav(){
 }
 function renderCompanyNav(){
   const nav=$("navList");nav.innerHTML="";
-  MODULES.forEach(m=>{ if(m.key==="staff" || m.key==="recipes" || m.key==="transfers" || can(m.key,"view")||can(m.key,"add")) nav.appendChild(navButton(t("nav_"+m.key)||m.name,m.icon,m.key)); });
+  MODULES.forEach(m=>{ if(m.key==="staff" || m.key==="recipes" || (m.key==="inventory"&&isWarehouseKeeper()) || can(m.key,"view")||can(m.key,"add")) nav.appendChild(navButton(t("nav_"+m.key)||m.name,m.icon,m.key)); });
 }
 
 // مولّد كلمة مرور عشوائية قوية
@@ -1405,7 +1415,7 @@ function renderCardsHome(){
   const grid=el("div"); grid.style.cssText="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:16px";
   MODULES.forEach(m=>{
     if(m.key==="settings") return; // الإعدادات للمالك
-    const allowed = (m.key==="staff"||m.key==="recipes"||m.key==="transfers"||can(m.key,"view")||can(m.key,"add"));
+    const allowed = (m.key==="staff"||m.key==="recipes"||(m.key==="inventory"&&isWarehouseKeeper())||can(m.key,"view")||can(m.key,"add"));
     if(!allowed) return;
     const card=el("div","card"); card.style.cssText="cursor:pointer;min-height:120px;text-align:center;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px";
     card.innerHTML=(m.icon?"<div style='font-size:34px'>"+m.icon+"</div>":"")+"<div style='font-weight:800'>"+esc(t("nav_"+m.key)||m.name)+"</div>";
@@ -1425,7 +1435,7 @@ function openPage(key,isBack){
   const c=$("pageContent"); c.innerHTML="";
   const routes={
     super_companies:pageSuperCompanies, super_subs:pageSuperSubs, super_audit:pageSuperAudit, super_maint:pageMaintenance,
-    dashboard:pageDashboard, sales:pageSales, invoices:pageInvoices, inventory:pageInventory, transfers:pageTransfers, expenses:pageExpenses, suppliers:pageSuppliers, staff:pageStaff, checklist:pageChecklist, recipes:pageRecipes, branches:pageBranches, employees:pageStaff, reports:pageReports, settings:pageSettings
+    dashboard:pageDashboard, sales:pageSales, invoices:pageInvoices, inventory:pageInventory, expenses:pageExpenses, suppliers:pageSuppliers, staff:pageStaff, checklist:pageChecklist, recipes:pageRecipes, branches:pageBranches, employees:pageStaff, reports:pageReports, settings:pageSettings
   };
   // بوابة الصيانة: الشركة تشوف شريط بدل القسم؛ مالك المنصة يتخطّاها
   if(moduleUnderMaintenance(key) && !bypassMaintenance()){
@@ -2483,11 +2493,11 @@ function saveInvPrefs(prefs){
   cRef().collection("users").doc(state.user.uid).update({invPrefs:prefs}).then(()=>{ state.profile.invPrefs=prefs; openPage("inventory"); }).catch(()=>toast("تعذّر الحفظ","err"));
 }
 function pageInventory(c){
-  // المالك: المخزون = كتالوج المنتجات فقط (الجرد/الطلب/التوالف انتقلت داخل بطاقة الفرع)
-  if(state.role==="owner"){ pageProducts(c,true); return; }
+  // المالك: بطاقتان (المنتجات + المستودع)
+  if(state.role==="owner"){ inventoryHub(c); return; }
+  // أمين المستودع: يفتح على المستودع مباشرة
+  if(isWarehouseKeeper()){ warehouseHub(c); return; }
   // الموظف/المدير: مربوطون بفرعهم — يسجّلون الجرد/الطلب/التوالف لفرعهم
-  const prefs=(state.profile&&state.profile.invPrefs)||{cards:[]};
-  const cards=Array.isArray(prefs.cards)?prefs.cards:[];
   c.innerHTML=pageTitle("المخزون","الجرد والطلب والتوالف — فرعك");
   const sections=[{k:"count",t:"الجرد",ic:"",d:"جرد الكميات"},{k:"order",t:"الطلب",ic:"",d:"اطلب نواقص المخزون"},{k:"waste",t:"تالف",ic:"",d:"تسجيل التالف"}];
   const grid=el("div"); grid.style.cssText="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:16px";
@@ -2498,13 +2508,63 @@ function pageInventory(c){
     grid.appendChild(card);
   });
   c.appendChild(grid);
-  // شارات المعلّق لفرع الموظف (المدير مُعتمِد)
   if(invApprover()){
     const bid=state.profile.branchId;
     const setBadge=(coll,id)=>{ let q=cRef().collection(coll); q.onSnapshot(s=>{ let n=0; s.forEach(d=>{const y=d.data(); if(bid&&y.branchId!==bid)return; const st=y.status; if(st!=="approved"&&st!=="rejected"&&st!=="done")n++;}); const b=$(id); if(b){ if(n){b.textContent=n;b.style.display="flex";}else b.style.display="none"; } },()=>{}); };
     setBadge("stockOrders","badge_order"); setBadge("stockCounts","badge_count"); setBadge("waste","badge_waste");
   }
 }
+
+// بطاقتا المخزون: المنتجات + المستودع (للمالك)
+function inventoryHub(c){
+  c.innerHTML=pageTitle("المخزون","المنتجات والمستودع");
+  const grid=el("div"); grid.style.cssText="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:16px";
+  const mk=(icon,title,desc,onclick,extra)=>{ const card=el("div","card"); card.style.cssText="cursor:pointer;min-height:120px;position:relative"+(extra||"");
+    card.innerHTML="<div style='font-size:26px'>"+icon+"</div><div style='font-weight:800;margin-top:4px'>"+esc(L(title))+"</div><div class='muted' style='font-size:13px;margin-top:4px'>"+esc(L(desc))+"</div>";
+    card.onclick=onclick; grid.appendChild(card); };
+  mk("📦","المنتجات","كتالوج المنتجات والتصنيفات", ()=>{ pageProducts(c,false); setTimeout(()=>{ if(typeof translateTree==="function") translateTree(c); },60); });
+  mk("🏬","المستودع","جرد المستودع والتحويلات", ()=>{ warehouseHub(c); }, ";border:1px solid var(--brand-2)");
+  c.appendChild(grid);
+  setTimeout(()=>{ if(typeof translateTree==="function") translateTree(c); },0);
+}
+
+// شاشة المستودع: جرد المستودعات + التحويلات
+function warehouseHub(c){
+  const isOwner=(state.role==="owner");
+  c.innerHTML="";
+  if(isOwner){ const b=el("button","btn sm","← رجوع للمخزون"); b.style.marginBottom="14px"; b.onclick=()=>openPage("inventory"); c.appendChild(b); }
+  c.insertAdjacentHTML("beforeend", pageTitle("المستودع","جرد المستودع والتحويلات بين المستودعات والفروع"));
+  if(can("branches","add")){ const bar=el("div"); bar.style.marginBottom="16px"; bar.innerHTML="<button class='btn' id='newWh2'>+ مستودع جديد</button>"; c.appendChild(bar); $("newWh2").onclick=()=>warehouseModal(); }
+  const grid=el("div"); grid.id="whHubGrid"; grid.style.cssText="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:16px"; c.appendChild(grid);
+  cRef().collection("branches").where("isWarehouse","==",true).onSnapshot(s=>{
+    const g=$("whHubGrid"); if(!g) return; g.innerHTML="";
+    if(s.empty){ g.innerHTML="<div class='card muted' style='grid-column:1/-1;text-align:center'>"+L("لا توجد مستودعات — أضف مستودعاً")+"</div>"; }
+    s.forEach(d=>{ const x=d.data(); const card=el("div","card"); card.style.cssText="cursor:pointer;min-height:110px;border:1px solid var(--brand-2)";
+      card.innerHTML="<div style='font-size:24px'>🏬</div><div style='font-weight:800;margin-top:4px'>"+esc(x.name)+"</div><div class='muted' style='font-size:12px;margin-top:4px'>"+L("جرد المستودع")+"</div>";
+      card.onclick=()=>{ invCount(c,{id:d.id,name:x.name},()=>warehouseHub(c)); setTimeout(()=>{ if(typeof translateTree==="function") translateTree(c); },60); };
+      g.appendChild(card);
+    });
+    // بطاقة التحويلات
+    const t=el("div","card"); t.style.cssText="cursor:pointer;min-height:110px;position:relative";
+    t.innerHTML="<div style='font-size:24px'>🔄</div><div style='font-weight:800;margin-top:4px'>"+L("التحويلات")+"</div><div class='muted' style='font-size:12px;margin-top:4px'>"+L("تحويل بين المستودعات والفروع")+"</div><span id='whTrBadge' style='position:absolute;top:10px;left:10px;background:var(--red);color:#fff;border-radius:999px;min-width:20px;height:20px;font-size:12px;display:none;align-items:center;justify-content:center;padding:0 5px'></span>";
+    t.onclick=()=>transfersHub(c,()=>warehouseHub(c));
+    g.appendChild(t);
+  },()=>{ const g=$("whHubGrid"); if(g) g.innerHTML="<div class='card' style='grid-column:1/-1;color:var(--red)'>"+L("تعذّر التحميل — تحقّق من قواعد الأمان")+"</div>"; });
+  if(canApproveTransfer()){
+    cRef().collection("transfers").onSnapshot(s=>{ let n=0; s.forEach(d=>{const st=d.data().status; if(st!=="approved"&&st!=="rejected")n++;}); const b=$("whTrBadge"); if(b){ if(n){b.textContent=n;b.style.display="flex";}else b.style.display="none"; } },()=>{});
+  }
+  setTimeout(()=>{ if(typeof translateTree==="function") translateTree(c); },0);
+}
+
+// شاشة التحويلات (داخل المستودع) مع زر رجوع
+function transfersHub(c, back){
+  c.innerHTML=""; const b=el("button","btn sm","← رجوع"); b.style.marginBottom="14px"; b.onclick=back||(()=>openPage("inventory")); c.appendChild(b);
+  const wrap=el("div"); c.appendChild(wrap);
+  pageTransfers(wrap);
+  setTimeout(()=>{ if(typeof translateTree==="function") translateTree(c); },60);
+}
+window.warehouseHub=warehouseHub; window.transfersHub=transfersHub;
+
 function pageInventory_OLD(c){
   const owner=canSeeCost();
   const prefs=(state.profile&&state.profile.invPrefs)||{cards:[]};
@@ -2580,6 +2640,8 @@ window.gotoInvOrders=function(){ openPage("inventory"); setTimeout(()=>{ const c
 
 /* ---------- الجرد ---------- */
 function invApprover(){ return state.role==="owner"||state.role==="manager"; }
+function isWarehouseKeeper(){ return !!(state.profile && state.profile.isWarehouseKeeper); }
+function canApproveTransfer(){ return state.role==="owner"||state.role==="manager"||isWarehouseKeeper(); }
 const WASTE_REASONS=["منتهي الصلاحية","تلف","كسر","خطأ تحضير","أخرى"];
 
 // ===== الفرع النشط للمخزون =====
@@ -2945,7 +3007,7 @@ async function expenseForm(c,br){
 async function pageProducts(c,standalone){
   const manage = can("inventory","add")||can("inventory","edit");
   const backBtn = standalone?"":"<button class='btn sm' id='prodBack' style='margin-bottom:14px'>← رجوع للمخزون</button>";
-  c.innerHTML=backBtn+pageTitle("المخزون","كتالوج منتجات الشركة (لكل الفروع)");
+  c.innerHTML=backBtn+pageTitle("المنتجات","كتالوج منتجات الشركة (لكل الفروع)");
   let bar="";
   if(can("inventory","add")) bar+="<button class='btn primary' id='newProdBtn'>+ إضافة منتج</button> ";
   if(manage) bar+="<button class='btn sm' id='catBtn'>إدارة التصنيفات</button>";
@@ -3234,7 +3296,7 @@ function pageTransfers(c){
   const bar=el("div"); bar.style.marginBottom="16px";
   bar.innerHTML="<button class='btn primary' id='newTransfer'>+ تحويل جديد</button>";
   c.appendChild(bar); $("newTransfer").onclick=()=>transferForm(c);
-  const app=invApprover();
+  const app=canApproveTransfer();
   const card=el("div","card");
   card.innerHTML="<table><thead><tr><th>التاريخ والوقت</th><th>من</th><th>إلى</th><th>الأصناف</th><th>المُرسِل</th><th>الحالة</th><th>إجراء</th></tr></thead><tbody id='trRows'><tr><td colspan='7' class='muted'>جارٍ التحميل…</td></tr></tbody></table>";
   c.appendChild(card);
@@ -3405,13 +3467,13 @@ function pageBranches(c){
       const paint=()=>{ s.forEach(d=>{ const b=$("brbadge_"+d.id); if(b){ const n=pend[d.id]||0; if(n){b.textContent=n;b.style.display="flex";}else b.style.display="none"; } }); };
       const per={};
       const watch=(coll)=>{ cRef().collection(coll).onSnapshot(cs=>{
-        const local={}; cs.forEach(dd=>{const y=dd.data(); const st=y.status; if(st!=="approved"&&st!=="rejected"&&st!=="done"){ if(coll==="transfers"){ if(y.fromId)local[y.fromId]=(local[y.fromId]||0)+1; } else { local[y.branchId]=(local[y.branchId]||0)+1; } }});
+        const local={}; cs.forEach(dd=>{const y=dd.data(); const st=y.status; if(st!=="approved"&&st!=="rejected"&&st!=="done"){ local[y.branchId]=(local[y.branchId]||0)+1; }});
         per[coll]=local;
         for(const k in pend) delete pend[k];
         Object.values(per).forEach(m=>{ for(const bid in m) bump(bid,m[bid]); });
         paint();
       },()=>{}); };
-      ["stockCounts","stockOrders","waste","expenses","dailyClosings","invoices","transfers"].forEach(watch);
+      ["stockCounts","stockOrders","waste","expenses","dailyClosings","invoices"].forEach(watch);
     }
   },()=>{const g=$("brGrid");if(g)g.innerHTML="<div class='card' style='grid-column:1/-1;color:var(--red)'>تعذّر التحميل</div>";});
 }
@@ -3440,20 +3502,17 @@ async function branchDetail(c,id,x){
     const invGrid=el("div"); invGrid.style.cssText="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:16px;margin-bottom:16px";
     const mk=(key,title,desc)=>{ const card=el("div","card"); card.style.cssText="cursor:pointer;min-height:110px;position:relative";
       card.innerHTML="<div style='font-weight:800'>"+title+"</div><div class='muted' style='font-size:13px;margin-top:4px'>"+desc+"</div><span id='bbadge_"+key+"' style='position:absolute;top:10px;left:10px;background:var(--red);color:#fff;border-radius:999px;min-width:20px;height:20px;font-size:12px;display:none;align-items:center;justify-content:center;padding:0 5px'></span>";
-      card.onclick=()=>{ if(key==="transfers"){ openPage("transfers"); return; } const f={count:invCount,order:invOrders,waste:invWaste,expenses:pageExpenses}[key]; f(c,br,backFn); setTimeout(()=>{ if(typeof translateTree==="function") translateTree(c); },60); };
+      card.onclick=()=>{ const f={count:invCount,order:invOrders,waste:invWaste,expenses:pageExpenses}[key]; f(c,br,backFn); setTimeout(()=>{ if(typeof translateTree==="function") translateTree(c); },60); };
       invGrid.appendChild(card);
     };
     mk("count","الجرد",isWh?L("جرد كميات المستودع"):"جرد كميات هذا الفرع");
     mk("order","الطلب",isWh?L("طلبات المستودع"):"طلبات هذا الفرع");
     mk("waste","تالف",isWh?L("توالف المستودع"):"توالف هذا الفرع");
     if(!isWh) mk("expenses","المصروفات","مصروفات هذا الفرع");
-    mk("transfers","التحويلات",isWh?L("تحويلات من/إلى المستودع"):L("تحويلات من/إلى الفرع"));
     c.appendChild(invGrid);
     // شارات المعلّق لهذا الموقع
     const setBB=(coll,key)=>{ cRef().collection(coll).where("branchId","==",id).onSnapshot(s=>{ let n=0; s.forEach(d=>{const st=d.data().status; if(st!=="approved"&&st!=="rejected"&&st!=="done")n++;}); const b=$("bbadge_"+key); if(b){ if(n){b.textContent=n;b.style.display="flex";}else b.style.display="none"; } },()=>{}); };
     setBB("stockCounts","count"); setBB("stockOrders","order"); setBB("waste","waste"); if(!isWh) setBB("expenses","expenses");
-    // شارة التحويلات المعلّقة الصادرة من هذا الموقع
-    cRef().collection("transfers").where("fromId","==",id).onSnapshot(s=>{ let n=0; s.forEach(d=>{const st=d.data().status; if(st!=="approved"&&st!=="rejected")n++;}); const b=$("bbadge_transfers"); if(b){ if(n){b.textContent=n;b.style.display="flex";}else b.style.display="none"; } },()=>{});
   }
   if(isWh) return; // المستودع ما له مبيعات/تقييم
   // مبيعات الفرع للشهر
@@ -3586,7 +3645,9 @@ function warehouseModal(id,x){x=x||{};
       const data={name,address:$("whAddr").value.trim(),phone:$("whPhone").value.trim(),isWarehouse:true};
       if(id){await cRef().collection("branches").doc(id).update(data);logAction("edit_warehouse",name);}
       else{ data.createdAt=now(); await cRef().collection("branches").add(data); logAction("add_warehouse",name); }
-      openPage("branches"); return true;
+      if(state.current==="inventory"){ const cc=$("pageContent"); if(cc) warehouseHub(cc); }
+      else openPage("branches");
+      return true;
     });
 }
 window.warehouseModal=warehouseModal;
@@ -3736,15 +3797,19 @@ async function employeeModal(id,x){ x=x||{};
       "<label class='field'><span>ساعات العمل</span><input id='eHours' class='input' value='"+esc(x.hours||"")+"' placeholder='مثال: 8'></label>"+
       "<label class='field'><span>فرع العمل</span><select id='eBranch'>"+brOpts+"</select></label>"+
       "<label class='field'><span>تاريخ المباشرة</span><input id='eStart' class='input' type='date' value='"+esc(x.startDate||"")+"'></label>"+
-    "</div>",
+    "</div>"+
+    "<label class='field' style='display:flex;align-items:center;gap:8px;cursor:pointer;margin-top:4px'><input type='checkbox' id='eWhKeeper' "+(x.isWarehouseKeeper?"checked":"")+"><span>"+L("أمين المستودع (يعتمد التحويلات)")+"</span></label>",
     "حفظ", async ()=>{
       const name=$("eName").value.trim(); if(!name){toast("أدخل اسم الموظف","err");return false;}
       const brSel=$("eBranch");
+      const whKeeper=$("eWhKeeper")?$("eWhKeeper").checked:false;
       const data={name,salary:parseFloat($("eSalary").value)||0,jobNo:$("eJobNo").value.trim(),phone:$("ePhone").value.trim(),
-        hours:$("eHours").value.trim(),branchId:brSel.value,branchName:brSel.selectedOptions[0]?brSel.selectedOptions[0].textContent.trim():"",
-        startDate:$("eStart").value};
+        hours:$("eHours").value.trim(),branchId:brSel.value,branchName:brSel.selectedOptions[0]?brSel.selectedOptions[0].textContent.replace("🏬 ","").trim():"",
+        isWarehouseKeeper:whKeeper, startDate:$("eStart").value};
       if(id){await cRef().collection("employees").doc(id).update(data);logAction("edit_employee",name);}
       else{data.hasAccount=false;data.createdAt=now();await cRef().collection("employees").add(data);logAction("add_employee",name);}
+      // مزامنة مع حساب الدخول إن وُجد (عشان الصلاحية والفرع يوصلون لملف المستخدم)
+      if(x.uid){ try{ await cRef().collection("users").doc(x.uid).update({isWarehouseKeeper:whKeeper,branchId:data.branchId,branchName:data.branchName}); }catch(e){} }
       return true;
     });
 }
@@ -3822,7 +3887,7 @@ function createEmployeeAccount(empId,x){
         const perms=emptyPermissions();
         if(role==="manager"){["dashboard","sales","inventory","checklist","reports"].forEach(k=>{if(perms[k])perms[k].view=true;});perms.sales.add=true;perms.sales.approve=true;}
         else{perms.dashboard.view=true;perms.sales.view=true;perms.sales.add=true;perms.checklist.view=true;}
-        await cRef().collection("users").doc(uid).set({name:x.name,email,role,permissions:perms,employeeId:empId,createdAt:now()});
+        await cRef().collection("users").doc(uid).set({name:x.name,email,role,permissions:perms,employeeId:empId,branchId:x.branchId||"",branchName:x.branchName||"",isWarehouseKeeper:!!x.isWarehouseKeeper,createdAt:now()});
         await cRef().collection("employees").doc(empId).update({hasAccount:true,uid,email,role});
         logAction("add_user",x.name+" ("+role+")");
         closeModal();
