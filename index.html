@@ -984,6 +984,14 @@ const EN={
   "منتهية":"Expired",
   "نبارك لك الانضمام إلى عائلة":"We're glad you've joined the family of",
   "حيّاك الله":"Welcome",
+  "صيانة الأقسام":"Section maintenance",
+  "فعّل الصيانة على أي قسم — الشركات تشوف شريط «تحت الصيانة» بدلاً منه، وأنت تدخله وتعدّله بحرية":"Enable maintenance on any section — companies see a “Under maintenance” banner instead, while you can still enter and edit it freely.",
+  "هذا القسم تحت الصيانة حالياً":"This section is currently under maintenance",
+  "نعمل على تحسين هذا القسم، وسيعود قريباً. نعتذر عن الإزعاج.":"We're improving this section and it will be back soon. Sorry for the inconvenience.",
+  "تحت الصيانة":"Under maintenance","متاح":"Available",
+  "فُعّلت الصيانة على القسم":"Maintenance enabled for the section","أُلغيت الصيانة":"Maintenance disabled",
+  "هذا القسم تحت الصيانة — الشركات لا تراه الآن":"This section is under maintenance — companies can't see it now",
+  "تعذّر الحفظ — تحقّق من قواعد الأمان":"Couldn't save — check security rules",
   "غير محدد":"Unspecified","منتهٍ":"Expired","يوم":"days","شهر":"months","سنة":"yr","أقل من شهر":"Less than a month","باقٍ":"Left","باقتك":"Your plan",
   "نسبة الإنجاز":"Completion rate",
   "نص المهمة":"Task text",
@@ -1131,6 +1139,27 @@ function subExpired(cdata){ const d=subDaysLeft(cdata); return d!==null && d<0; 
 // عند دخول مالك المنصة لشركة، نخزّن الحالة هنا للرجوع
 const impersonation = { active:false, superName:"" };
 
+/* ===== وضع الصيانة للأقسام (تحكّم مالك المنصة) ===== */
+let MAINT = {};                 // { moduleKey: true }  عام لكل الشركات
+let _maintUnsub = null;
+function moduleUnderMaintenance(key){ return MAINT && MAINT[key]===true; }
+// مالك المنصة الفعلي (ليس أثناء الدخول الإداري) يتخطّى الصيانة
+function bypassMaintenance(){ return state.role==="super" || impersonation.active; }
+function subscribeMaintenance(){
+  if(_maintUnsub) return;
+  try{
+    _maintUnsub = db.collection("platform").doc("config").onSnapshot(snap=>{
+      MAINT = (snap.exists && snap.data().maintenance) ? snap.data().maintenance : {};
+      // لو الشركة داخل قسم صار عليه صيانة الآن → أعِد فتحه ليظهر الشريط فوراً
+      if(state.user && state.current && !bypassMaintenance() && state.current!=="__home__"){
+        openPage(state.current, true);
+      }
+      // لو مالك المنصة فاتح صفحة الصيانة → حدّثها
+      if(state.current==="super_maint" && state.role==="super"){ const c=$("pageContent"); if(c) pageMaintenance(c); }
+    }, ()=>{ MAINT={}; });
+  }catch(e){ MAINT={}; }
+}
+
 // سجل العمليات
 function logAction(action,details){
   const base={action,details:details||"",at:now(),userUid:state.user.uid,userName:(state.profile&&state.profile.name)||state.user.email};
@@ -1172,6 +1201,7 @@ auth.onAuthStateChanged(async user=>{
   if(!user){ state.user=null; show("loginScreen"); applyCompanyBranding(); return; }
   state.user=user;
   show("bootScreen");
+  subscribeMaintenance();
   try{
     // 1) وثيقة الربط العليا: users/{uid} => {role, companyId}
     let mapSnap = await db.collection("users").doc(user.uid).get();
@@ -1208,7 +1238,7 @@ auth.onAuthStateChanged(async user=>{
       applyTheme(cdata.theme);
       buildShell(); renderCompanyNav();
       // استعادة القسم من الرابط (#) بعد التحديث، وإلا الافتراضي
-      const validPages=["dashboard","sales","invoices","inventory","expenses","suppliers","staff","checklist","recipes","branches","reports","settings","super_companies","super_subs","super_audit"];
+      const validPages=["dashboard","sales","invoices","inventory","expenses","suppliers","staff","checklist","recipes","branches","reports","settings","super_companies","super_subs","super_audit","super_maint"];
       const hash=(location.hash||"").replace("#","");
       if(hash && validPages.includes(hash) && !cardsMode()){
         openPage(hash);
@@ -1254,6 +1284,7 @@ function renderSuperNav(){
   const nav=$("navList");nav.innerHTML="";
   nav.appendChild(navButton("الشركات","","super_companies"));
   nav.appendChild(navButton("الاشتراكات","","super_subs"));
+  nav.appendChild(navButton("صيانة الأقسام","","super_maint"));
   nav.appendChild(navButton("سجل العمليات","","super_audit"));
 }
 function renderCompanyNav(){
@@ -1347,11 +1378,20 @@ function openPage(key,isBack){
   document.getElementById("sidebar").classList.remove("open");
   const c=$("pageContent"); c.innerHTML="";
   const routes={
-    super_companies:pageSuperCompanies, super_subs:pageSuperSubs, super_audit:pageSuperAudit,
+    super_companies:pageSuperCompanies, super_subs:pageSuperSubs, super_audit:pageSuperAudit, super_maint:pageMaintenance,
     dashboard:pageDashboard, sales:pageSales, invoices:pageInvoices, inventory:pageInventory, expenses:pageExpenses, suppliers:pageSuppliers, staff:pageStaff, checklist:pageChecklist, recipes:pageRecipes, branches:pageBranches, employees:pageStaff, reports:pageReports, settings:pageSettings
   };
+  // بوابة الصيانة: الشركة تشوف شريط بدل القسم؛ مالك المنصة يتخطّاها
+  if(moduleUnderMaintenance(key) && !bypassMaintenance()){
+    renderMaintenanceNotice(c,key);
+    updateNavButtons();
+    try{ if(key && key!=="__home__"){ history.replaceState(null,"","#"+key); } }catch(e){}
+    return;
+  }
   if(routes[key]) routes[key](c);
   else pagePlaceholder(c,key);
+  // تنبيه بسيط لمالك المنصة أثناء الدخول الإداري أن القسم تحت الصيانة
+  if(moduleUnderMaintenance(key) && impersonation.active){ setTimeout(()=>toast("هذا القسم تحت الصيانة — الشركات لا تراه الآن",""),200); }
   updateNavButtons();
   setTimeout(()=>translateTree(c),0);
   // حفظ القسم الحالي في الرابط (#) للبقاء عليه بعد التحديث
@@ -1456,6 +1496,46 @@ function pagePlaceholder(c,key){
     "<p class='muted' style='text-align:center;max-width:440px'>الأساس والصلاحيات لهذا القسم جاهزة. يُبنى بنفس نمط قسم «الإقفال اليومي» المكتمل — نفس البنية: بيانات الشركة معزولة، فحص صلاحيات، مراجعة قبل الحفظ، وسجل عمليات.</p>"+
     "</div>";
 }
+
+/* ===== شريط الصيانة الذي تراه الشركة عند دخول قسم تحت الصيانة ===== */
+function renderMaintenanceNotice(c,key){
+  const m=MODULES.find(x=>x.key===key)||{name:key};
+  c.innerHTML=pageTitle(m.name)+
+    "<div class='card center' style='flex-direction:column;gap:14px;padding:48px'>"+
+    "<div style='font-size:52px'>🔧</div>"+
+    "<h3>"+esc(L("هذا القسم تحت الصيانة حالياً"))+"</h3>"+
+    "<p class='muted' style='text-align:center;max-width:440px'>"+esc(L("نعمل على تحسين هذا القسم، وسيعود قريباً. نعتذر عن الإزعاج."))+"</p>"+
+    "</div>";
+}
+
+/* ===== مالك المنصة: إدارة صيانة الأقسام (عام لكل الشركات) ===== */
+function pageMaintenance(c){
+  if(state.role!=="super"){ pagePlaceholder(c,"dashboard"); return; }
+  const rows=MODULES.filter(m=>m.key!=="dashboard").map(m=>{
+    const on=moduleUnderMaintenance(m.key);
+    return "<div class='review-row' style='align-items:center'>"+
+      "<span>"+esc(m.name)+"</span>"+
+      "<button class='btn sm "+(on?"danger":"")+"' onclick=\"toggleMaintenance('"+m.key+"')\">"+
+        (on?esc(L("تحت الصيانة")):esc(L("متاح")))+
+      "</button>"+
+    "</div>";
+  }).join("");
+  c.innerHTML=pageTitle("صيانة الأقسام","فعّل الصيانة على أي قسم — الشركات تشوف شريط «تحت الصيانة» بدلاً منه، وأنت تدخله وتعدّله بحرية")+
+    "<div class='card'>"+rows+"</div>";
+}
+async function toggleMaintenance(key){
+  const next=!moduleUnderMaintenance(key);
+  const m=Object.assign({},MAINT); if(next) m[key]=true; else delete m[key];
+  try{
+    await db.collection("platform").doc("config").set({maintenance:m},{merge:true});
+    MAINT=m;
+    const c=$("pageContent"); if(state.current==="super_maint") pageMaintenance(c);
+    const mod=MODULES.find(x=>x.key===key)||{name:key};
+    logAction("toggle_maintenance",(next?"تفعيل":"إيقاف")+" صيانة: "+mod.name);
+    toast(next?"فُعّلت الصيانة على القسم":"أُلغيت الصيانة","ok");
+  }catch(e){ console.error(e); toast("تعذّر الحفظ — تحقّق من قواعد الأمان","err"); }
+}
+window.toggleMaintenance=toggleMaintenance;
 
 /* ================================================================== */
 /*  7) مالك المنصة — الشركات                                           */
