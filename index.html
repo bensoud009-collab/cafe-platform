@@ -249,6 +249,7 @@ const MODULES = [
   {key:"sales",      name:"الإقفال اليومي", icon:""},
   {key:"invoices",   name:"الفواتير", icon:""},
   {key:"inventory",  name:"المخزون", icon:""},
+  {key:"transfers",  name:"التحويلات", icon:""},
   {key:"expenses",   name:"المصروفات", icon:""},
   {key:"suppliers",  name:"الموردين", icon:""},
   {key:"staff",      name:"شؤون الموظفين", icon:""},
@@ -279,10 +280,10 @@ try{ const sv=localStorage.getItem("cafe_lang"); if(sv) LANG=sv; }catch(e){}
 const I18N={
   ar:{ app_title:"حيّاك الله في رُواق", login_sub:"من هنا تقدر تدير محلك", login_foot:"دخول آمن ومشفّر", email:"البريد الإلكتروني", password:"كلمة المرور", login:"دخول", logout:"تسجيل الخروج",
     role_super:"مالك المنصة", role_owner:"صاحب الشركة", role_manager:"مدير فرع", role_employee:"موظف",
-    nav_dashboard:"لوحة التحكم", nav_sales:"الإقفال اليومي", nav_invoices:"الفواتير", nav_inventory:"المخزون", nav_expenses:"المصروفات", nav_suppliers:"الموردين", nav_staff:"شؤون الموظفين", nav_checklist:"قوائم التحقّق التشغيلي", nav_recipes:"الوصفات", nav_reports:"التقارير", nav_branches:"الفروع", nav_settings:"الإعدادات" },
+    nav_dashboard:"لوحة التحكم", nav_sales:"الإقفال اليومي", nav_invoices:"الفواتير", nav_inventory:"المخزون", nav_transfers:"التحويلات", nav_expenses:"المصروفات", nav_suppliers:"الموردين", nav_staff:"شؤون الموظفين", nav_checklist:"قوائم التحقّق التشغيلي", nav_recipes:"الوصفات", nav_reports:"التقارير", nav_branches:"الفروع", nav_settings:"الإعدادات" },
   en:{ app_title:"Welcome to Ruwaq", login_sub:"Manage your place from here", login_foot:"Secure, encrypted sign-in", email:"Email", password:"Password", login:"Sign in", logout:"Sign out",
     role_super:"Platform Owner", role_owner:"Company Owner", role_manager:"Branch Manager", role_employee:"Employee",
-    nav_dashboard:"Dashboard", nav_sales:"Daily Closing", nav_invoices:"Invoices", nav_inventory:"Inventory", nav_expenses:"Expenses", nav_suppliers:"Suppliers", nav_staff:"Staff", nav_checklist:"Checklists", nav_recipes:"Recipes", nav_reports:"Reports", nav_branches:"Branches", nav_settings:"Settings" }
+    nav_dashboard:"Dashboard", nav_sales:"Daily Closing", nav_invoices:"Invoices", nav_inventory:"Inventory", nav_transfers:"Transfers", nav_expenses:"Expenses", nav_suppliers:"Suppliers", nav_staff:"Staff", nav_checklist:"Checklists", nav_recipes:"Recipes", nav_reports:"Reports", nav_branches:"Branches", nav_settings:"Settings" }
 };
 function t(k){ return (I18N[LANG]&&I18N[LANG][k]) || I18N.ar[k] || k; }
 
@@ -1014,6 +1015,21 @@ const EN={
   "منتهية":"Expired",
   "نبارك لك الانضمام إلى عائلة":"We're glad you've joined the family of",
   "حيّاك الله":"Welcome",
+  "التحويلات":"Transfers","تحويل الأصناف بين المستودعات والفروع":"Transfer items between warehouses and branches",
+  "تحويل جديد":"New transfer","+ تحويل جديد":"+ New transfer","لا توجد تحويلات":"No transfers",
+  "من موقع *":"From location *","إلى موقع *":"To location *","من":"From","إلى":"To","المُرسِل":"Sent by",
+  "اختر موقعين مختلفين":"Choose two different locations","تحتاج موقعين على الأقل (مستودع/فرع)":"You need at least two locations (warehouse/branch)",
+  "حدّد الكمية المراد تحويلها لكل صنف (المتوفر في موقع المصدر يظهر بجانب الصنف).":"Set the quantity to transfer for each item (available at the source appears next to it).",
+  "إرسال التحويل":"Send transfer","تم إرسال التحويل للاعتماد":"Transfer sent for approval",
+  "الصنف":"Item","الكمية":"Quantity","متوفر":"available",
+  "تفاصيل التحويل — ":"Transfer details — ","تم اعتماد التحويل وتحريك الكميات":"Transfer approved and quantities moved",
+  "إلغاء الاعتماد":"Undo approval","إلغاء اعتماد التحويل وإرجاع الكميات؟":"Undo the transfer and return the quantities?",
+  "أُلغي الاعتماد وأُرجعت الكميات":"Approval undone and quantities returned","تعذّر الإلغاء":"Couldn't undo",
+  "مستودع":"Warehouse","المستودعات":"Warehouses","مستودع جديد":"New warehouse","تعديل مستودع":"Edit warehouse",
+  "اسم المستودع *":"Warehouse name *","أدخل اسم المستودع":"Enter the warehouse name","حذف المستودع؟":"Delete the warehouse?",
+  "جرد كميات المستودع":"Count warehouse quantities","طلبات المستودع":"Warehouse orders","توالف المستودع":"Warehouse waste",
+  "تحويلات من/إلى المستودع":"Transfers to/from warehouse","تحويلات من/إلى الفرع":"Transfers to/from branch",
+  "بطاقات الفروع والمستودعات":"Branch and warehouse cards","مثال: المستودع الرئيسي":"e.g. Main warehouse",
   "صيانة الأقسام":"Section maintenance",
   "فعّل الصيانة على أي قسم — الشركات تشوف شريط «تحت الصيانة» بدلاً منه، وأنت تدخله وتعدّله بحرية":"Enable maintenance on any section — companies see a “Under maintenance” banner instead, while you can still enter and edit it freely.",
   "هذا القسم تحت الصيانة حالياً":"This section is currently under maintenance",
@@ -1268,7 +1284,7 @@ auth.onAuthStateChanged(async user=>{
       applyTheme(cdata.theme);
       buildShell(); renderCompanyNav();
       // استعادة القسم من الرابط (#) بعد التحديث، وإلا الافتراضي
-      const validPages=["dashboard","sales","invoices","inventory","expenses","suppliers","staff","checklist","recipes","branches","reports","settings","super_companies","super_subs","super_audit","super_maint"];
+      const validPages=["dashboard","sales","invoices","inventory","transfers","expenses","suppliers","staff","checklist","recipes","branches","reports","settings","super_companies","super_subs","super_audit","super_maint"];
       const hash=(location.hash||"").replace("#","");
       if(hash && validPages.includes(hash) && !cardsMode()){
         openPage(hash);
@@ -1319,7 +1335,7 @@ function renderSuperNav(){
 }
 function renderCompanyNav(){
   const nav=$("navList");nav.innerHTML="";
-  MODULES.forEach(m=>{ if(m.key==="staff" || m.key==="recipes" || can(m.key,"view")||can(m.key,"add")) nav.appendChild(navButton(t("nav_"+m.key)||m.name,m.icon,m.key)); });
+  MODULES.forEach(m=>{ if(m.key==="staff" || m.key==="recipes" || m.key==="transfers" || can(m.key,"view")||can(m.key,"add")) nav.appendChild(navButton(t("nav_"+m.key)||m.name,m.icon,m.key)); });
 }
 
 // مولّد كلمة مرور عشوائية قوية
@@ -1389,7 +1405,7 @@ function renderCardsHome(){
   const grid=el("div"); grid.style.cssText="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:16px";
   MODULES.forEach(m=>{
     if(m.key==="settings") return; // الإعدادات للمالك
-    const allowed = (m.key==="staff"||m.key==="recipes"||can(m.key,"view")||can(m.key,"add"));
+    const allowed = (m.key==="staff"||m.key==="recipes"||m.key==="transfers"||can(m.key,"view")||can(m.key,"add"));
     if(!allowed) return;
     const card=el("div","card"); card.style.cssText="cursor:pointer;min-height:120px;text-align:center;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px";
     card.innerHTML=(m.icon?"<div style='font-size:34px'>"+m.icon+"</div>":"")+"<div style='font-weight:800'>"+esc(t("nav_"+m.key)||m.name)+"</div>";
@@ -1409,7 +1425,7 @@ function openPage(key,isBack){
   const c=$("pageContent"); c.innerHTML="";
   const routes={
     super_companies:pageSuperCompanies, super_subs:pageSuperSubs, super_audit:pageSuperAudit, super_maint:pageMaintenance,
-    dashboard:pageDashboard, sales:pageSales, invoices:pageInvoices, inventory:pageInventory, expenses:pageExpenses, suppliers:pageSuppliers, staff:pageStaff, checklist:pageChecklist, recipes:pageRecipes, branches:pageBranches, employees:pageStaff, reports:pageReports, settings:pageSettings
+    dashboard:pageDashboard, sales:pageSales, invoices:pageInvoices, inventory:pageInventory, transfers:pageTransfers, expenses:pageExpenses, suppliers:pageSuppliers, staff:pageStaff, checklist:pageChecklist, recipes:pageRecipes, branches:pageBranches, employees:pageStaff, reports:pageReports, settings:pageSettings
   };
   // بوابة الصيانة: الشركة تشوف شريط بدل القسم؛ مالك المنصة يتخطّاها
   if(moduleUnderMaintenance(key) && !bypassMaintenance()){
@@ -3206,15 +3222,141 @@ function recipeModal(id,x){ x=x||{};
     });
 }
 
+/* ================================================================== */
+/*  التحويلات بين المستودعات والفروع                                    */
+/* ================================================================== */
+// كل المواقع (فروع + مستودعات)
+async function locList(){ const a=[]; try{ const s=await cRef().collection("branches").orderBy("name").get(); s.forEach(d=>{const x=d.data(); a.push({id:d.id,name:x.name||"",isWarehouse:!!x.isWarehouse});}); }catch(e){} return a; }
+function locLabel(l){ return (l.isWarehouse?"🏬 ":"")+l.name+(l.isWarehouse?" ("+L("مستودع")+")":""); }
+
+function pageTransfers(c){
+  c.innerHTML=pageTitle("التحويلات","تحويل الأصناف بين المستودعات والفروع");
+  const bar=el("div"); bar.style.marginBottom="16px";
+  bar.innerHTML="<button class='btn primary' id='newTransfer'>+ تحويل جديد</button>";
+  c.appendChild(bar); $("newTransfer").onclick=()=>transferForm(c);
+  const app=invApprover();
+  const card=el("div","card");
+  card.innerHTML="<table><thead><tr><th>التاريخ والوقت</th><th>من</th><th>إلى</th><th>الأصناف</th><th>المُرسِل</th><th>الحالة</th><th>إجراء</th></tr></thead><tbody id='trRows'><tr><td colspan='7' class='muted'>جارٍ التحميل…</td></tr></tbody></table>";
+  c.appendChild(card);
+  // الموظف يشوف تحويلاته فقط؛ المدير/المالك يشوفون الكل
+  let q=cRef().collection("transfers");
+  const handler=s=>{
+    const tb=$("trRows"); if(!tb) return; const rows=[]; s.forEach(d=>rows.push({id:d.id,...d.data()}));
+    if(!app){ /* لا شيء إضافي */ }
+    rows.sort((a,b)=>((b.at&&b.at.seconds)||0)-((a.at&&a.at.seconds)||0));
+    tb.innerHTML=""; if(!rows.length){ tb.innerHTML="<tr><td colspan='7' class='muted'>"+L("لا توجد تحويلات")+"</td></tr>"; return; }
+    rows.forEach(x=>{
+      const items=(x.items||[]).map(it=>esc(it.name)+" ×"+(it.qty||0)).join("، ");
+      const tr=el("tr",null,"<td>"+fmtDT(x.at)+"</td><td>"+esc(x.fromName||"")+"</td><td>"+esc(x.toName||"")+"</td><td class='muted'>"+items+"</td><td>"+esc(x.byName||"")+"</td><td>"+statusTag3(x.status)+"</td><td></td>");
+      const act=tr.lastChild;
+      const v=el("button","btn sm","عرض"); v.onclick=()=>viewTransfer(x); act.appendChild(v);
+      if(app){
+        if(x.status!=="approved"){ const ap=el("button","btn sm","اعتماد"); ap.style.marginRight="6px"; ap.onclick=()=>approveTransfer(x.id,x); act.appendChild(ap); }
+        if(x.status==="approved"){ const un=el("button","btn sm","إلغاء الاعتماد"); un.style.marginRight="6px"; un.onclick=()=>undoTransfer(x.id,x); act.appendChild(un); }
+        if(x.status!=="rejected"&&x.status!=="approved"){ const rj=el("button","btn sm danger","رفض"); rj.style.marginRight="6px"; rj.onclick=()=>{cRef().collection("transfers").doc(x.id).update({status:"rejected",decidedBy:state.user.uid,decidedByName:state.profile.name||state.user.email,decidedAt:now()});logAction("reject_transfer",x.fromName+" → "+x.toName);}; act.appendChild(rj); }
+      }
+      tb.appendChild(tr);
+    });
+  };
+  const errf=()=>{const tb=$("trRows");if(tb)tb.innerHTML="<tr><td colspan='7' style='color:var(--red)'>"+L("تعذّر التحميل — تحقّق من قواعد الأمان")+"</td></tr>";};
+  if(app) q.onSnapshot(handler,errf); else q.where("byUid","==",state.user.uid).onSnapshot(handler,errf);
+}
+
+async function transferForm(c){
+  const locs=await locList();
+  if(locs.length<2){ toast("تحتاج موقعين على الأقل (مستودع/فرع)","err"); return; }
+  const snap=await cRef().collection("products").orderBy("name").get();
+  if(snap.empty){ toast("لا توجد منتجات","err"); return; }
+  const prods=[]; snap.forEach(d=>prods.push({id:d.id,...d.data()}));
+  const opt=(sel)=>locs.map(l=>"<option value='"+l.id+"' "+(l.id===sel?"selected":"")+">"+esc(locLabel(l))+"</option>").join("");
+  const rows=prods.map((p,i)=>"<tr><td><b>"+esc(p.name)+"</b> <span class='muted' id='trav_"+i+"' style='font-size:12px'></span></td><td><input class='input trq' data-i='"+i+"' data-pid='"+esc(p.id)+"' type='number' inputmode='decimal' style='width:80px;padding:6px' placeholder='0'></td></tr>").join("");
+  openModal("تحويل جديد",
+    "<div class='grid' style='grid-template-columns:1fr 1fr;gap:10px'>"+
+      "<label class='field'><span>من موقع *</span><select id='trFrom' class='input'>"+opt(locs[0].id)+"</select></label>"+
+      "<label class='field'><span>إلى موقع *</span><select id='trTo' class='input'>"+opt(locs[1].id)+"</select></label>"+
+    "</div>"+
+    "<div class='muted' style='font-size:13px;margin:4px 0 8px'>حدّد الكمية المراد تحويلها لكل صنف (المتوفر في موقع المصدر يظهر بجانب الصنف).</div>"+
+    "<table><thead><tr><th>الصنف</th><th>الكمية</th></tr></thead><tbody>"+rows+"</tbody></table>",
+    "إرسال التحويل", async ()=>{
+      const fromSel=$("trFrom"), toSel=$("trTo");
+      const fromId=fromSel.value, toId=toSel.value;
+      const fromName=fromSel.selectedOptions[0]?fromSel.selectedOptions[0].textContent.replace("🏬 ","").trim():"";
+      const toName=toSel.selectedOptions[0]?toSel.selectedOptions[0].textContent.replace("🏬 ","").trim():"";
+      if(fromId===toId){ toast("اختر موقعين مختلفين","err"); return false; }
+      const items=[]; document.querySelectorAll("#modalRoot .trq").forEach(inp=>{ const qv=parseFloat(inp.value)||0; if(qv>0){ const i=+inp.dataset.i; items.push({productId:prods[i].id,name:prods[i].name,qty:qv}); } });
+      if(!items.length){ toast("أضف صنفاً واحداً على الأقل","err"); return false; }
+      await cRef().collection("transfers").add({fromId,fromName,toId,toName,items,status:"pending",byUid:state.user.uid,byName:state.profile.name||state.user.email,date:todayStr(),at:now()});
+      logAction("create_transfer",fromName+" → "+toName+" ("+items.length+" صنف)");
+      toast("تم إرسال التحويل للاعتماد","ok"); return true;
+    });
+  // إظهار المتوفر في موقع المصدر
+  const refreshAvail=async()=>{
+    const fromId=$("trFrom").value; const map=await branchStockMap(fromId);
+    prods.forEach((p,i)=>{ const sp=$("trav_"+i); if(sp) sp.textContent="("+L("متوفر")+": "+(map[p.id]!=null?map[p.id]:0)+")"; });
+  };
+  $("trFrom").onchange=refreshAvail; refreshAvail();
+}
+
+function viewTransfer(x){
+  const items=(x.items||[]).map(it=>"<div class='review-row'><span>"+esc(it.name)+"</span><b>×"+(it.qty||0)+"</b></div>").join("");
+  openModal(L("تفاصيل التحويل — ")+esc((x.fromName||"")+" → "+(x.toName||"")),
+    "<div class='review-row'><span>"+L("من")+"</span><b>"+esc(x.fromName||"")+"</b></div>"+
+    "<div class='review-row'><span>"+L("إلى")+"</span><b>"+esc(x.toName||"")+"</b></div>"+
+    "<div class='review-row'><span>"+L("المُرسِل")+"</span><b>"+esc(x.byName||"")+"</b></div>"+
+    "<div class='sec-title' style='margin-top:10px'>"+L("الأصناف")+"</div>"+items+
+    "<div class='review-row'><span>"+L("الحالة")+"</span>"+statusTag3(x.status)+"</div>",
+    "تم",()=>true,true);
+}
+
+async function approveTransfer(id,x){
+  try{
+    const batch=db.batch();
+    (x.items||[]).forEach(it=>{
+      const q=Number(it.qty)||0;
+      const fromRef=cRef().collection("branchStock").doc(bsId(x.fromId,it.productId));
+      const toRef=cRef().collection("branchStock").doc(bsId(x.toId,it.productId));
+      batch.set(fromRef,{branchId:x.fromId,productId:it.productId,name:it.name,qty:firebase.firestore.FieldValue.increment(-q),updatedAt:now()},{merge:true});
+      batch.set(toRef,{branchId:x.toId,productId:it.productId,name:it.name,qty:firebase.firestore.FieldValue.increment(q),updatedAt:now()},{merge:true});
+    });
+    batch.update(cRef().collection("transfers").doc(id),{status:"approved",decidedBy:state.user.uid,decidedByName:state.profile.name||state.user.email,decidedAt:now()});
+    await batch.commit();
+    logAction("approve_transfer",x.fromName+" → "+x.toName);
+    toast("تم اعتماد التحويل وتحريك الكميات","ok");
+  }catch(e){ console.error(e); toast("تعذّر الاعتماد","err"); }
+}
+async function undoTransfer(id,x){
+  if(!confirm(L("إلغاء اعتماد التحويل وإرجاع الكميات؟"))) return;
+  try{
+    const batch=db.batch();
+    (x.items||[]).forEach(it=>{
+      const q=Number(it.qty)||0;
+      const fromRef=cRef().collection("branchStock").doc(bsId(x.fromId,it.productId));
+      const toRef=cRef().collection("branchStock").doc(bsId(x.toId,it.productId));
+      batch.set(fromRef,{branchId:x.fromId,productId:it.productId,name:it.name,qty:firebase.firestore.FieldValue.increment(q),updatedAt:now()},{merge:true});
+      batch.set(toRef,{branchId:x.toId,productId:it.productId,name:it.name,qty:firebase.firestore.FieldValue.increment(-q),updatedAt:now()},{merge:true});
+    });
+    batch.update(cRef().collection("transfers").doc(id),{status:"pending",decidedBy:firebase.firestore.FieldValue.delete(),decidedByName:firebase.firestore.FieldValue.delete(),decidedAt:firebase.firestore.FieldValue.delete()});
+    await batch.commit();
+    logAction("undo_transfer",x.fromName+" → "+x.toName);
+    toast("أُلغي الاعتماد وأُرجعت الكميات","ok");
+  }catch(e){ console.error(e); toast("تعذّر الإلغاء","err"); }
+}
+window.approveTransfer=approveTransfer; window.undoTransfer=undoTransfer; window.viewTransfer=viewTransfer;
+
 function pageBranches(c){
-  c.innerHTML=pageTitle("الفروع","بطاقات الفروع وتقييمها");
-  if(can("branches","add")){const bar=el("div",null,"<button class='btn primary' id='newBranchBtn'>+ فرع جديد</button>");bar.style.marginBottom="16px";c.appendChild(bar);bar.firstChild.onclick=()=>branchModal();}
-  // شريط الباقة (للمالك/المدير)
+  c.innerHTML=pageTitle("الفروع","بطاقات الفروع والمستودعات");
+  if(can("branches","add")){
+    const bar=el("div",null,"<button class='btn primary' id='newBranchBtn'>+ فرع جديد</button> <button class='btn' id='newWhBtn'>+ مستودع جديد</button>");
+    bar.style.marginBottom="16px"; c.appendChild(bar);
+    $("newBranchBtn").onclick=()=>branchModal();
+    $("newWhBtn").onclick=()=>warehouseModal();
+  }
+  // شريط الباقة (للمالك/المدير) — يحسب الفروع فقط (المستودعات لا تُحتسب)
   if(state.role==="owner"||state.role==="manager"){
     const pill=el("div","card"); pill.id="planPill"; pill.style.cssText="margin-bottom:16px;padding:10px 14px;font-size:13px";
     pill.innerHTML="<span class='muted'>جارٍ التحميل…</span>"; c.appendChild(pill);
     cRef().get().then(d=>{ const cd=d.data()||{}; const max=planMax(cd); cRef().collection("branches").get().then(bs=>{
-      const used=bs.size; const p=$("planPill"); if(!p)return;
+      let used=0; bs.forEach(b=>{ if(!b.data().isWarehouse) used++; }); const p=$("planPill"); if(!p)return;
       const maxTxt=max===Infinity?"غير محدودة":max;
       const warn=(max!==Infinity&&used>=max);
       p.innerHTML="باقتك: <b>"+esc(planLabel(cd))+"</b> — الفروع: <b style='color:"+(warn?"var(--amber)":"inherit")+"'>"+used+" / "+maxTxt+"</b>"+(warn?" <span style='color:var(--amber)'>(وصلت الحد — للمزيد رقّي باقتك)</span>":"");
@@ -3223,14 +3365,19 @@ function pageBranches(c){
   }
   const grid=el("div"); grid.id="brGrid"; grid.style.cssText="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:16px";
   c.appendChild(grid);
+  const whWrap=el("div"); whWrap.id="whWrap"; whWrap.style.cssText="margin-top:22px;display:none";
+  whWrap.innerHTML="<div class='sec-title' style='margin-bottom:10px'>🏬 "+L("المستودعات")+"</div><div id='whGrid' style='display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:16px'></div>";
+  c.appendChild(whWrap);
   cRef().collection("branches").orderBy("name").onSnapshot(async s=>{
-    const g=$("brGrid");if(!g)return;g.innerHTML="";
-    if(s.empty){g.innerHTML="<div class='card muted' style='grid-column:1/-1;text-align:center'>لا توجد فروع</div>";return;}
+    const g=$("brGrid");if(!g)return;g.innerHTML=""; const wg=$("whGrid"); if(wg)wg.innerHTML="";
+    const branchDocs=[], whDocs=[]; s.forEach(d=>{ (d.data().isWarehouse?whDocs:branchDocs).push(d); });
+    if(!branchDocs.length){g.innerHTML="<div class='card muted' style='grid-column:1/-1;text-align:center'>لا توجد فروع</div>";}
+    const wwrap=$("whWrap"); if(wwrap) wwrap.style.display=whDocs.length?"block":"none";
     // نجلب متوسط التقييم لكل فرع
     const evalsSnap=await cRef().collection("branchEvals").get().catch(()=>null);
     const byBranch={};
     if(evalsSnap) evalsSnap.forEach(d=>{const x=d.data();(byBranch[x.branchId]=byBranch[x.branchId]||[]).push(x.pct||0);});
-    s.forEach(d=>{const x=d.data();
+    branchDocs.forEach(d=>{const x=d.data();
       const arr=byBranch[d.id]||[]; const avg=arr.length?arr.reduce((a,b)=>a+b,0)/arr.length:0;
       const stars=Math.round(avg/20); // 0-100% → 0-5
       let starHtml=""; for(let i=1;i<=5;i++) starHtml+="<span style='color:"+(i<=stars?"var(--brand)":"var(--line)")+"'>★</span>";
@@ -3242,59 +3389,73 @@ function pageBranches(c){
       card.onclick=()=>branchDetail(c,d.id,x);
       g.appendChild(card);
     });
-    // شارة المعلّق لكل فرع (جرد/طلب/تالف/مصروفات/إقفال/فواتير) — للمالك/المدير
+    // بطاقات المستودعات
+    whDocs.forEach(d=>{const x=d.data();
+      const card=el("div","card");card.style.cssText="cursor:pointer;min-height:110px;position:relative;border:1px solid var(--brand-2)";
+      card.innerHTML="<span id='brbadge_"+d.id+"' style='position:absolute;top:12px;left:12px;background:var(--red);color:#fff;border-radius:999px;min-width:22px;height:22px;font-size:12px;font-weight:700;display:none;align-items:center;justify-content:center;padding:0 6px'></span>"+
+        "<div style='font-size:26px'>🏬</div>"+
+        "<div style='font-weight:800;margin-top:6px'>"+esc(x.name)+"</div>"+
+        "<div class='muted' style='font-size:12px;margin-top:4px'>"+L("مستودع")+"</div>";
+      card.onclick=()=>branchDetail(c,d.id,x);
+      if(wg) wg.appendChild(card);
+    });
+    // شارة المعلّق لكل موقع (جرد/طلب/تالف/مصروفات/إقفال/فواتير/تحويلات) — للمالك/المدير
     if(invApprover()){
       const pend={}; const bump=(bid,n)=>{pend[bid]=(pend[bid]||0)+n;};
       const paint=()=>{ s.forEach(d=>{ const b=$("brbadge_"+d.id); if(b){ const n=pend[d.id]||0; if(n){b.textContent=n;b.style.display="flex";}else b.style.display="none"; } }); };
-      const per={}; // per-collection per-branch counts
+      const per={};
       const watch=(coll)=>{ cRef().collection(coll).onSnapshot(cs=>{
-        cs.forEach(dd=>{}); // reset then recount
-        // rebuild counts for this collection
-        const local={}; cs.forEach(dd=>{const y=dd.data(); const st=y.status; if(st!=="approved"&&st!=="rejected"&&st!=="done"){ local[y.branchId]=(local[y.branchId]||0)+1; }});
+        const local={}; cs.forEach(dd=>{const y=dd.data(); const st=y.status; if(st!=="approved"&&st!=="rejected"&&st!=="done"){ if(coll==="transfers"){ if(y.fromId)local[y.fromId]=(local[y.fromId]||0)+1; } else { local[y.branchId]=(local[y.branchId]||0)+1; } }});
         per[coll]=local;
-        // recompute total pend
         for(const k in pend) delete pend[k];
         Object.values(per).forEach(m=>{ for(const bid in m) bump(bid,m[bid]); });
         paint();
       },()=>{}); };
-      ["stockCounts","stockOrders","waste","expenses","dailyClosings","invoices"].forEach(watch);
+      ["stockCounts","stockOrders","waste","expenses","dailyClosings","invoices","transfers"].forEach(watch);
     }
   },()=>{const g=$("brGrid");if(g)g.innerHTML="<div class='card' style='grid-column:1/-1;color:var(--red)'>تعذّر التحميل</div>";});
 }
 
 async function branchDetail(c,id,x){
+  const isWh=!!x.isWarehouse;
   c.innerHTML=""; const back=el("button","btn sm","← رجوع للفروع"); back.style.marginBottom="14px"; back.onclick=()=>openPage("branches"); c.appendChild(back);
   const head=el("div","card"); head.style.marginBottom="16px";
-  head.innerHTML="<div style='display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap'><h2 style='font-size:22px'>"+esc(x.name)+"</h2><div></div></div>";
+  head.innerHTML="<div style='display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap'><h2 style='font-size:22px'>"+(isWh?"🏬 ":"")+esc(x.name)+(isWh?" <span class='muted' style='font-size:14px'>("+L("مستودع")+")</span>":"")+"</h2><div></div></div>";
   const hb=head.querySelector("div>div:last-child");
-  if(can("branches","edit")){const e=el("button","btn sm","تعديل");e.onclick=()=>branchModal(id,x);hb.appendChild(e);}
-  if(can("branches","delete")){const dl=el("button","btn sm danger","حذف");dl.style.marginRight="6px";dl.onclick=()=>{if(confirm("حذف الفرع؟")){cRef().collection("branches").doc(id).delete();logAction("delete_branch",x.name);openPage("branches");}};hb.appendChild(dl);}
+  if(can("branches","edit")){const e=el("button","btn sm","تعديل");e.onclick=()=>isWh?warehouseModal(id,x):branchModal(id,x);hb.appendChild(e);}
+  if(can("branches","delete")){const dl=el("button","btn sm danger","حذف");dl.style.marginRight="6px";dl.onclick=()=>{if(confirm(isWh?L("حذف المستودع؟"):"حذف الفرع؟")){cRef().collection("branches").doc(id).delete();logAction(isWh?"delete_warehouse":"delete_branch",x.name);openPage("branches");}};hb.appendChild(dl);}
   c.appendChild(head);
-  // ثلاث بطاقات
-  const grid=el("div","kpi-grid"); grid.style.marginBottom="16px";
-  grid.innerHTML=kpi("مبيعات الفرع (الشهر)","brSales","—")+kpi("عدد الموظفين","brEmps","—")+
-    "<div class='kpi' id='brEvalCard' style='cursor:pointer'><div class='l'>تقييم الفرع</div><div class='v' id='brEvalAvg'>—</div><div class='muted' style='font-size:12px'>اضغط للتقييم</div></div>";
-  c.appendChild(grid);
-  $("brEvalCard").onclick=()=>branchEvalPage(c,id,x);
-  // بطاقات المخزون لكل فرع (جرد/طلب/توالف) — للمالك/المدير
+  // للفرع فقط: بطاقات المبيعات/الموظفين/التقييم
+  if(!isWh){
+    const grid=el("div","kpi-grid"); grid.style.marginBottom="16px";
+    grid.innerHTML=kpi("مبيعات الفرع (الشهر)","brSales","—")+kpi("عدد الموظفين","brEmps","—")+
+      "<div class='kpi' id='brEvalCard' style='cursor:pointer'><div class='l'>تقييم الفرع</div><div class='v' id='brEvalAvg'>—</div><div class='muted' style='font-size:12px'>اضغط للتقييم</div></div>";
+    c.appendChild(grid);
+    $("brEvalCard").onclick=()=>branchEvalPage(c,id,x);
+  }
+  // بطاقات المخزون لكل موقع (جرد/طلب/تالف/مصروفات) — للمالك/المدير
   if(invApprover()){
     const br={id:id,name:x.name};
     const backFn=()=>branchDetail(c,id,x);
     const invGrid=el("div"); invGrid.style.cssText="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:16px;margin-bottom:16px";
     const mk=(key,title,desc)=>{ const card=el("div","card"); card.style.cssText="cursor:pointer;min-height:110px;position:relative";
       card.innerHTML="<div style='font-weight:800'>"+title+"</div><div class='muted' style='font-size:13px;margin-top:4px'>"+desc+"</div><span id='bbadge_"+key+"' style='position:absolute;top:10px;left:10px;background:var(--red);color:#fff;border-radius:999px;min-width:20px;height:20px;font-size:12px;display:none;align-items:center;justify-content:center;padding:0 5px'></span>";
-      card.onclick=()=>{ const f={count:invCount,order:invOrders,waste:invWaste,expenses:pageExpenses}[key]; f(c,br,backFn); setTimeout(()=>{ if(typeof translateTree==="function") translateTree(c); },60); };
+      card.onclick=()=>{ if(key==="transfers"){ openPage("transfers"); return; } const f={count:invCount,order:invOrders,waste:invWaste,expenses:pageExpenses}[key]; f(c,br,backFn); setTimeout(()=>{ if(typeof translateTree==="function") translateTree(c); },60); };
       invGrid.appendChild(card);
     };
-    mk("count","الجرد","جرد كميات هذا الفرع");
-    mk("order","الطلب","طلبات هذا الفرع");
-    mk("waste","تالف","توالف هذا الفرع");
-    mk("expenses","المصروفات","مصروفات هذا الفرع");
+    mk("count","الجرد",isWh?L("جرد كميات المستودع"):"جرد كميات هذا الفرع");
+    mk("order","الطلب",isWh?L("طلبات المستودع"):"طلبات هذا الفرع");
+    mk("waste","تالف",isWh?L("توالف المستودع"):"توالف هذا الفرع");
+    if(!isWh) mk("expenses","المصروفات","مصروفات هذا الفرع");
+    mk("transfers","التحويلات",isWh?L("تحويلات من/إلى المستودع"):L("تحويلات من/إلى الفرع"));
     c.appendChild(invGrid);
-    // شارات المعلّق لهذا الفرع
+    // شارات المعلّق لهذا الموقع
     const setBB=(coll,key)=>{ cRef().collection(coll).where("branchId","==",id).onSnapshot(s=>{ let n=0; s.forEach(d=>{const st=d.data().status; if(st!=="approved"&&st!=="rejected"&&st!=="done")n++;}); const b=$("bbadge_"+key); if(b){ if(n){b.textContent=n;b.style.display="flex";}else b.style.display="none"; } },()=>{}); };
-    setBB("stockCounts","count"); setBB("stockOrders","order"); setBB("waste","waste"); setBB("expenses","expenses");
+    setBB("stockCounts","count"); setBB("stockOrders","order"); setBB("waste","waste"); if(!isWh) setBB("expenses","expenses");
+    // شارة التحويلات المعلّقة الصادرة من هذا الموقع
+    cRef().collection("transfers").where("fromId","==",id).onSnapshot(s=>{ let n=0; s.forEach(d=>{const st=d.data().status; if(st!=="approved"&&st!=="rejected")n++;}); const b=$("bbadge_transfers"); if(b){ if(n){b.textContent=n;b.style.display="flex";}else b.style.display="none"; } },()=>{});
   }
+  if(isWh) return; // المستودع ما له مبيعات/تقييم
   // مبيعات الفرع للشهر
   const cur=monthRange(0);
   cRef().collection("dailyClosings").where("date",">=",cur.start).where("date","<",cur.next).onSnapshot(s=>{
@@ -3396,11 +3557,12 @@ function branchModal(id,x){x=x||{};
       const data={name,address:$("brAddr").value.trim(),phone:$("brPhone").value.trim()};
       if(id){await cRef().collection("branches").doc(id).update(data);logAction("edit_branch",name);}
       else{
-        // فحص حد الباقة قبل إضافة فرع جديد
+        // فحص حد الباقة قبل إضافة فرع جديد (المستودعات لا تُحتسب)
         try{
           const cd=(await cRef().get()).data()||{};
           const max=planMax(cd);
-          const cur=(await cRef().collection("branches").get()).size;
+          const all=await cRef().collection("branches").get();
+          let cur=0; all.forEach(b=>{ if(!b.data().isWarehouse) cur++; });
           if(cur>=max){
             const lbl=planLabel(cd);
             toast(LANG==="en"?("Branch limit reached for your "+lbl+" plan ("+max+"). Upgrade to add more."):("وصلت الحد الأقصى للفروع في باقتك ("+lbl+" — "+max+" فروع). رقّي باقتك لإضافة المزيد."),"err");
@@ -3412,6 +3574,22 @@ function branchModal(id,x){x=x||{};
       openPage("branches"); return true;
     });
 }
+
+// المستودع = موقع مثل الفرع لكن معلّم isWarehouse (لا يُحتسب ضمن حد الباقة)
+function warehouseModal(id,x){x=x||{};
+  openModal(id?"تعديل مستودع":"مستودع جديد",
+    "<label class='field'><span>اسم المستودع *</span><input id='whName' class='input' value='"+esc(x.name||"")+"' placeholder='مثال: المستودع الرئيسي'></label>"+
+    "<label class='field'><span>العنوان</span><input id='whAddr' class='input' value='"+esc(x.address||"")+"'></label>"+
+    "<label class='field'><span>الجوال</span><input id='whPhone' class='input' value='"+esc(x.phone||"")+"'></label>",
+    "حفظ", async ()=>{
+      const name=$("whName").value.trim(); if(!name){toast("أدخل اسم المستودع","err");return false;}
+      const data={name,address:$("whAddr").value.trim(),phone:$("whPhone").value.trim(),isWarehouse:true};
+      if(id){await cRef().collection("branches").doc(id).update(data);logAction("edit_warehouse",name);}
+      else{ data.createdAt=now(); await cRef().collection("branches").add(data); logAction("add_warehouse",name); }
+      openPage("branches"); return true;
+    });
+}
+window.warehouseModal=warehouseModal;
 
 /* ================================================================== */
 /*  11) الموظفون والصلاحيات                                            */
@@ -3548,7 +3726,7 @@ async function staffEmployees(c){
 
 async function employeeModal(id,x){ x=x||{};
   let branches=[];try{const bs=await cRef().collection("branches").get();bs.forEach(b=>branches.push({id:b.id,...b.data()}));}catch(e){}
-  const brOpts="<option value=''>— بدون —</option>"+branches.map(b=>"<option value='"+b.id+"' "+(x.branchId===b.id?"selected":"")+">"+esc(b.name)+"</option>").join("");
+  const brOpts="<option value=''>— بدون —</option>"+branches.map(b=>"<option value='"+b.id+"' "+(x.branchId===b.id?"selected":"")+">"+(b.isWarehouse?"🏬 ":"")+esc(b.name)+(b.isWarehouse?" ("+L("مستودع")+")":"")+"</option>").join("");
   openModal(id?"تعديل موظف":"إضافة موظف",
     "<label class='field'><span>اسم الموظف *</span><input id='eName' class='input' value='"+esc(x.name||"")+"'></label>"+
     "<div class='grid' style='grid-template-columns:1fr 1fr'>"+
