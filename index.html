@@ -161,6 +161,39 @@ tbody tr:hover{background:var(--surface-2)}
   .content{padding:16px}
 }
 .hamb{display:none} @media(max-width:820px){.hamb{display:inline-flex}}
+
+/* ===== شاشة المخزون (Hub) — تصميم وتفاعلات ===== */
+.inv-hub .head-row{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:18px}
+.inv-add-sq{width:44px;height:44px;border-radius:12px;background:linear-gradient(135deg,var(--brand),var(--brand-2));
+  border:none;color:#fff;font-size:26px;display:flex;align-items:center;justify-content:center;cursor:pointer;
+  box-shadow:0 8px 18px rgba(200,161,90,.34);line-height:1;flex-shrink:0;transition:transform .15s,filter .15s}
+.inv-add-sq:hover{filter:brightness(1.05)}
+.inv-add-sq:active{transform:scale(.9)}
+.inv-hub .wh-card{cursor:pointer;border:1px solid var(--brand-2);min-height:120px;
+  display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;gap:6px;margin-bottom:14px}
+.inv-hub .wh-card .t{font-weight:800;font-size:18px}
+.inv-hub .wh-card .d{color:var(--muted);font-size:13px;margin-top:2px}
+.inv-hub .tr-wrap{display:flex;justify-content:center;margin-bottom:18px}
+.inv-hub .tr-card{cursor:pointer;min-height:110px;width:62%;text-align:center;position:relative;
+  display:flex;flex-direction:column;justify-content:center;align-items:center;gap:6px}
+@media(max-width:520px){.inv-hub .tr-card{width:100%}}
+.inv-hub .tr-card .t{font-weight:800}
+.inv-hub .tr-card .d{color:var(--muted);font-size:12px}
+.inv-hub .section-label{font-weight:700;font-size:14px;color:var(--muted);margin:0 0 10px}
+.inv-hub .branches-row{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.inv-hub .br-card{cursor:pointer;padding:14px 8px;text-align:center;min-height:100px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;position:relative}
+.inv-hub .br-card .t{font-weight:700;font-size:13px}
+.inv-hub .br-card .st{font-size:15px;color:var(--brand)}
+/* تفاعل اللمس للبطاقات */
+.tapc{transition:transform .18s ease, box-shadow .18s ease, border-color .18s ease}
+.tapc:hover{transform:translateY(-3px);box-shadow:0 12px 30px rgba(30,41,59,.14);border-color:var(--brand)}
+.tapc:active{transform:scale(.97)}
+/* حركة دخول متدرّجة */
+@keyframes cardIn{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:translateY(0)}}
+.animin{opacity:0;animation:cardIn .5s ease forwards}
+/* انتقال ناعم عند فتح قسم */
+@keyframes viewIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+.view-enter{animation:viewIn .32s ease}
 </style>
 </head>
 <body>
@@ -1432,7 +1465,7 @@ function openPage(key,isBack){
   if(!isBack && cardsMode() && state.current==="__home__"){ /* من الرئيسية للقسم: نبدأ سجل جديد */ pageHistory=[]; }
   state.current=key; setActiveNav(key);
   document.getElementById("sidebar").classList.remove("open");
-  const c=$("pageContent"); c.innerHTML="";
+  const c=$("pageContent"); c.innerHTML=""; c.classList.remove("inv-hub");
   const routes={
     super_companies:pageSuperCompanies, super_subs:pageSuperSubs, super_audit:pageSuperAudit, super_maint:pageMaintenance,
     dashboard:pageDashboard, sales:pageSales, invoices:pageInvoices, inventory:pageInventory, expenses:pageExpenses, suppliers:pageSuppliers, staff:pageStaff, checklist:pageChecklist, recipes:pageRecipes, branches:pageBranches, employees:pageStaff, reports:pageReports, settings:pageSettings
@@ -2517,21 +2550,81 @@ function pageInventory(c){
 
 // بطاقتا المخزون: المنتجات + المستودع (للمالك)
 function inventoryHub(c){
-  c.innerHTML=pageTitle("المخزون","المنتجات والمستودع");
-  const grid=el("div"); grid.style.cssText="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:16px";
-  const mk=(icon,title,desc,onclick,extra)=>{ const card=el("div","card"); card.style.cssText="cursor:pointer;min-height:120px;position:relative"+(extra||"");
-    card.innerHTML="<div style='font-size:26px'>"+icon+"</div><div style='font-weight:800;margin-top:4px'>"+esc(L(title))+"</div><div class='muted' style='font-size:13px;margin-top:4px'>"+esc(L(desc))+"</div>";
-    card.onclick=onclick; grid.appendChild(card); };
-  mk("📦","المنتجات","كتالوج المنتجات والتصنيفات", ()=>{ pageProducts(c,false); setTimeout(()=>{ if(typeof translateTree==="function") translateTree(c); },60); });
-  mk("🏬","المستودع","جرد المستودع والتحويلات", ()=>{ warehouseHub(c); }, ";border:1px solid var(--brand-2)");
-  c.appendChild(grid);
+  c.classList.add("inv-hub");
+  // رأس الصفحة: العنوان يمين + زر إضافة منتج (+) مربّع يسار
+  c.innerHTML=
+    "<div class='head-row'>"+
+      "<button class='inv-add-sq animin' style='animation-delay:.05s' id='invAddProd' title='"+esc(L("إضافة منتج"))+"'>+</button>"+
+      "<div class='page-title' style='text-align:right;margin-bottom:0'><h2>"+esc(L("المخزون"))+"</h2><p>"+esc(L("المنتجات والمستودع"))+"</p></div>"+
+    "</div>";
+  // زر (+) يفتح نافذة إضافة منتج مباشرة
+  const addBtn=$("invAddProd"); if(addBtn) addBtn.onclick=()=>{ if(typeof productModal==="function") productModal(); };
+
+  // بطاقة المستودع الرئيسي — عرض كامل
+  const wh=el("div","card tapc wh-card animin"); wh.style.animationDelay=".1s";
+  wh.innerHTML="<div class='t'>"+esc(L("المستودع الرئيسي"))+"</div><div class='d'>"+esc(L("جرد المستودع والتحويلات"))+"</div>";
+  wh.onclick=()=>{ warehouseHub(c); };
+  c.appendChild(wh);
+
+  // بطاقة التحويلات — في المنتصف
+  const trWrap=el("div","tr-wrap");
+  const tr=el("div","card tapc tr-card animin"); tr.style.animationDelay=".2s";
+  tr.innerHTML="<div class='t'>"+esc(L("التحويلات"))+"</div><div class='d'>"+esc(L("تحويل بين المستودعات والفروع"))+"</div>"+
+    "<span id='invTrBadge' style='position:absolute;top:10px;left:10px;background:var(--red);color:#fff;border-radius:999px;min-width:20px;height:20px;font-size:12px;display:none;align-items:center;justify-content:center;padding:0 5px'></span>";
+  tr.onclick=()=>transfersHub(c,()=>{ openPage("inventory"); });
+  trWrap.appendChild(tr); c.appendChild(trWrap);
+
+  // قسم الفروع — تظهر تلقائياً (٣ في صف، أصغر) عند وجود فروع
+  const brSection=el("div"); brSection.id="invBrSection"; brSection.style.display="none";
+  brSection.innerHTML="<div class='section-label animin' style='animation-delay:.28s'>"+esc(L("الفروع"))+"</div><div class='branches-row' id='invBrRow'></div>";
+  c.appendChild(brSection);
+
+  // شارة التحويلات المعلّقة
+  if(canApproveTransfer()){
+    cRef().collection("transfers").onSnapshot(s=>{ let n=0; s.forEach(d=>{const st=d.data().status; if(st!=="approved"&&st!=="rejected")n++;}); const b=$("invTrBadge"); if(b){ if(n){b.textContent=n;b.style.display="flex";}else b.style.display="none"; } },()=>{});
+  }
+
+  // تحميل الفروع (بدون المستودعات) وعرضها كبطاقات صغيرة
+  cRef().collection("branches").orderBy("name").onSnapshot(async s=>{
+    const row=$("invBrRow"); const sec=$("invBrSection"); if(!row||!sec) return;
+    const branchDocs=[]; s.forEach(d=>{ if(!d.data().isWarehouse) branchDocs.push(d); });
+    if(!branchDocs.length){ sec.style.display="none"; row.innerHTML=""; return; }
+    sec.style.display="block"; row.innerHTML="";
+    // متوسط تقييم كل فرع
+    const evalsSnap=await cRef().collection("branchEvals").get().catch(()=>null);
+    const byBranch={}; if(evalsSnap) evalsSnap.forEach(d=>{const x=d.data();(byBranch[x.branchId]=byBranch[x.branchId]||[]).push(x.pct||0);});
+    branchDocs.forEach((d,i)=>{ const x=d.data();
+      const arr=byBranch[d.id]||[]; const avg=arr.length?arr.reduce((a,b)=>a+b,0)/arr.length:0;
+      const stars=Math.round(avg/20);
+      let starHtml=""; for(let k=1;k<=5;k++) starHtml+="<span style='color:"+(k<=stars?"var(--brand)":"var(--line)")+"'>★</span>";
+      const card=el("div","card tapc br-card animin"); card.style.animationDelay=(0.32+i*0.06)+"s";
+      card.innerHTML="<span id='invbrbadge_"+d.id+"' style='position:absolute;top:8px;left:8px;background:var(--red);color:#fff;border-radius:999px;min-width:18px;height:18px;font-size:11px;font-weight:700;display:none;align-items:center;justify-content:center;padding:0 5px'></span>"+
+        "<div class='t'>"+esc(x.name)+"</div><div class='st'>"+starHtml+"</div>";
+      card.onclick=()=>branchDetail(c,d.id,x);
+      row.appendChild(card);
+    });
+    // شارة المعلّق لكل فرع
+    if(invApprover()){
+      const pend={}; const per={};
+      const paint=()=>{ branchDocs.forEach(d=>{ const b=$("invbrbadge_"+d.id); if(b){ const n=pend[d.id]||0; if(n){b.textContent=n;b.style.display="flex";}else b.style.display="none"; } }); };
+      const watch=(coll)=>{ cRef().collection(coll).onSnapshot(cs=>{
+        const local={}; cs.forEach(dd=>{const y=dd.data(); const st=y.status; if(st!=="approved"&&st!=="rejected"&&st!=="done"){ local[y.branchId]=(local[y.branchId]||0)+1; }});
+        per[coll]=local; for(const kk in pend) delete pend[kk];
+        Object.values(per).forEach(m=>{ for(const bid in m) pend[bid]=(pend[bid]||0)+m[bid]; });
+        paint();
+      },()=>{}); };
+      ["stockCounts","stockOrders","waste","expenses","dailyClosings","invoices"].forEach(watch);
+    }
+    if(typeof translateTree==="function") translateTree(row);
+  },()=>{});
+
   setTimeout(()=>{ if(typeof translateTree==="function") translateTree(c); },0);
 }
 
 // شاشة المستودع: جرد المستودعات + التحويلات
 function warehouseHub(c){
   const isOwner=(state.role==="owner");
-  c.innerHTML="";
+  c.classList.remove("inv-hub"); c.innerHTML="";
   if(isOwner){ const b=el("button","btn sm","← رجوع للمخزون"); b.style.marginBottom="14px"; b.onclick=()=>openPage("inventory"); c.appendChild(b); }
   c.insertAdjacentHTML("beforeend", pageTitle("المستودع","جرد المستودع والتحويلات بين المستودعات والفروع"));
   if(can("branches","add")){ const bar=el("div"); bar.style.marginBottom="16px"; bar.innerHTML="<button class='btn' id='newWh2'>+ مستودع جديد</button>"; c.appendChild(bar); $("newWh2").onclick=()=>warehouseModal(); }
@@ -2558,7 +2651,7 @@ function warehouseHub(c){
 
 // شاشة التحويلات (داخل المستودع) مع زر رجوع
 function transfersHub(c, back){
-  c.innerHTML=""; const b=el("button","btn sm","← رجوع"); b.style.marginBottom="14px"; b.onclick=back||(()=>openPage("inventory")); c.appendChild(b);
+  c.classList.remove("inv-hub"); c.innerHTML=""; const b=el("button","btn sm","← رجوع"); b.style.marginBottom="14px"; b.onclick=back||(()=>openPage("inventory")); c.appendChild(b);
   const wrap=el("div"); c.appendChild(wrap);
   pageTransfers(wrap);
   setTimeout(()=>{ if(typeof translateTree==="function") translateTree(c); },60);
@@ -3005,6 +3098,7 @@ async function expenseForm(c,br){
 
 
 async function pageProducts(c,standalone){
+  c.classList.remove("inv-hub");
   const manage = can("inventory","add")||can("inventory","edit");
   const backBtn = standalone?"":"<button class='btn sm' id='prodBack' style='margin-bottom:14px'>← رجوع للمخزون</button>";
   c.innerHTML=backBtn+pageTitle("المنتجات","كتالوج منتجات الشركة (لكل الفروع)");
@@ -3480,7 +3574,8 @@ function pageBranches(c){
 
 async function branchDetail(c,id,x){
   const isWh=!!x.isWarehouse;
-  c.innerHTML=""; const back=el("button","btn sm","← رجوع للفروع"); back.style.marginBottom="14px"; back.onclick=()=>openPage("branches"); c.appendChild(back);
+  const fromInv=(state.current==="inventory");
+  c.classList.remove("inv-hub"); c.innerHTML=""; const back=el("button","btn sm",fromInv?"← رجوع للمخزون":"← رجوع للفروع"); back.style.marginBottom="14px"; back.onclick=()=>{ if(fromInv) inventoryHub(c); else openPage("branches"); }; c.appendChild(back);
   const head=el("div","card"); head.style.marginBottom="16px";
   head.innerHTML="<div style='display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap'><h2 style='font-size:22px'>"+(isWh?"🏬 ":"")+esc(x.name)+(isWh?" <span class='muted' style='font-size:14px'>("+L("مستودع")+")</span>":"")+"</h2><div></div></div>";
   const hb=head.querySelector("div>div:last-child");
