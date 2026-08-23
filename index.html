@@ -2144,7 +2144,7 @@ function fmtDT(ts){ try{ const d=ts&&ts.toDate?ts.toDate():null; if(!d)return "�
 const PAGE_SIZES=[10,20,30,100];
 // يبني زر عدّاد صغير يعرض العدد الحالي، وتغييره يستدعي onChange بالقيمة الجديدة
 function pageSizeControl(current,onChange){
-  const wrap=el("div"); wrap.style.cssText="display:flex;justify-content:flex-start;margin-bottom:10px";
+  const wrap=el("div"); wrap.style.cssText="display:block;width:100%;margin-bottom:10px;text-align:right";
   const btn=el("button","btn sm",""+current); btn.style.cssText="padding:5px 12px;min-width:52px";
   btn.title=L("عدد الظاهر");
   btn.onclick=(e)=>{ e.stopPropagation(); openActionMenu(btn, PAGE_SIZES.map(n=>({label:""+n, fn:()=>onChange(n)}))); };
@@ -2653,8 +2653,8 @@ function saveInvPrefs(prefs){
 function pageInventory(c){
   // المالك: بطاقتان (المنتجات + المستودع)
   if(state.role==="owner"){ inventoryHub(c); return; }
-  // أمين المستودع: يفتح على المستودع مباشرة
-  if(isWarehouseKeeper()){ warehouseHub(c); return; }
+  // أمين المستودع: يفتح على جرد المستودع مباشرة
+  if(isWarehouseKeeper()){ openMainWarehouse(c); return; }
   // الموظف/المدير: مربوطون بفرعهم — يسجّلون الجرد/الطلب/التوالف لفرعهم
   c.innerHTML=pageTitle("المخزون","الجرد والطلب والتوالف — فرعك");
   const sections=[{k:"count",t:"الجرد",ic:"",d:"جرد الكميات"},{k:"order",t:"الطلب",ic:"",d:"اطلب نواقص المخزون"},{k:"waste",t:"تالف",ic:"",d:"تسجيل التالف"}];
@@ -2688,7 +2688,7 @@ function inventoryHub(c){
   // بطاقة المستودع الرئيسي — عرض كامل
   const wh=el("div","card tapc wh-card animin"); wh.style.animationDelay=".1s";
   wh.innerHTML="<div class='t'>"+esc(L("المستودع الرئيسي"))+"</div><div class='d'>"+esc(L("جرد المستودع والتحويلات"))+"</div>";
-  wh.onclick=()=>{ warehouseHub(c); };
+  wh.onclick=()=>{ openMainWarehouse(c); };
   c.appendChild(wh);
 
   // بطاقة التحويلات — في المنتصف
@@ -2746,6 +2746,25 @@ function inventoryHub(c){
   setTimeout(()=>{ if(typeof translateTree==="function") translateTree(c); },0);
 }
 
+// فتح المستودع الرئيسي مباشرة على الجرد (مستودع واحد)
+async function openMainWarehouse(c){
+  c.classList.remove("inv-hub");
+  try{
+    const s=await cRef().collection("branches").where("isWarehouse","==",true).orderBy("name").get();
+    if(s.empty){
+      // ما فيه مستودع: افتح نافذة إنشاء مستودع (لمن يملك الصلاحية)
+      if(can("branches","add")){ warehouseModal(); }
+      else { toast(L("لا توجد مستودعات — أضف مستودعاً"),""); openPage("inventory"); }
+      return;
+    }
+    const d=s.docs[0]; const x=d.data();
+    const backFn = (state.role==="owner") ? (()=>openPage("inventory")) : (()=>{ if(cardsMode()) renderCardsHome(); else openPage("dashboard"); });
+    invCount(c, {id:d.id, name:x.name}, backFn);
+    setTimeout(()=>{ if(typeof translateTree==="function") translateTree(c); },60);
+  }catch(e){ console.error(e); toast(L("تعذّر التحميل — تحقّق من قواعد الأمان"),"err"); }
+}
+window.openMainWarehouse=openMainWarehouse;
+
 // شاشة المستودع: جرد المستودعات + التحويلات
 function warehouseHub(c){
   const isOwner=(state.role==="owner");
@@ -2762,15 +2781,7 @@ function warehouseHub(c){
       card.onclick=()=>{ invCount(c,{id:d.id,name:x.name},()=>warehouseHub(c)); setTimeout(()=>{ if(typeof translateTree==="function") translateTree(c); },60); };
       g.appendChild(card);
     });
-    // بطاقة التحويلات
-    const t=el("div","card"); t.style.cssText="cursor:pointer;min-height:110px;position:relative";
-    t.innerHTML="<div style='font-size:24px'>🔄</div><div style='font-weight:800;margin-top:4px'>"+L("التحويلات")+"</div><div class='muted' style='font-size:12px;margin-top:4px'>"+L("تحويل بين المستودعات والفروع")+"</div><span id='whTrBadge' style='position:absolute;top:10px;left:10px;background:var(--red);color:#fff;border-radius:999px;min-width:20px;height:20px;font-size:12px;display:none;align-items:center;justify-content:center;padding:0 5px'></span>";
-    t.onclick=()=>transfersHub(c,()=>warehouseHub(c));
-    g.appendChild(t);
   },()=>{ const g=$("whHubGrid"); if(g) g.innerHTML="<div class='card' style='grid-column:1/-1;color:var(--red)'>"+L("تعذّر التحميل — تحقّق من قواعد الأمان")+"</div>"; });
-  if(canApproveTransfer()){
-    cRef().collection("transfers").onSnapshot(s=>{ let n=0; s.forEach(d=>{const st=d.data().status; if(st!=="approved"&&st!=="rejected")n++;}); const b=$("whTrBadge"); if(b){ if(n){b.textContent=n;b.style.display="flex";}else b.style.display="none"; } },()=>{});
-  }
   setTimeout(()=>{ if(typeof translateTree==="function") translateTree(c); },0);
 }
 
