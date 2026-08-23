@@ -1075,7 +1075,10 @@ const EN={
   "فعّل الصيانة على أي قسم — الشركات تشوف شريط «تحت الصيانة» بدلاً منه، وأنت تدخله وتعدّله بحرية":"Enable maintenance on any section — companies see a “Under maintenance” banner instead, while you can still enter and edit it freely.",
   "هذا القسم تحت الصيانة حالياً":"This section is currently under maintenance",
   "نعمل على تحسين هذا القسم، وسيعود قريباً. نعتذر عن الإزعاج.":"We're improving this section and it will be back soon. Sorry for the inconvenience.",
-  "تحت الصيانة":"Under maintenance","متاح":"Available",
+  "تحت الصيانة":"Under maintenance","متاح":"Available","مخفي":"Hidden",
+  "إدارة الأقسام":"Sections",
+  "تحكّم في ظهور الأقسام للشركات — «مخفي» يخفي القسم تماماً حتى تجهّزه وترجّعه «متاح»":"Control section visibility for companies — “Hidden” removes the section entirely until you prepare it and set it back to “Available”.",
+  "أُخفي القسم عن الشركات":"Section hidden from companies","أصبح القسم متاحاً":"Section is now available",
   "فُعّلت الصيانة على القسم":"Maintenance enabled for the section","أُلغيت الصيانة":"Maintenance disabled",
   "هذا القسم تحت الصيانة — الشركات لا تراه الآن":"This section is under maintenance — companies can't see it now",
   "تعذّر الحفظ — تحقّق من قواعد الأمان":"Couldn't save — check security rules",
@@ -1226,25 +1229,32 @@ function subExpired(cdata){ const d=subDaysLeft(cdata); return d!==null && d<0; 
 // عند دخول مالك المنصة لشركة، نخزّن الحالة هنا للرجوع
 const impersonation = { active:false, superName:"" };
 
-/* ===== وضع الصيانة للأقسام (تحكّم مالك المنصة) ===== */
+/* ===== وضع الصيانة/الإخفاء للأقسام (تحكّم مالك المنصة) ===== */
 let MAINT = {};                 // { moduleKey: true }  عام لكل الشركات
+let HIDDEN = {};                // { moduleKey: true }  أقسام مخفية عن الشركات
 let _maintUnsub = null;
 function moduleUnderMaintenance(key){ return MAINT && MAINT[key]===true; }
-// مالك المنصة الفعلي (ليس أثناء الدخول الإداري) يتخطّى الصيانة
+function moduleHidden(key){ return HIDDEN && HIDDEN[key]===true; }
+// مالك المنصة الفعلي (ليس أثناء الدخول الإداري) يتخطّى الصيانة والإخفاء
 function bypassMaintenance(){ return state.role==="super" || impersonation.active; }
 function subscribeMaintenance(){
   if(_maintUnsub) return;
   try{
     _maintUnsub = db.collection("platform").doc("config").onSnapshot(snap=>{
-      MAINT = (snap.exists && snap.data().maintenance) ? snap.data().maintenance : {};
-      // لو الشركة داخل قسم صار عليه صيانة الآن → أعِد فتحه ليظهر الشريط فوراً
-      if(state.user && state.current && !bypassMaintenance() && state.current!=="__home__"){
-        openPage(state.current, true);
+      const cfg = snap.exists ? snap.data() : {};
+      MAINT = (cfg && cfg.maintenance) ? cfg.maintenance : {};
+      HIDDEN = (cfg && cfg.hidden) ? cfg.hidden : {};
+      // الشركة: أعِد بناء القائمة (لإخفاء/إظهار الأقسام) وأعِد فتح القسم الحالي
+      if(state.user && !bypassMaintenance()){
+        if(state.role==="super"){ /* لن يحدث */ }
+        else if(cardsMode()){ if(state.current==="__home__") renderCardsHome(); }
+        else { renderCompanyNav(); }
+        if(state.current && state.current!=="__home__"){ openPage(state.current, true); }
       }
       // لو مالك المنصة فاتح صفحة الصيانة → حدّثها
       if(state.current==="super_maint" && state.role==="super"){ const c=$("pageContent"); if(c) pageMaintenance(c); }
-    }, ()=>{ MAINT={}; });
-  }catch(e){ MAINT={}; }
+    }, ()=>{ MAINT={}; HIDDEN={}; });
+  }catch(e){ MAINT={}; HIDDEN={}; }
 }
 
 // سجل العمليات
@@ -1373,12 +1383,12 @@ function renderSuperNav(){
   const nav=$("navList");nav.innerHTML="";
   nav.appendChild(navButton("الشركات","","super_companies"));
   nav.appendChild(navButton("الاشتراكات","","super_subs"));
-  nav.appendChild(navButton("صيانة الأقسام","","super_maint"));
+  nav.appendChild(navButton("إدارة الأقسام","","super_maint"));
   nav.appendChild(navButton("سجل العمليات","","super_audit"));
 }
 function renderCompanyNav(){
   const nav=$("navList");nav.innerHTML="";
-  MODULES.forEach(m=>{ if(m.key==="staff" || m.key==="recipes" || (m.key==="inventory"&&isWarehouseKeeper()) || can(m.key,"view")||can(m.key,"add")) nav.appendChild(navButton(t("nav_"+m.key)||m.name,m.icon,m.key)); });
+  MODULES.forEach(m=>{ if(moduleHidden(m.key)&&!bypassMaintenance()) return; if(m.key==="staff" || m.key==="recipes" || (m.key==="inventory"&&isWarehouseKeeper()) || can(m.key,"view")||can(m.key,"add")) nav.appendChild(navButton(t("nav_"+m.key)||m.name,m.icon,m.key)); });
 }
 
 // مولّد كلمة مرور عشوائية قوية
@@ -1448,6 +1458,7 @@ function renderCardsHome(){
   const grid=el("div"); grid.style.cssText="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:16px";
   MODULES.forEach(m=>{
     if(m.key==="settings") return; // الإعدادات للمالك
+    if(moduleHidden(m.key)&&!bypassMaintenance()) return; // مخفي عن الشركات
     const allowed = (m.key==="staff"||m.key==="recipes"||(m.key==="inventory"&&isWarehouseKeeper())||can(m.key,"view")||can(m.key,"add"));
     if(!allowed) return;
     const card=el("div","card"); card.style.cssText="cursor:pointer;min-height:120px;text-align:center;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px";
@@ -1470,6 +1481,11 @@ function openPage(key,isBack){
     super_companies:pageSuperCompanies, super_subs:pageSuperSubs, super_audit:pageSuperAudit, super_maint:pageMaintenance,
     dashboard:pageDashboard, sales:pageSales, invoices:pageInvoices, inventory:pageInventory, expenses:pageExpenses, suppliers:pageSuppliers, staff:pageStaff, checklist:pageChecklist, recipes:pageRecipes, branches:pageBranches, employees:pageStaff, reports:pageReports, settings:pageSettings
   };
+  // بوابة الإخفاء: القسم المخفي لا تدخله الشركة إطلاقاً → تُحوّل للوحة التحكم
+  if(moduleHidden(key) && !bypassMaintenance()){
+    if(cardsMode()) renderCardsHome(); else openPage("dashboard");
+    return;
+  }
   // بوابة الصيانة: الشركة تشوف شريط بدل القسم؛ مالك المنصة يتخطّاها
   if(moduleUnderMaintenance(key) && !bypassMaintenance()){
     renderMaintenanceNotice(c,key);
@@ -1597,28 +1613,49 @@ function renderMaintenanceNotice(c,key){
     "</div>";
 }
 
-/* ===== مالك المنصة: إدارة صيانة الأقسام (عام لكل الشركات) ===== */
+/* ===== مالك المنصة: إدارة ظهور الأقسام (متاح/مخفي) — عام لكل الشركات ===== */
 function pageMaintenance(c){
   if(state.role!=="super"){ pagePlaceholder(c,"dashboard"); return; }
-  const rows=MODULES.filter(m=>m.key!=="dashboard").map(m=>{
-    const on=moduleUnderMaintenance(m.key);
-    return "<div class='review-row' style='align-items:center'>"+
-      "<span>"+esc(m.name)+"</span>"+
-      "<button class='btn sm "+(on?"danger":"")+"' onclick=\"toggleMaintenance('"+m.key+"')\">"+
-        (on?esc(L("تحت الصيانة")):esc(L("متاح")))+
-      "</button>"+
-    "</div>";
-  }).join("");
-  c.innerHTML=pageTitle("صيانة الأقسام","فعّل الصيانة على أي قسم — الشركات تشوف شريط «تحت الصيانة» بدلاً منه، وأنت تدخله وتعدّله بحرية")+
-    "<div class='card'>"+rows+"</div>";
+  c.innerHTML=pageTitle("إدارة الأقسام","تحكّم في ظهور الأقسام للشركات — «مخفي» يخفي القسم تماماً حتى تجهّزه وترجّعه «متاح»")+
+    "<div class='card' id='modStateCard'></div>";
+  renderModStateRows();
 }
+function renderModStateRows(){
+  const card=$("modStateCard"); if(!card) return;
+  card.innerHTML="";
+  MODULES.filter(m=>m.key!=="dashboard").forEach(m=>{
+    const hidden=moduleHidden(m.key);
+    const row=el("div","review-row"); row.style.alignItems="center";
+    row.innerHTML="<span>"+esc(m.name)+"</span>";
+    const btn=el("button","btn sm"+(hidden?" danger":""), hidden?esc(L("مخفي")):esc(L("متاح")));
+    btn.onclick=(e)=>{ e.stopPropagation(); openActionMenu(btn,[
+      {label:L("متاح"), fn:()=>setModuleVisibility(m.key,false)},
+      {label:L("مخفي"), danger:true, fn:()=>setModuleVisibility(m.key,true)}
+    ]); };
+    row.appendChild(btn); card.appendChild(row);
+  });
+}
+async function setModuleVisibility(key,hide){
+  if(moduleHidden(key)===hide) return; // لا تغيير
+  const h=Object.assign({},HIDDEN); if(hide) h[key]=true; else delete h[key];
+  try{
+    await db.collection("platform").doc("config").set({hidden:h},{merge:true});
+    HIDDEN=h;
+    if(state.current==="super_maint") renderModStateRows();
+    const mod=MODULES.find(x=>x.key===key)||{name:key};
+    logAction("toggle_hidden",(hide?"إخفاء":"إظهار")+": "+mod.name);
+    toast(hide?"أُخفي القسم عن الشركات":"أصبح القسم متاحاً","ok");
+  }catch(e){ console.error(e); toast("تعذّر الحفظ — تحقّق من قواعد الأمان","err"); }
+}
+window.setModuleVisibility=setModuleVisibility;
+
+// (مؤجّل) وضع الصيانة — يبقى بالكود للاستخدام لاحقاً
 async function toggleMaintenance(key){
   const next=!moduleUnderMaintenance(key);
   const m=Object.assign({},MAINT); if(next) m[key]=true; else delete m[key];
   try{
     await db.collection("platform").doc("config").set({maintenance:m},{merge:true});
     MAINT=m;
-    const c=$("pageContent"); if(state.current==="super_maint") pageMaintenance(c);
     const mod=MODULES.find(x=>x.key===key)||{name:key};
     logAction("toggle_maintenance",(next?"تفعيل":"إيقاف")+" صيانة: "+mod.name);
     toast(next?"فُعّلت الصيانة على القسم":"أُلغيت الصيانة","ok");
@@ -4409,7 +4446,7 @@ function renderAudit(container,ref,title,inline){
   card.innerHTML=(card.innerHTML||"")+"<table><thead><tr><th>العملية</th><th>المستخدم</th><th>التفاصيل</th><th>الوقت</th></tr></thead><tbody id='auditRows'><tr><td colspan='4' class='muted'>جارٍ التحميل…</td></tr></tbody></table>";
   ref.orderBy("at","desc").limit(80).onSnapshot(s=>{const tb=document.getElementById("auditRows");if(!tb)return;tb.innerHTML="";
     if(s.empty){tb.innerHTML="<tr><td colspan='4' class='muted'>لا يوجد سجل</td></tr>";return;}
-    const names={login:"تسجيل دخول",create_company:"إنشاء شركة",suspend_company:"إيقاف شركة",activate_company:"تشغيل شركة",delete_company:"حذف شركة",update_subscription:"تعديل اشتراك",update_plan:"تغيير الباقة",admin_enter:"دخول إداري",add_branch:"إضافة فرع",edit_branch:"تعديل فرع",delete_branch:"حذف فرع",add_user:"إضافة مستخدم",edit_permissions:"تعديل صلاحيات",submit_closing:"إرسال إقفال",approve_closing:"اعتماد إقفال",reject_closing:"رفض إقفال",add_invoice:"إرسال فاتورة",approve_invoice:"اعتماد فاتورة",reject_invoice:"رفض فاتورة",add_product:"إضافة منتج",edit_product:"تعديل منتج",delete_product:"حذف منتج",add_category:"إضافة تصنيف",add_supplier:"إضافة مورد",edit_supplier:"تعديل مورد",delete_supplier:"حذف مورد",add_supplier_product:"إضافة منتج لمورد",update_price:"تحديث سعر",add_employee:"إضافة موظف",edit_employee:"تعديل موظف",save_payroll:"حفظ كشف رواتب",add_evaluation:"تقييم موظف",add_checklist:"إضافة قائمة",edit_checklist:"تعديل قائمة",delete_checklist:"حذف قائمة",add_task:"إضافة مهمة",submit_checklist:"تنفيذ قائمة",approve_checklist:"اعتماد تنفيذ",reject_checklist:"رفض تنفيذ",edit_profile:"تعديل الملف التعريفي",save_document:"حفظ وثيقة",change_theme:"تغيير الثيم",add_branch_eval:"تقييم فرع",add_recipe:"إضافة وصفة",edit_recipe:"تعديل وصفة",delete_recipe:"حذف وصفة",edit_slug:"تعديل رابط الشركة",suspend_account:"إيقاف حساب موظف",activate_account:"تفعيل حساب موظف",delete_account:"حذف حساب موظف",delete_employee:"حذف موظف",stock_count:"إرسال جرد",approve_count:"اعتماد جرد",reject_count:"رفض جرد",stock_order:"إرسال طلب",approve_order:"اعتماد طلب",reject_order:"رفض طلب",order_done:"إنهاء طلب",waste:"إرسال تالف",approve_waste:"اعتماد تالف",reject_waste:"رفض تالف",update_count:"تعديل جرد",update_waste:"تعديل تالف",expense:"تسجيل مصروف",approve_expense:"اعتماد مصروف",reject_expense:"رفض مصروف",update_expense:"تعديل مصروف",section_visibility:"ظهور قسم",owner_welcomed:"ترحيب المالك"};
+    const names={login:"تسجيل دخول",create_company:"إنشاء شركة",suspend_company:"إيقاف شركة",activate_company:"تشغيل شركة",delete_company:"حذف شركة",update_subscription:"تعديل اشتراك",update_plan:"تغيير الباقة",admin_enter:"دخول إداري",add_branch:"إضافة فرع",edit_branch:"تعديل فرع",delete_branch:"حذف فرع",add_user:"إضافة مستخدم",edit_permissions:"تعديل صلاحيات",submit_closing:"إرسال إقفال",approve_closing:"اعتماد إقفال",reject_closing:"رفض إقفال",add_invoice:"إرسال فاتورة",approve_invoice:"اعتماد فاتورة",reject_invoice:"رفض فاتورة",add_product:"إضافة منتج",edit_product:"تعديل منتج",delete_product:"حذف منتج",add_category:"إضافة تصنيف",add_supplier:"إضافة مورد",edit_supplier:"تعديل مورد",delete_supplier:"حذف مورد",add_supplier_product:"إضافة منتج لمورد",update_price:"تحديث سعر",add_employee:"إضافة موظف",edit_employee:"تعديل موظف",save_payroll:"حفظ كشف رواتب",add_evaluation:"تقييم موظف",add_checklist:"إضافة قائمة",edit_checklist:"تعديل قائمة",delete_checklist:"حذف قائمة",add_task:"إضافة مهمة",submit_checklist:"تنفيذ قائمة",approve_checklist:"اعتماد تنفيذ",reject_checklist:"رفض تنفيذ",edit_profile:"تعديل الملف التعريفي",save_document:"حفظ وثيقة",change_theme:"تغيير الثيم",add_branch_eval:"تقييم فرع",add_recipe:"إضافة وصفة",edit_recipe:"تعديل وصفة",delete_recipe:"حذف وصفة",edit_slug:"تعديل رابط الشركة",suspend_account:"إيقاف حساب موظف",activate_account:"تفعيل حساب موظف",delete_account:"حذف حساب موظف",delete_employee:"حذف موظف",stock_count:"إرسال جرد",approve_count:"اعتماد جرد",reject_count:"رفض جرد",stock_order:"إرسال طلب",approve_order:"اعتماد طلب",reject_order:"رفض طلب",order_done:"إنهاء طلب",waste:"إرسال تالف",approve_waste:"اعتماد تالف",reject_waste:"رفض تالف",update_count:"تعديل جرد",update_waste:"تعديل تالف",expense:"تسجيل مصروف",approve_expense:"اعتماد مصروف",reject_expense:"رفض مصروف",update_expense:"تعديل مصروف",section_visibility:"ظهور قسم",toggle_hidden:"إخفاء/إظهار قسم",toggle_maintenance:"صيانة قسم",owner_welcomed:"ترحيب المالك"};
     s.forEach(d=>{const x=d.data();const t=x.at&&x.at.toDate?x.at.toDate().toLocaleString("ar-SA-u-ca-gregory-nu-latn"):"—";
       tb.appendChild(el("tr",null,"<td>"+(names[x.action]||esc(x.action))+"</td><td class='muted'>"+esc(x.userName||"")+"</td><td class='muted'>"+esc(x.details||"")+"</td><td class='muted'>"+t+"</td>"));});
   },()=>{});
