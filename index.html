@@ -1008,7 +1008,9 @@ const EN={
   "شكوى":"Complaint",
   "صورة":"Photo",
   "صورة (اختيارية)":"Photo (optional)",
-  "صورة الإقفال":"Closing photo",
+  "صورة الإقفال":"Closing photo","صورة الإقفال *":"Closing photo *","أرفق صورة الإقفال":"Attach the closing photo",
+  "معاينة":"Preview","عدد الظاهر":"Rows shown","حذف الإقفال نهائياً؟":"Delete this closing permanently?","حذف الفاتورة نهائياً؟":"Delete this invoice permanently?",
+  "تم الرفض":"Rejected","تم الحذف":"Deleted",
   "صورة الفاتورة":"Invoice photo",
   "طلب مخزون —":"Stock order —",
   "عناصر":"items",
@@ -2138,6 +2140,31 @@ function canApproveSales(){ return can("sales","approve")||state.role==="owner"|
 function statusTag3(st){ return st==="approved"?"<span class='tag green'>"+L("تم الاعتماد")+"</span>":st==="rejected"?"<span class='tag red'>"+L("مرفوضة")+"</span>":"<span class='tag amber'>"+L("قيد المراجعة")+"</span>"; }
 function fmtDT(ts){ try{ const d=ts&&ts.toDate?ts.toDate():null; if(!d)return "—"; const loc=(LANG==="en"?"en-GB":"ar-SA-u-ca-gregory-nu-latn"); return d.toLocaleDateString(loc)+" "+d.toLocaleTimeString(loc,{hour:"2-digit",minute:"2-digit"}); }catch(e){return "—";} }
 
+/* ===== عدّاد عدد الصفوف الظاهرة (لأي قائمة طويلة) ===== */
+const PAGE_SIZES=[10,20,30,100];
+// يبني زر عدّاد صغير يعرض العدد الحالي، وتغييره يستدعي onChange بالقيمة الجديدة
+function pageSizeControl(current,onChange){
+  const wrap=el("div"); wrap.style.cssText="display:flex;justify-content:flex-start;margin-bottom:10px";
+  const btn=el("button","btn sm",""+current); btn.style.cssText="padding:5px 12px;min-width:52px";
+  btn.title=L("عدد الظاهر");
+  btn.onclick=(e)=>{ e.stopPropagation(); openActionMenu(btn, PAGE_SIZES.map(n=>({label:""+n, fn:()=>onChange(n)}))); };
+  wrap.appendChild(btn);
+  return wrap;
+}
+
+// تحديث حالة الإقفال (اعتماد/رفض) + سجل
+function setClosingStatus(id,x,st){
+  cRef().collection("dailyClosings").doc(id).update({status:st,approvedBy:state.user.uid,approvedAt:now()});
+  logAction(st==="approved"?"approve_closing":"reject_closing",(x.date||"")+" / "+(x.branchName||""));
+}
+// حذف الإقفال (لمالك المنصة/صاحب الشركة فقط)
+function canDeleteClosing(){ return state.role==="super"||state.role==="owner"||impersonation.active; }
+function deleteClosing(id,x){
+  if(!confirm(L("حذف الإقفال نهائياً؟"))) return;
+  cRef().collection("dailyClosings").doc(id).delete().then(()=>{ logAction("delete_closing",(x.date||"")+" / "+(x.branchName||"")); toast(L("تم الحذف"),"ok"); }).catch(()=>toast(L("تعذّر الحذف"),"err"));
+}
+window.setClosingStatus=setClosingStatus; window.deleteClosing=deleteClosing;
+
 function pageSales(c){
   const canApp=canApproveSales();
   c.innerHTML=pageTitle("الإقفال اليومي", canApp?"مراجعة واعتماد إقفالات المبيعات":"إرسال إقفال المبيعات");
@@ -2158,27 +2185,35 @@ function pageSales(c){
     return;
   }
 
-  // ===== المالك/المدير: سجل كامل + عرض + اعتماد/رفض =====
+  // ===== المالك/المدير: سجل كامل + زر إجراء ذكي + عدّاد =====
+  if(window.__cloLimit==null) window.__cloLimit=10;
+  const counter=pageSizeControl(window.__cloLimit,(n)=>{ window.__cloLimit=n; pageSales(c); });
+  c.appendChild(counter);
   const card=el("div","card");
   card.innerHTML="<table><thead><tr><th>التاريخ والوقت</th><th>الفرع</th><th>المُرسِل</th><th>الحالة</th><th>إجراء</th></tr></thead><tbody id='clRows'><tr><td colspan='5' class='muted'>جارٍ التحميل…</td></tr></tbody></table>";
   c.appendChild(card);
-  cRef().collection("dailyClosings").orderBy("createdAt","desc").limit(100).onSnapshot(s=>{
+  cRef().collection("dailyClosings").orderBy("createdAt","desc").limit(window.__cloLimit).onSnapshot(s=>{
     const tb=$("clRows");if(!tb)return;tb.innerHTML="";
     if(s.empty){tb.innerHTML="<tr><td colspan='5' class='muted'>لا توجد إقفالات</td></tr>";return;}
     s.forEach(d=>{const x=d.data();
       const tr=el("tr",null,"<td>"+fmtDT(x.createdAt)+"</td><td>"+esc(x.branchName||"—")+"</td><td>"+esc(x.employeeName)+"</td><td>"+statusTag3(x.status)+"</td><td></td>");
       const act=tr.lastChild;
-      const v=el("button","btn sm","عرض"); v.onclick=()=>viewClosing(d.id,x); act.appendChild(v);
-      if(x.status!=="approved"){
-        const ap=el("button","btn sm","اعتماد");ap.style.marginRight="6px";
-        ap.onclick=()=>{cRef().collection("dailyClosings").doc(d.id).update({status:"approved",approvedBy:state.user.uid,approvedAt:now()});logAction("approve_closing",x.date+" / "+x.branchName);};
-        act.appendChild(ap);
-      }
-      if(x.status!=="rejected"){
-        const rj=el("button","btn sm danger","رفض");rj.style.marginRight="6px";
-        rj.onclick=()=>{cRef().collection("dailyClosings").doc(d.id).update({status:"rejected",approvedBy:state.user.uid,approvedAt:now()});logAction("reject_closing",x.date+" / "+x.branchName);};
-        act.appendChild(rj);
-      }
+      const isPending=(x.status!=="approved"&&x.status!=="rejected");
+      // زر واحد يفتح قائمة الخيارات
+      const label=isPending?L("معاينة"):(x.status==="approved"?L("معتمد"):L("مرفوضة"));
+      const b=el("button","btn sm"+(x.status==="rejected"?" danger":""),label);
+      b.onclick=(e)=>{ e.stopPropagation();
+        const items=[{label:L("معاينة"), fn:()=>viewClosing(d.id,x)}];
+        if(!isPending){
+          // إقفال محسوم: خيارات كاملة
+          if(x.status!=="approved") items.push({label:L("اعتماد"), fn:()=>setClosingStatus(d.id,x,"approved")});
+          if(x.status!=="rejected") items.push({label:L("رفض"), danger:true, fn:()=>setClosingStatus(d.id,x,"rejected")});
+          if(canDeleteClosing()) items.push({label:L("حذف"), danger:true, fn:()=>deleteClosing(d.id,x)});
+        }
+        // الجديد: معاينة فقط (الاعتماد/الرفض من داخل شاشة المعاينة)
+        openActionMenu(b, items);
+      };
+      act.appendChild(b);
       tb.appendChild(tr);
     });
   },()=>{const tb=$("clRows");if(tb)tb.innerHTML="<tr><td colspan='5' style='color:var(--red)'>تعذّر التحميل</td></tr>";});
@@ -2219,6 +2254,21 @@ function viewClosing(id,x){
   }
   inner+="<div class='review-row'><span>الحالة</span>"+statusTag3(x.status)+"</div>"+
     (x.photoUrl?"<div style='margin-top:10px'><div class='muted' style='font-size:13px;margin-bottom:6px'>صورة الإقفال</div><img src='"+x.photoUrl+"' style='max-width:100%;border-radius:10px;border:1px solid var(--line)'></div>":"");
+  const isPending=(x.status!=="approved"&&x.status!=="rejected");
+  const canApp=canApproveSales();
+  if(isPending && canApp){
+    // إقفال جديد: زرّا الاعتماد والرفض داخل المعاينة — بعد الاختيار يتحدّث الجدول تلقائياً
+    inner+="<div style='display:flex;gap:10px;margin-top:18px'>"+
+      "<button class='btn primary' id='clApprove' style='flex:1'>"+esc(L("اعتماد"))+"</button>"+
+      "<button class='btn danger' id='clReject' style='flex:1'>"+esc(L("رفض"))+"</button>"+
+    "</div>";
+    openModal("تفاصيل الإقفال — "+esc(x.branchName||""), inner, null, ()=>true, true);
+    setTimeout(()=>{
+      if($("clApprove"))$("clApprove").onclick=()=>{ setClosingStatus(id,x,"approved"); closeModal(); toast(L("تم الاعتماد"),"ok"); };
+      if($("clReject"))$("clReject").onclick=()=>{ setClosingStatus(id,x,"rejected"); closeModal(); toast(L("تم الرفض"),"ok"); };
+    },30);
+    return;
+  }
   openModal("تفاصيل الإقفال — "+esc(x.branchName||""), inner, "تم",()=>true,true);
 }
 
@@ -2253,7 +2303,7 @@ async function openClosingModal(){
     "<div class='sec'><div class='sec-title'>المبيعات</div>"+
       "<div class='grid' style='grid-template-columns:1fr 1fr'>"+
         "<label class='field'><span>صافي المبيعات *</span><input id='clNet' class='input clc' type='number' inputmode='decimal' placeholder='0.00'></label>"+
-        "<label class='field'><span>عدد الطلبات *</span><input id='clOrders' class='input clc' type='number' inputmode='numeric' placeholder='0'></label>"+
+        "<label class='field'><span>عدد الطلبات</span><input id='clOrders' class='input clc' type='number' inputmode='numeric' placeholder='0'></label>"+
       "</div>"+
       "<div class='review-row' style='border:0;padding:2px 0 0'><span>متوسط الفاتورة</span><b id='clAT'>0.00</b></div>"+
     "</div>"+
@@ -2279,7 +2329,7 @@ async function openClosingModal(){
     "</div>"+
     // أونلاين
     "<label class='field'><span>أونلاين</span><input id='clOnline' class='input' type='number' inputmode='decimal' placeholder='0.00'></label>"+
-    "<label class='field'><span>صورة الإقفال (اختيارية)</span><input id='clPhoto' class='input' type='file' accept='image/*' capture='environment'></label>"+
+    "<label class='field'><span>صورة الإقفال *</span><input id='clPhoto' class='input' type='file' accept='image/*' capture='environment'></label>"+
     "<img id='clPrev' class='photo-prev hidden'>",
     "مراجعة قبل الإرسال", reviewClosing);
   const v=id=>parseFloat(($(id)&&$(id).value)||0)||0;
@@ -2315,7 +2365,7 @@ function reviewClosing(){
   const file=$("clPhoto").files[0];
   if(!data.branchId){toast("اختر الفرع","err");return false;}
   if(!g("clNet")){toast("أدخل صافي المبيعات","err");return false;}
-  if(orders<=0){toast("أدخل عدد الطلبات","err");return false;}
+  if(!file){toast("أرفق صورة الإقفال","err");return false;}
   const vRow=(t,val)=>"<div class='review-row'><span>"+t+"</span><b style='color:"+(val>0?"var(--green)":val<0?"var(--red)":"inherit")+"'>"+(val>0?"+":"")+money(val)+"</b></div>";
   if(!canApproveSales()){
     openModal("تأكيد الإرسال",
@@ -2399,6 +2449,9 @@ function pageInvoices(c){
   const nameCat={};
   loadCategories().then(cats=>{ const sel=$("invCatFilter"); if(sel&&cats.length) sel.innerHTML="<option value=''>كل التصنيفات</option>"+cats.map(k=>"<option value='"+esc(k)+"'>"+esc(k)+"</option>").join(""); });
   cRef().collection("products").get().then(s=>{ s.forEach(d=>{const x=d.data(); if(x.name) nameCat[x.name]=x.category||"";}); });
+  if(window.__invLimit==null) window.__invLimit=10;
+  const invCounter=pageSizeControl(window.__invLimit,(n)=>{ window.__invLimit=n; pageInvoices(c); });
+  c.appendChild(invCounter);
   const card=el("div","card");
   card.innerHTML="<table><thead><tr><th>التاريخ والوقت</th><th>المورد</th><th>الإجمالي</th><th>المُرسِل</th><th>الحالة</th><th>إجراء</th></tr></thead><tbody id='invRows'><tr><td colspan='6' class='muted'>جارٍ التحميل…</td></tr></tbody></table>";
   c.appendChild(card);
@@ -2416,28 +2469,63 @@ function pageInvoices(c){
       const supplier=x.supplier?esc(x.supplier):"—";
       const tr=el("tr",null,"<td>"+fmtDT(x.createdAt)+"</td><td class='muted'>"+supplier+"</td><td><b>"+money(x.total)+"</b></td><td class='muted'>"+esc(x.employeeName||x.createdByName||"")+"</td><td>"+statusTag3(x.status)+"</td><td></td>");
       const act=tr.lastChild;
-      const v=el("button","btn sm","عرض"); v.onclick=()=>viewInvoice(x); act.appendChild(v);
-      if(x.status!=="approved"){ const ap=el("button","btn sm","اعتماد");ap.style.marginRight="6px";ap.onclick=()=>{cRef().collection("invoices").doc(x.id).update({status:"approved",approvedBy:state.user.uid,approvedAt:now()});logAction("approve_invoice",supplier);};act.appendChild(ap); }
-      if(x.status!=="rejected"){ const rj=el("button","btn sm danger","رفض");rj.style.marginRight="6px";rj.onclick=()=>{cRef().collection("invoices").doc(x.id).update({status:"rejected",approvedBy:state.user.uid,approvedAt:now()});logAction("reject_invoice",supplier);};act.appendChild(rj); }
+      const isPending=(x.status!=="approved"&&x.status!=="rejected");
+      const label=isPending?L("معاينة"):(x.status==="approved"?L("معتمد"):L("مرفوضة"));
+      const b=el("button","btn sm"+(x.status==="rejected"?" danger":""),label);
+      b.onclick=(e)=>{ e.stopPropagation();
+        const items=[{label:L("معاينة"), fn:()=>viewInvoice(x,x.id)}];
+        if(!isPending){
+          if(x.status!=="approved") items.push({label:L("اعتماد"), fn:()=>setInvoiceStatus(x.id,x,"approved")});
+          if(x.status!=="rejected") items.push({label:L("رفض"), danger:true, fn:()=>setInvoiceStatus(x.id,x,"rejected")});
+          if(canDeleteInvoice()) items.push({label:L("حذف"), danger:true, fn:()=>deleteInvoice(x.id,x)});
+        }
+        openActionMenu(b, items);
+      };
+      act.appendChild(b);
       tb.appendChild(tr);
     });
   };
   const fSel=$("invCatFilter"); if(fSel) fSel.onchange=renderInv;
-  cRef().collection("invoices").orderBy("createdAt","desc").limit(100).onSnapshot(s=>{
+  if(window.__invLimit==null) window.__invLimit=10;
+  cRef().collection("invoices").orderBy("createdAt","desc").limit(window.__invLimit).onSnapshot(s=>{
     allInv=[]; s.forEach(d=>allInv.push({id:d.id,...d.data()})); renderInv();
   },()=>{const tb=$("invRows");if(tb)tb.innerHTML="<tr><td colspan='6' style='color:var(--red)'>تعذّر التحميل</td></tr>";});
 }
-function viewInvoice(x){
+function setInvoiceStatus(id,x,st){
+  cRef().collection("invoices").doc(id).update({status:st,approvedBy:state.user.uid,approvedAt:now()});
+  logAction(st==="approved"?"approve_invoice":"reject_invoice",x.supplier||"");
+}
+function canDeleteInvoice(){ return state.role==="super"||state.role==="owner"||impersonation.active; }
+function deleteInvoice(id,x){
+  if(!confirm(L("حذف الفاتورة نهائياً؟"))) return;
+  cRef().collection("invoices").doc(id).delete().then(()=>{ logAction("delete_invoice",x.supplier||""); toast(L("تم الحذف"),"ok"); }).catch(()=>toast(L("تعذّر الحذف"),"err"));
+}
+window.setInvoiceStatus=setInvoiceStatus; window.deleteInvoice=deleteInvoice;
+
+function viewInvoice(x,id){
   const items=(x.items||[]).map(it=>"<div class='review-row'><span>"+esc(it.name)+" ×"+(it.qty||0)+"</span><b>"+money((Number(it.value)||0)*(Number(it.qty)||0))+"</b></div>").join("");
-  openModal("تفاصيل الفاتورة",
-    "<div class='review-row'><span>التاريخ والوقت</span><b>"+fmtDT(x.createdAt)+"</b></div>"+
+  let inner="<div class='review-row'><span>التاريخ والوقت</span><b>"+fmtDT(x.createdAt)+"</b></div>"+
     "<div class='review-row'><span>المورد</span><b>"+esc(x.supplier||"—")+(x.supplierPhone?" ("+esc(x.supplierPhone)+")":"")+"</b></div>"+
     "<div class='review-row'><span>المُرسِل</span><b>"+esc(x.employeeName||x.createdByName||"")+"</b></div>"+
     "<div style='margin:10px 0'>"+items+"</div>"+
     "<div class='review-row'><span>الإجمالي</span><b>"+money(x.total)+"</b></div>"+
     "<div class='review-row'><span>الحالة</span>"+statusTag3(x.status)+"</div>"+
-    (x.photoUrl?"<div style='margin-top:10px'><div class='muted' style='font-size:13px;margin-bottom:6px'>صورة الفاتورة</div><img src='"+x.photoUrl+"' style='max-width:100%;border-radius:10px;border:1px solid var(--line)'></div>":""),
-    "تم",()=>true,true);
+    (x.photoUrl?"<div style='margin-top:10px'><div class='muted' style='font-size:13px;margin-bottom:6px'>صورة الفاتورة</div><img src='"+x.photoUrl+"' style='max-width:100%;border-radius:10px;border:1px solid var(--line)'></div>":"");
+  const isPending=(x.status!=="approved"&&x.status!=="rejected");
+  const invId=id||x.id;
+  if(isPending && canApproveInvoices() && invId){
+    inner+="<div style='display:flex;gap:10px;margin-top:18px'>"+
+      "<button class='btn primary' id='invApprove' style='flex:1'>"+esc(L("اعتماد"))+"</button>"+
+      "<button class='btn danger' id='invReject' style='flex:1'>"+esc(L("رفض"))+"</button>"+
+    "</div>";
+    openModal("تفاصيل الفاتورة", inner, null, ()=>true, true);
+    setTimeout(()=>{
+      if($("invApprove"))$("invApprove").onclick=()=>{ setInvoiceStatus(invId,x,"approved"); closeModal(); toast(L("تم الاعتماد"),"ok"); };
+      if($("invReject"))$("invReject").onclick=()=>{ setInvoiceStatus(invId,x,"rejected"); closeModal(); toast(L("تم الرفض"),"ok"); };
+    },30);
+    return;
+  }
+  openModal("تفاصيل الفاتورة", inner, "تم",()=>true,true);
 }
 
 // صف منتج داخل الفاتورة
@@ -4441,12 +4529,16 @@ function settingsAudit(c){
 }
 function renderAudit(container,ref,title,inline){
   if(title) container.innerHTML=pageTitle(title);
-  const card=inline?container:el("div","card");
-  if(!inline) container.appendChild(card);
-  card.innerHTML=(card.innerHTML||"")+"<table><thead><tr><th>العملية</th><th>المستخدم</th><th>التفاصيل</th><th>الوقت</th></tr></thead><tbody id='auditRows'><tr><td colspan='4' class='muted'>جارٍ التحميل…</td></tr></tbody></table>";
-  ref.orderBy("at","desc").limit(80).onSnapshot(s=>{const tb=document.getElementById("auditRows");if(!tb)return;tb.innerHTML="";
+  if(window.__auditLimit==null) window.__auditLimit=10;
+  // عدّاد عدد الظاهر
+  const counter=pageSizeControl(window.__auditLimit,(n)=>{ window.__auditLimit=n; container.innerHTML=""; renderAudit(container,ref,title,inline); });
+  container.appendChild(counter);
+  const card=inline?el("div","card"):el("div","card");
+  container.appendChild(card);
+  card.innerHTML="<table><thead><tr><th>العملية</th><th>المستخدم</th><th>التفاصيل</th><th>الوقت</th></tr></thead><tbody id='auditRows'><tr><td colspan='4' class='muted'>جارٍ التحميل…</td></tr></tbody></table>";
+  ref.orderBy("at","desc").limit(window.__auditLimit).onSnapshot(s=>{const tb=document.getElementById("auditRows");if(!tb)return;tb.innerHTML="";
     if(s.empty){tb.innerHTML="<tr><td colspan='4' class='muted'>لا يوجد سجل</td></tr>";return;}
-    const names={login:"تسجيل دخول",create_company:"إنشاء شركة",suspend_company:"إيقاف شركة",activate_company:"تشغيل شركة",delete_company:"حذف شركة",update_subscription:"تعديل اشتراك",update_plan:"تغيير الباقة",admin_enter:"دخول إداري",add_branch:"إضافة فرع",edit_branch:"تعديل فرع",delete_branch:"حذف فرع",add_user:"إضافة مستخدم",edit_permissions:"تعديل صلاحيات",submit_closing:"إرسال إقفال",approve_closing:"اعتماد إقفال",reject_closing:"رفض إقفال",add_invoice:"إرسال فاتورة",approve_invoice:"اعتماد فاتورة",reject_invoice:"رفض فاتورة",add_product:"إضافة منتج",edit_product:"تعديل منتج",delete_product:"حذف منتج",add_category:"إضافة تصنيف",add_supplier:"إضافة مورد",edit_supplier:"تعديل مورد",delete_supplier:"حذف مورد",add_supplier_product:"إضافة منتج لمورد",update_price:"تحديث سعر",add_employee:"إضافة موظف",edit_employee:"تعديل موظف",save_payroll:"حفظ كشف رواتب",add_evaluation:"تقييم موظف",add_checklist:"إضافة قائمة",edit_checklist:"تعديل قائمة",delete_checklist:"حذف قائمة",add_task:"إضافة مهمة",submit_checklist:"تنفيذ قائمة",approve_checklist:"اعتماد تنفيذ",reject_checklist:"رفض تنفيذ",edit_profile:"تعديل الملف التعريفي",save_document:"حفظ وثيقة",change_theme:"تغيير الثيم",add_branch_eval:"تقييم فرع",add_recipe:"إضافة وصفة",edit_recipe:"تعديل وصفة",delete_recipe:"حذف وصفة",edit_slug:"تعديل رابط الشركة",suspend_account:"إيقاف حساب موظف",activate_account:"تفعيل حساب موظف",delete_account:"حذف حساب موظف",delete_employee:"حذف موظف",stock_count:"إرسال جرد",approve_count:"اعتماد جرد",reject_count:"رفض جرد",stock_order:"إرسال طلب",approve_order:"اعتماد طلب",reject_order:"رفض طلب",order_done:"إنهاء طلب",waste:"إرسال تالف",approve_waste:"اعتماد تالف",reject_waste:"رفض تالف",update_count:"تعديل جرد",update_waste:"تعديل تالف",expense:"تسجيل مصروف",approve_expense:"اعتماد مصروف",reject_expense:"رفض مصروف",update_expense:"تعديل مصروف",section_visibility:"ظهور قسم",toggle_hidden:"إخفاء/إظهار قسم",toggle_maintenance:"صيانة قسم",owner_welcomed:"ترحيب المالك"};
+    const names={login:"تسجيل دخول",create_company:"إنشاء شركة",suspend_company:"إيقاف شركة",activate_company:"تشغيل شركة",delete_company:"حذف شركة",update_subscription:"تعديل اشتراك",update_plan:"تغيير الباقة",admin_enter:"دخول إداري",add_branch:"إضافة فرع",edit_branch:"تعديل فرع",delete_branch:"حذف فرع",add_user:"إضافة مستخدم",edit_permissions:"تعديل صلاحيات",submit_closing:"إرسال إقفال",approve_closing:"اعتماد إقفال",reject_closing:"رفض إقفال",delete_closing:"حذف إقفال",add_invoice:"إرسال فاتورة",approve_invoice:"اعتماد فاتورة",reject_invoice:"رفض فاتورة",add_product:"إضافة منتج",edit_product:"تعديل منتج",delete_product:"حذف منتج",add_category:"إضافة تصنيف",add_supplier:"إضافة مورد",edit_supplier:"تعديل مورد",delete_supplier:"حذف مورد",add_supplier_product:"إضافة منتج لمورد",update_price:"تحديث سعر",add_employee:"إضافة موظف",edit_employee:"تعديل موظف",save_payroll:"حفظ كشف رواتب",add_evaluation:"تقييم موظف",add_checklist:"إضافة قائمة",edit_checklist:"تعديل قائمة",delete_checklist:"حذف قائمة",add_task:"إضافة مهمة",submit_checklist:"تنفيذ قائمة",approve_checklist:"اعتماد تنفيذ",reject_checklist:"رفض تنفيذ",edit_profile:"تعديل الملف التعريفي",save_document:"حفظ وثيقة",change_theme:"تغيير الثيم",add_branch_eval:"تقييم فرع",add_recipe:"إضافة وصفة",edit_recipe:"تعديل وصفة",delete_recipe:"حذف وصفة",edit_slug:"تعديل رابط الشركة",suspend_account:"إيقاف حساب موظف",activate_account:"تفعيل حساب موظف",delete_account:"حذف حساب موظف",delete_employee:"حذف موظف",stock_count:"إرسال جرد",approve_count:"اعتماد جرد",reject_count:"رفض جرد",stock_order:"إرسال طلب",approve_order:"اعتماد طلب",reject_order:"رفض طلب",order_done:"إنهاء طلب",waste:"إرسال تالف",approve_waste:"اعتماد تالف",reject_waste:"رفض تالف",update_count:"تعديل جرد",update_waste:"تعديل تالف",expense:"تسجيل مصروف",approve_expense:"اعتماد مصروف",reject_expense:"رفض مصروف",update_expense:"تعديل مصروف",section_visibility:"ظهور قسم",toggle_hidden:"إخفاء/إظهار قسم",toggle_maintenance:"صيانة قسم",owner_welcomed:"ترحيب المالك"};
     s.forEach(d=>{const x=d.data();const t=x.at&&x.at.toDate?x.at.toDate().toLocaleString("ar-SA-u-ca-gregory-nu-latn"):"—";
       tb.appendChild(el("tr",null,"<td>"+(names[x.action]||esc(x.action))+"</td><td class='muted'>"+esc(x.userName||"")+"</td><td class='muted'>"+esc(x.details||"")+"</td><td class='muted'>"+t+"</td>"));});
   },()=>{});
