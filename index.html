@@ -1011,6 +1011,9 @@ const EN={
   "صورة الإقفال":"Closing photo","صورة الإقفال *":"Closing photo *","أرفق صورة الإقفال":"Attach the closing photo",
   "معاينة":"Preview","عدد الظاهر":"Rows shown","حذف الإقفال نهائياً؟":"Delete this closing permanently?","حذف الفاتورة نهائياً؟":"Delete this invoice permanently?",
   "تم الرفض":"Rejected","تم الحذف":"Deleted",
+  "إضافة مخزون":"Add stock","كميات المستودع":"Warehouse quantities","الكمية المُضافة":"Added quantity",
+  "أدخل الكمية المُضافة لكل منتج (تُضاف فوق الموجود، لا تستبدله).":"Enter the quantity to add for each product (added on top of existing, not replaced).",
+  "إضافة مخزون — ":"Add stock — ","تمت إضافة المخزون":"Stock added","تأكيد الإضافة":"Confirm addition",
   "صورة الفاتورة":"Invoice photo",
   "طلب مخزون —":"Stock order —",
   "عناصر":"items",
@@ -2750,20 +2753,82 @@ function inventoryHub(c){
 async function openMainWarehouse(c){
   c.classList.remove("inv-hub");
   try{
-    const s=await cRef().collection("branches").where("isWarehouse","==",true).orderBy("name").get();
+    // بدون orderBy لتفادي حاجة الفهرس المركّب
+    const s=await cRef().collection("branches").where("isWarehouse","==",true).get();
     if(s.empty){
-      // ما فيه مستودع: افتح نافذة إنشاء مستودع (لمن يملك الصلاحية)
       if(can("branches","add")){ warehouseModal(); }
       else { toast(L("لا توجد مستودعات — أضف مستودعاً"),""); openPage("inventory"); }
       return;
     }
     const d=s.docs[0]; const x=d.data();
-    const backFn = (state.role==="owner") ? (()=>openPage("inventory")) : (()=>{ if(cardsMode()) renderCardsHome(); else openPage("dashboard"); });
-    invCount(c, {id:d.id, name:x.name}, backFn);
-    setTimeout(()=>{ if(typeof translateTree==="function") translateTree(c); },60);
+    warehousePage(c, {id:d.id, name:x.name});
   }catch(e){ console.error(e); toast(L("تعذّر التحميل — تحقّق من قواعد الأمان"),"err"); }
 }
 window.openMainWarehouse=openMainWarehouse;
+
+// صفحة المستودع الرئيسي: زر (+) إضافة مخزون + زر جرد + قائمة الكميات الحالية
+async function warehousePage(c, wh){
+  c.classList.remove("inv-hub"); c.innerHTML="";
+  const backFn = (state.role==="owner") ? (()=>openPage("inventory")) : (()=>{ if(cardsMode()) renderCardsHome(); else openPage("dashboard"); });
+  const back=el("button","btn sm","← رجوع"); back.style.marginBottom="14px"; back.onclick=backFn; c.appendChild(back);
+  // الرأس: العنوان يمين + زر (+) مربّع لإضافة المخزون يسار
+  const head=el("div"); head.style.cssText="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:16px";
+  head.innerHTML="<button class='inv-add-sq' id='whAddStock' title='"+esc(L("إضافة مخزون"))+"'>+</button>"+
+    "<div class='page-title' style='text-align:right;margin-bottom:0'><h2>"+esc(wh.name)+"</h2><p>"+esc(L("كميات المستودع"))+"</p></div>";
+  c.appendChild(head);
+  if($("whAddStock")) $("whAddStock").onclick=()=>warehouseAddStockForm(c,wh);
+  // زر الجرد
+  const bar=el("div"); bar.style.marginBottom="16px";
+  bar.innerHTML="<button class='btn' id='whCountBtn'>"+esc(L("جرد المستودع"))+"</button>";
+  c.appendChild(bar);
+  if($("whCountBtn")) $("whCountBtn").onclick=()=>invCount(c, wh, ()=>warehousePage(c,wh));
+  // قائمة الكميات الحالية
+  const card=el("div","card");
+  card.innerHTML="<table><thead><tr><th>"+esc(L("المنتج"))+"</th><th>"+esc(L("الكمية الحالية"))+"</th></tr></thead><tbody id='whStockRows'><tr><td colspan='2' class='muted'>"+esc(L("جارٍ التحميل…"))+"</td></tr></tbody></table>";
+  c.appendChild(card);
+  try{
+    const [prodSnap, stock] = await Promise.all([
+      cRef().collection("products").orderBy("name").get(),
+      branchStockMap(wh.id)
+    ]);
+    const tb=$("whStockRows"); if(!tb) return;
+    if(prodSnap.empty){ tb.innerHTML="<tr><td colspan='2' class='muted'>"+esc(L("لا توجد منتجات"))+"</td></tr>"; return; }
+    tb.innerHTML="";
+    prodSnap.forEach(d=>{ const p=d.data(); const q=stock[d.id]!=null?stock[d.id]:0;
+      tb.appendChild(el("tr",null,"<td><b>"+esc(p.name)+"</b> <span class='muted'>"+esc(p.unit||"")+"</span></td><td>"+q+"</td>"));
+    });
+  }catch(e){ const tb=$("whStockRows"); if(tb) tb.innerHTML="<tr><td colspan='2' style='color:var(--red)'>"+esc(L("تعذّر التحميل"))+"</td></tr>"; }
+  setTimeout(()=>{ if(typeof translateTree==="function") translateTree(c); },60);
+}
+window.warehousePage=warehousePage;
+
+// نافذة إضافة مخزون (توريد) — تزيد على الموجود ولا تستبدل
+async function warehouseAddStockForm(c, wh){
+  const snap=await cRef().collection("products").orderBy("name").get();
+  if(snap.empty){ toast(L("لا توجد منتجات"),"err"); return; }
+  const prods=[]; snap.forEach(d=>prods.push({id:d.id,...d.data()}));
+  const stock=await branchStockMap(wh.id);
+  const rows=prods.map((p,i)=>"<tr><td><b>"+esc(p.name)+"</b> <span class='muted'>"+esc(p.unit||"")+"</span><div class='muted' style='font-size:12px'>"+L("المتوفر")+": "+(stock[p.id]!=null?stock[p.id]:0)+"</div></td><td><input class='input addq' data-i='"+i+"' type='number' inputmode='decimal' style='width:100px;padding:6px' placeholder='0'></td></tr>").join("");
+  openModal(L("إضافة مخزون — ")+esc(wh.name),
+    "<div class='muted' style='font-size:13px;margin-bottom:8px'>"+esc(L("أدخل الكمية المُضافة لكل منتج (تُضاف فوق الموجود، لا تستبدله)."))+"</div>"+
+    "<table><thead><tr><th>"+esc(L("المنتج"))+"</th><th>"+esc(L("الكمية المُضافة"))+"</th></tr></thead><tbody>"+rows+"</tbody></table>",
+    "تأكيد الإضافة", async ()=>{
+      const adds=[]; document.querySelectorAll("#modalRoot .addq").forEach(inp=>{ const v=parseFloat(inp.value)||0; if(v>0){ const i=+inp.dataset.i; adds.push({productId:prods[i].id,name:prods[i].name,qty:v}); } });
+      if(!adds.length){ toast(L("أدخل كمية واحدة على الأقل"),"err"); return false; }
+      try{
+        const batch=db.batch();
+        adds.forEach(a=>{ const ref=cRef().collection("branchStock").doc(bsId(wh.id,a.productId));
+          batch.set(ref,{branchId:wh.id,productId:a.productId,name:a.name,qty:firebase.firestore.FieldValue.increment(a.qty),updatedAt:now()},{merge:true});
+        });
+        await batch.commit();
+        logAction("add_stock", wh.name+" — "+adds.length+" "+L("صنف"));
+        toast(L("تمت إضافة المخزون"),"ok");
+        warehousePage(c, wh);
+        return true;
+      }catch(e){ console.error(e); toast(L("تعذّر الحفظ — تحقّق من قواعد الأمان"),"err"); return false; }
+    });
+}
+window.warehouseAddStockForm=warehouseAddStockForm;
 
 // شاشة المستودع: جرد المستودعات + التحويلات
 function warehouseHub(c){
@@ -4549,7 +4614,7 @@ function renderAudit(container,ref,title,inline){
   card.innerHTML="<table><thead><tr><th>العملية</th><th>المستخدم</th><th>التفاصيل</th><th>الوقت</th></tr></thead><tbody id='auditRows'><tr><td colspan='4' class='muted'>جارٍ التحميل…</td></tr></tbody></table>";
   ref.orderBy("at","desc").limit(window.__auditLimit).onSnapshot(s=>{const tb=document.getElementById("auditRows");if(!tb)return;tb.innerHTML="";
     if(s.empty){tb.innerHTML="<tr><td colspan='4' class='muted'>لا يوجد سجل</td></tr>";return;}
-    const names={login:"تسجيل دخول",create_company:"إنشاء شركة",suspend_company:"إيقاف شركة",activate_company:"تشغيل شركة",delete_company:"حذف شركة",update_subscription:"تعديل اشتراك",update_plan:"تغيير الباقة",admin_enter:"دخول إداري",add_branch:"إضافة فرع",edit_branch:"تعديل فرع",delete_branch:"حذف فرع",add_user:"إضافة مستخدم",edit_permissions:"تعديل صلاحيات",submit_closing:"إرسال إقفال",approve_closing:"اعتماد إقفال",reject_closing:"رفض إقفال",delete_closing:"حذف إقفال",add_invoice:"إرسال فاتورة",approve_invoice:"اعتماد فاتورة",reject_invoice:"رفض فاتورة",add_product:"إضافة منتج",edit_product:"تعديل منتج",delete_product:"حذف منتج",add_category:"إضافة تصنيف",add_supplier:"إضافة مورد",edit_supplier:"تعديل مورد",delete_supplier:"حذف مورد",add_supplier_product:"إضافة منتج لمورد",update_price:"تحديث سعر",add_employee:"إضافة موظف",edit_employee:"تعديل موظف",save_payroll:"حفظ كشف رواتب",add_evaluation:"تقييم موظف",add_checklist:"إضافة قائمة",edit_checklist:"تعديل قائمة",delete_checklist:"حذف قائمة",add_task:"إضافة مهمة",submit_checklist:"تنفيذ قائمة",approve_checklist:"اعتماد تنفيذ",reject_checklist:"رفض تنفيذ",edit_profile:"تعديل الملف التعريفي",save_document:"حفظ وثيقة",change_theme:"تغيير الثيم",add_branch_eval:"تقييم فرع",add_recipe:"إضافة وصفة",edit_recipe:"تعديل وصفة",delete_recipe:"حذف وصفة",edit_slug:"تعديل رابط الشركة",suspend_account:"إيقاف حساب موظف",activate_account:"تفعيل حساب موظف",delete_account:"حذف حساب موظف",delete_employee:"حذف موظف",stock_count:"إرسال جرد",approve_count:"اعتماد جرد",reject_count:"رفض جرد",stock_order:"إرسال طلب",approve_order:"اعتماد طلب",reject_order:"رفض طلب",order_done:"إنهاء طلب",waste:"إرسال تالف",approve_waste:"اعتماد تالف",reject_waste:"رفض تالف",update_count:"تعديل جرد",update_waste:"تعديل تالف",expense:"تسجيل مصروف",approve_expense:"اعتماد مصروف",reject_expense:"رفض مصروف",update_expense:"تعديل مصروف",section_visibility:"ظهور قسم",toggle_hidden:"إخفاء/إظهار قسم",toggle_maintenance:"صيانة قسم",owner_welcomed:"ترحيب المالك"};
+    const names={login:"تسجيل دخول",create_company:"إنشاء شركة",suspend_company:"إيقاف شركة",activate_company:"تشغيل شركة",delete_company:"حذف شركة",update_subscription:"تعديل اشتراك",update_plan:"تغيير الباقة",admin_enter:"دخول إداري",add_branch:"إضافة فرع",edit_branch:"تعديل فرع",delete_branch:"حذف فرع",add_user:"إضافة مستخدم",edit_permissions:"تعديل صلاحيات",submit_closing:"إرسال إقفال",approve_closing:"اعتماد إقفال",reject_closing:"رفض إقفال",delete_closing:"حذف إقفال",add_stock:"إضافة مخزون",add_invoice:"إرسال فاتورة",approve_invoice:"اعتماد فاتورة",reject_invoice:"رفض فاتورة",add_product:"إضافة منتج",edit_product:"تعديل منتج",delete_product:"حذف منتج",add_category:"إضافة تصنيف",add_supplier:"إضافة مورد",edit_supplier:"تعديل مورد",delete_supplier:"حذف مورد",add_supplier_product:"إضافة منتج لمورد",update_price:"تحديث سعر",add_employee:"إضافة موظف",edit_employee:"تعديل موظف",save_payroll:"حفظ كشف رواتب",add_evaluation:"تقييم موظف",add_checklist:"إضافة قائمة",edit_checklist:"تعديل قائمة",delete_checklist:"حذف قائمة",add_task:"إضافة مهمة",submit_checklist:"تنفيذ قائمة",approve_checklist:"اعتماد تنفيذ",reject_checklist:"رفض تنفيذ",edit_profile:"تعديل الملف التعريفي",save_document:"حفظ وثيقة",change_theme:"تغيير الثيم",add_branch_eval:"تقييم فرع",add_recipe:"إضافة وصفة",edit_recipe:"تعديل وصفة",delete_recipe:"حذف وصفة",edit_slug:"تعديل رابط الشركة",suspend_account:"إيقاف حساب موظف",activate_account:"تفعيل حساب موظف",delete_account:"حذف حساب موظف",delete_employee:"حذف موظف",stock_count:"إرسال جرد",approve_count:"اعتماد جرد",reject_count:"رفض جرد",stock_order:"إرسال طلب",approve_order:"اعتماد طلب",reject_order:"رفض طلب",order_done:"إنهاء طلب",waste:"إرسال تالف",approve_waste:"اعتماد تالف",reject_waste:"رفض تالف",update_count:"تعديل جرد",update_waste:"تعديل تالف",expense:"تسجيل مصروف",approve_expense:"اعتماد مصروف",reject_expense:"رفض مصروف",update_expense:"تعديل مصروف",section_visibility:"ظهور قسم",toggle_hidden:"إخفاء/إظهار قسم",toggle_maintenance:"صيانة قسم",owner_welcomed:"ترحيب المالك"};
     s.forEach(d=>{const x=d.data();const t=x.at&&x.at.toDate?x.at.toDate().toLocaleString("ar-SA-u-ca-gregory-nu-latn"):"—";
       tb.appendChild(el("tr",null,"<td>"+(names[x.action]||esc(x.action))+"</td><td class='muted'>"+esc(x.userName||"")+"</td><td class='muted'>"+esc(x.details||"")+"</td><td class='muted'>"+t+"</td>"));});
   },()=>{});
