@@ -194,6 +194,12 @@ tbody tr:hover{background:var(--surface-2)}
 /* انتقال ناعم عند فتح قسم */
 @keyframes viewIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
 .view-enter{animation:viewIn .32s ease}
+/* زر الحالة الذكي (يعرض الحالة ويفتح الخيارات) */
+.btn.status-act{border:none;font-weight:700}
+.btn.status-act.green{background:rgba(22,163,74,.13);color:var(--green)}
+.btn.status-act.amber{background:rgba(224,138,11,.15);color:var(--amber)}
+.btn.status-act.red{background:rgba(229,72,77,.13);color:var(--red)}
+.btn.status-act:hover{filter:brightness(.97)}
 </style>
 </head>
 <body>
@@ -2141,6 +2147,26 @@ function kpi(label,id,val){return "<div class='kpi'><div class='l'>"+esc(label)+
 function isEmployeeView(){ return state.role==="employee" || (can("sales","add") && !can("sales","approve")); }
 function canApproveSales(){ return can("sales","approve")||state.role==="owner"||state.role==="manager"; }
 function statusTag3(st){ return st==="approved"?"<span class='tag green'>"+L("تم الاعتماد")+"</span>":st==="rejected"?"<span class='tag red'>"+L("مرفوضة")+"</span>":"<span class='tag amber'>"+L("قيد المراجعة")+"</span>"; }
+// زر الحالة الذكي: يعرض الحالة بلونها، وضغطه يفتح قائمة الخيارات (معاينة/اعتماد/رفض/حذف)
+// opts: { onView, onApprove, onReject, onDelete, canDelete }
+function statusActionBtn(status, opts){
+  opts=opts||{};
+  const isPending=(status!=="approved"&&status!=="rejected");
+  const label = isPending ? L("قيد المراجعة") : (status==="approved"?L("تم الاعتماد"):L("مرفوضة"));
+  const cls = status==="approved" ? "green" : status==="rejected" ? "red" : "amber";
+  const b=el("button","btn sm status-act "+cls, label);
+  b.onclick=(e)=>{ e.stopPropagation();
+    const items=[];
+    if(opts.onView) items.push({label:L("معاينة"), fn:opts.onView});
+    if(!isPending){
+      if(status!=="approved" && opts.onApprove) items.push({label:L("اعتماد"), fn:opts.onApprove});
+      if(status!=="rejected" && opts.onReject) items.push({label:L("رفض"), danger:true, fn:opts.onReject});
+      if(opts.canDelete && opts.onDelete) items.push({label:L("حذف"), danger:true, fn:opts.onDelete});
+    }
+    openActionMenu(b, items);
+  };
+  return b;
+}
 function fmtDT(ts){ try{ const d=ts&&ts.toDate?ts.toDate():null; if(!d)return "—"; const loc=(LANG==="en"?"en-GB":"ar-SA-u-ca-gregory-nu-latn"); return d.toLocaleDateString(loc)+" "+d.toLocaleTimeString(loc,{hour:"2-digit",minute:"2-digit"}); }catch(e){return "—";} }
 
 /* ===== عدّاد عدد الصفوف الظاهرة (لأي قائمة طويلة) ===== */
@@ -2193,33 +2219,24 @@ function pageSales(c){
   const counter=pageSizeControl(window.__cloLimit,(n)=>{ window.__cloLimit=n; pageSales(c); });
   c.appendChild(counter);
   const card=el("div","card");
-  card.innerHTML="<table><thead><tr><th>التاريخ والوقت</th><th>الفرع</th><th>المُرسِل</th><th>الحالة</th><th>إجراء</th></tr></thead><tbody id='clRows'><tr><td colspan='5' class='muted'>جارٍ التحميل…</td></tr></tbody></table>";
+  card.innerHTML="<table><thead><tr><th>التاريخ والوقت</th><th>الفرع</th><th>المُرسِل</th><th>الحالة</th></tr></thead><tbody id='clRows'><tr><td colspan='4' class='muted'>جارٍ التحميل…</td></tr></tbody></table>";
   c.appendChild(card);
   cRef().collection("dailyClosings").orderBy("createdAt","desc").limit(window.__cloLimit).onSnapshot(s=>{
     const tb=$("clRows");if(!tb)return;tb.innerHTML="";
-    if(s.empty){tb.innerHTML="<tr><td colspan='5' class='muted'>لا توجد إقفالات</td></tr>";return;}
+    if(s.empty){tb.innerHTML="<tr><td colspan='4' class='muted'>لا توجد إقفالات</td></tr>";return;}
     s.forEach(d=>{const x=d.data();
-      const tr=el("tr",null,"<td>"+fmtDT(x.createdAt)+"</td><td>"+esc(x.branchName||"—")+"</td><td>"+esc(x.employeeName)+"</td><td>"+statusTag3(x.status)+"</td><td></td>");
-      const act=tr.lastChild;
-      const isPending=(x.status!=="approved"&&x.status!=="rejected");
-      // زر واحد يفتح قائمة الخيارات
-      const label=isPending?L("معاينة"):(x.status==="approved"?L("معتمد"):L("مرفوضة"));
-      const b=el("button","btn sm"+(x.status==="rejected"?" danger":""),label);
-      b.onclick=(e)=>{ e.stopPropagation();
-        const items=[{label:L("معاينة"), fn:()=>viewClosing(d.id,x)}];
-        if(!isPending){
-          // إقفال محسوم: خيارات كاملة
-          if(x.status!=="approved") items.push({label:L("اعتماد"), fn:()=>setClosingStatus(d.id,x,"approved")});
-          if(x.status!=="rejected") items.push({label:L("رفض"), danger:true, fn:()=>setClosingStatus(d.id,x,"rejected")});
-          if(canDeleteClosing()) items.push({label:L("حذف"), danger:true, fn:()=>deleteClosing(d.id,x)});
-        }
-        // الجديد: معاينة فقط (الاعتماد/الرفض من داخل شاشة المعاينة)
-        openActionMenu(b, items);
-      };
-      act.appendChild(b);
+      const tr=el("tr",null,"<td>"+fmtDT(x.createdAt)+"</td><td>"+esc(x.branchName||"—")+"</td><td>"+esc(x.employeeName)+"</td><td></td>");
+      const b=statusActionBtn(x.status,{
+        onView:()=>viewClosing(d.id,x),
+        onApprove:()=>setClosingStatus(d.id,x,"approved"),
+        onReject:()=>setClosingStatus(d.id,x,"rejected"),
+        onDelete:()=>deleteClosing(d.id,x),
+        canDelete:canDeleteClosing()
+      });
+      tr.lastChild.appendChild(b);
       tb.appendChild(tr);
     });
-  },()=>{const tb=$("clRows");if(tb)tb.innerHTML="<tr><td colspan='5' style='color:var(--red)'>تعذّر التحميل</td></tr>";});
+  },()=>{const tb=$("clRows");if(tb)tb.innerHTML="<tr><td colspan='4' style='color:var(--red)'>تعذّر التحميل</td></tr>";});
 }
 // عرض تفاصيل الإقفال (للإدارة، بدون تعديل)
 function viewClosing(id,x){
@@ -2456,7 +2473,7 @@ function pageInvoices(c){
   const invCounter=pageSizeControl(window.__invLimit,(n)=>{ window.__invLimit=n; pageInvoices(c); });
   c.appendChild(invCounter);
   const card=el("div","card");
-  card.innerHTML="<table><thead><tr><th>التاريخ والوقت</th><th>المورد</th><th>الإجمالي</th><th>المُرسِل</th><th>الحالة</th><th>إجراء</th></tr></thead><tbody id='invRows'><tr><td colspan='6' class='muted'>جارٍ التحميل…</td></tr></tbody></table>";
+  card.innerHTML="<table><thead><tr><th>التاريخ والوقت</th><th>المورد</th><th>الإجمالي</th><th>المُرسِل</th><th>الحالة</th></tr></thead><tbody id='invRows'><tr><td colspan='5' class='muted'>جارٍ التحميل…</td></tr></tbody></table>";
   c.appendChild(card);
   const cur=monthRange(0);
   cRef().collection("invoices").where("date",">=",cur.start).where("date","<",cur.next).onSnapshot(s=>{
@@ -2467,24 +2484,18 @@ function pageInvoices(c){
   const renderInv=()=>{
     const tb=$("invRows");if(!tb)return; const filter=($("invCatFilter")&&$("invCatFilter").value)||"";
     const rows=allInv.filter(x=>{ if(!filter)return true; return (x.items||[]).some(it=>(nameCat[it.name]||"")===filter); });
-    tb.innerHTML=""; if(!rows.length){tb.innerHTML="<tr><td colspan='6' class='muted'>لا توجد فواتير</td></tr>";return;}
+    tb.innerHTML=""; if(!rows.length){tb.innerHTML="<tr><td colspan='5' class='muted'>لا توجد فواتير</td></tr>";return;}
     rows.forEach(x=>{
       const supplier=x.supplier?esc(x.supplier):"—";
-      const tr=el("tr",null,"<td>"+fmtDT(x.createdAt)+"</td><td class='muted'>"+supplier+"</td><td><b>"+money(x.total)+"</b></td><td class='muted'>"+esc(x.employeeName||x.createdByName||"")+"</td><td>"+statusTag3(x.status)+"</td><td></td>");
-      const act=tr.lastChild;
-      const isPending=(x.status!=="approved"&&x.status!=="rejected");
-      const label=isPending?L("معاينة"):(x.status==="approved"?L("معتمد"):L("مرفوضة"));
-      const b=el("button","btn sm"+(x.status==="rejected"?" danger":""),label);
-      b.onclick=(e)=>{ e.stopPropagation();
-        const items=[{label:L("معاينة"), fn:()=>viewInvoice(x,x.id)}];
-        if(!isPending){
-          if(x.status!=="approved") items.push({label:L("اعتماد"), fn:()=>setInvoiceStatus(x.id,x,"approved")});
-          if(x.status!=="rejected") items.push({label:L("رفض"), danger:true, fn:()=>setInvoiceStatus(x.id,x,"rejected")});
-          if(canDeleteInvoice()) items.push({label:L("حذف"), danger:true, fn:()=>deleteInvoice(x.id,x)});
-        }
-        openActionMenu(b, items);
-      };
-      act.appendChild(b);
+      const tr=el("tr",null,"<td>"+fmtDT(x.createdAt)+"</td><td class='muted'>"+supplier+"</td><td><b>"+money(x.total)+"</b></td><td class='muted'>"+esc(x.employeeName||x.createdByName||"")+"</td><td></td>");
+      const b=statusActionBtn(x.status,{
+        onView:()=>viewInvoice(x,x.id),
+        onApprove:()=>setInvoiceStatus(x.id,x,"approved"),
+        onReject:()=>setInvoiceStatus(x.id,x,"rejected"),
+        onDelete:()=>deleteInvoice(x.id,x),
+        canDelete:canDeleteInvoice()
+      });
+      tr.lastChild.appendChild(b);
       tb.appendChild(tr);
     });
   };
@@ -2492,7 +2503,7 @@ function pageInvoices(c){
   if(window.__invLimit==null) window.__invLimit=10;
   cRef().collection("invoices").orderBy("createdAt","desc").limit(window.__invLimit).onSnapshot(s=>{
     allInv=[]; s.forEach(d=>allInv.push({id:d.id,...d.data()})); renderInv();
-  },()=>{const tb=$("invRows");if(tb)tb.innerHTML="<tr><td colspan='6' style='color:var(--red)'>تعذّر التحميل</td></tr>";});
+  },()=>{const tb=$("invRows");if(tb)tb.innerHTML="<tr><td colspan='5' style='color:var(--red)'>تعذّر التحميل</td></tr>";});
 }
 function setInvoiceStatus(id,x,st){
   cRef().collection("invoices").doc(id).update({status:st,approvedBy:state.user.uid,approvedAt:now()});
@@ -2987,23 +2998,25 @@ async function invCount(c, forcedBr, backFn){
     return;
   }
   const costTh=canSeeCost()?"<th>قيمة العجز</th>":"";
-  card.innerHTML="<table><thead><tr><th>التاريخ والوقت</th><th>المُجري</th><th>عناصر</th>"+costTh+"<th>الحالة</th><th>إجراء</th></tr></thead><tbody id='cntRows'><tr><td colspan='6' class='muted'>جارٍ التحميل…</td></tr></tbody></table>";
+  card.innerHTML="<table><thead><tr><th>التاريخ والوقت</th><th>المُجري</th><th>عناصر</th>"+costTh+"<th>الحالة</th></tr></thead><tbody id='cntRows'><tr><td colspan='5' class='muted'>جارٍ التحميل…</td></tr></tbody></table>";
   c.appendChild(card);
   cRef().collection("stockCounts").where("branchId","==",br.id).onSnapshot(s=>{
     const tb=$("cntRows");if(!tb)return;const rows=[];s.forEach(d=>rows.push({id:d.id,...d.data()}));
     rows.sort((a,b)=>((b.at&&b.at.seconds)||0)-((a.at&&a.at.seconds)||0));
-    tb.innerHTML=""; if(!rows.length){tb.innerHTML="<tr><td colspan='6' class='muted'>لا يوجد</td></tr>";return;}
+    tb.innerHTML=""; if(!rows.length){tb.innerHTML="<tr><td colspan='5' class='muted'>لا يوجد</td></tr>";return;}
     rows.forEach(x=>{
       x.branchName=x.branchName||br.name;
       const costTd=canSeeCost()?"<td style='color:var(--red)'>"+money(x.shortageValue||0)+"</td>":"";
-      const tr=el("tr",null,"<td>"+fmtDT(x.at)+"</td><td>"+esc(x.byName)+"</td><td class='muted'>"+((x.results||[]).length)+"</td>"+costTd+"<td>"+statusTag3(x.status)+"</td><td></td>");
-      const act=tr.lastChild;
-      const v=el("button","btn sm","عرض"); v.onclick=()=>viewCount(x); act.appendChild(v);
-      if(x.status!=="approved"){ const ap=el("button","btn sm","اعتماد");ap.style.marginRight="6px";ap.onclick=()=>setCountStatus(x.id,x,"approved");act.appendChild(ap); }
-      if(x.status!=="rejected"){ const rj=el("button","btn sm danger","رفض");rj.style.marginRight="6px";rj.onclick=()=>setCountStatus(x.id,x,"rejected");act.appendChild(rj); }
+      const tr=el("tr",null,"<td>"+fmtDT(x.at)+"</td><td>"+esc(x.byName)+"</td><td class='muted'>"+((x.results||[]).length)+"</td>"+costTd+"<td></td>");
+      const b=statusActionBtn(x.status,{
+        onView:()=>viewCount(x),
+        onApprove:()=>setCountStatus(x.id,x,"approved"),
+        onReject:()=>setCountStatus(x.id,x,"rejected")
+      });
+      tr.lastChild.appendChild(b);
       tb.appendChild(tr);
     });
-  },()=>{const tb=$("cntRows");if(tb)tb.innerHTML="<tr><td colspan='6' style='color:var(--red)'>تعذّر التحميل</td></tr>";});
+  },()=>{const tb=$("cntRows");if(tb)tb.innerHTML="<tr><td colspan='5' style='color:var(--red)'>تعذّر التحميل</td></tr>";});
 }
 function viewCount(x){
   const rows=(x.results||[]).map(r=>"<div class='review-row'><span>"+esc(r.name)+"</span><b style='color:"+(r.diff<0?"var(--red)":r.diff>0?"var(--green)":"inherit")+"'>"+(r.diff>0?"+":"")+r.diff+(canSeeCost()?" ("+money(r.diffValue)+")":"")+"</b></div>").join("");
@@ -3091,22 +3104,24 @@ async function invOrders(c, forcedBr, backFn){
     },()=>{const tb=$("ordRows");if(tb)tb.innerHTML="<tr><td colspan='2' style='color:var(--red)'>تعذّر التحميل</td></tr>";});
     return;
   }
-  card.innerHTML="<table><thead><tr><th>التاريخ والوقت</th><th>الطالب</th><th>الأصناف</th><th>الحالة</th><th>إجراء</th></tr></thead><tbody id='ordRows'><tr><td colspan='5' class='muted'>جارٍ التحميل…</td></tr></tbody></table>";
+  card.innerHTML="<table><thead><tr><th>التاريخ والوقت</th><th>الطالب</th><th>الأصناف</th><th>الحالة</th></tr></thead><tbody id='ordRows'><tr><td colspan='4' class='muted'>جارٍ التحميل…</td></tr></tbody></table>";
   c.appendChild(card);
   cRef().collection("stockOrders").where("branchId","==",br.id).onSnapshot(s=>{
     const tb=$("ordRows");if(!tb)return;const rows=[];s.forEach(d=>rows.push({id:d.id,...d.data()}));
     rows.sort((a,b)=>((b.at&&b.at.seconds)||0)-((a.at&&a.at.seconds)||0));
-    tb.innerHTML=""; if(!rows.length){tb.innerHTML="<tr><td colspan='5' class='muted'>لا توجد طلبات</td></tr>";return;}
+    tb.innerHTML=""; if(!rows.length){tb.innerHTML="<tr><td colspan='4' class='muted'>لا توجد طلبات</td></tr>";return;}
     rows.forEach(x=>{
       const items=(x.items||[]).map(it=>esc(it.name)+" ×"+(it.qty||0)).join("، ");
-      const tr=el("tr",null,"<td>"+fmtDT(x.at)+"</td><td>"+esc(x.byName)+"</td><td class='muted'>"+items+"</td><td>"+statusTag3(x.status)+"</td><td></td>");
-      const act=tr.lastChild;
-      const v=el("button","btn sm","عرض");v.onclick=()=>{ openModal(L("تفاصيل الطلب — ")+esc(x.branchName||""),(x.items||[]).map(it=>"<div class='review-row'><span>"+esc(it.name)+"</span><b>×"+(it.qty||0)+"</b></div>").join("")+"<div class='review-row'><span>الحالة</span>"+statusTag3(x.status)+"</div>","تم",()=>true,true); };act.appendChild(v);
-      if(x.status!=="approved"){ const ap=el("button","btn sm","اعتماد");ap.style.marginRight="6px";ap.onclick=()=>{cRef().collection("stockOrders").doc(x.id).update({status:"approved",approvedBy:state.user.uid,approvedAt:now()});logAction("approve_order",x.byName);};act.appendChild(ap); }
-      if(x.status!=="rejected"){ const rj=el("button","btn sm danger","رفض");rj.style.marginRight="6px";rj.onclick=()=>{cRef().collection("stockOrders").doc(x.id).update({status:"rejected",approvedBy:state.user.uid,approvedAt:now()});logAction("reject_order",x.byName);};act.appendChild(rj); }
+      const tr=el("tr",null,"<td>"+fmtDT(x.at)+"</td><td>"+esc(x.byName)+"</td><td class='muted'>"+items+"</td><td></td>");
+      const b=statusActionBtn(x.status,{
+        onView:()=>{ openModal(L("تفاصيل الطلب — ")+esc(x.branchName||""),(x.items||[]).map(it=>"<div class='review-row'><span>"+esc(it.name)+"</span><b>×"+(it.qty||0)+"</b></div>").join("")+"<div class='review-row'><span>الحالة</span>"+statusTag3(x.status)+"</div>","تم",()=>true,true); },
+        onApprove:()=>{cRef().collection("stockOrders").doc(x.id).update({status:"approved",approvedBy:state.user.uid,approvedAt:now()});logAction("approve_order",x.byName);},
+        onReject:()=>{cRef().collection("stockOrders").doc(x.id).update({status:"rejected",approvedBy:state.user.uid,approvedAt:now()});logAction("reject_order",x.byName);}
+      });
+      tr.lastChild.appendChild(b);
       tb.appendChild(tr);
     });
-  },()=>{const tb=$("ordRows");if(tb)tb.innerHTML="<tr><td colspan='5' style='color:var(--red)'>تعذّر التحميل</td></tr>";});
+  },()=>{const tb=$("ordRows");if(tb)tb.innerHTML="<tr><td colspan='4' style='color:var(--red)'>تعذّر التحميل</td></tr>";});
 }
 async function invOrderForm(c,br){
   const snap=await cRef().collection("products").orderBy("name").get();
@@ -3149,21 +3164,23 @@ async function invWaste(c, forcedBr, backFn){
     },()=>{const tb=$("wsRows");if(tb)tb.innerHTML="<tr><td colspan='2' style='color:var(--red)'>تعذّر التحميل</td></tr>";});
     return;
   }
-  card.innerHTML="<table><thead><tr><th>التاريخ والوقت</th><th>المنتج</th><th>الكمية</th><th>السبب</th><th>التكلفة</th><th>الحالة</th><th>إجراء</th></tr></thead><tbody id='wsRows'><tr><td colspan='7' class='muted'>جارٍ التحميل…</td></tr></tbody></table>";
+  card.innerHTML="<table><thead><tr><th>التاريخ والوقت</th><th>المنتج</th><th>الكمية</th><th>السبب</th><th>التكلفة</th><th>الحالة</th></tr></thead><tbody id='wsRows'><tr><td colspan='6' class='muted'>جارٍ التحميل…</td></tr></tbody></table>";
   c.appendChild(card);
   cRef().collection("waste").where("branchId","==",br.id).onSnapshot(s=>{
     const tb=$("wsRows");if(!tb)return;const rows=[];s.forEach(d=>rows.push({id:d.id,...d.data()}));
     rows.sort((a,b)=>((b.at&&b.at.seconds)||0)-((a.at&&a.at.seconds)||0));
-    tb.innerHTML=""; if(!rows.length){tb.innerHTML="<tr><td colspan='7' class='muted'>لا يوجد</td></tr>";return;}
+    tb.innerHTML=""; if(!rows.length){tb.innerHTML="<tr><td colspan='6' class='muted'>لا يوجد</td></tr>";return;}
     rows.forEach(x=>{
-      const tr=el("tr",null,"<td>"+fmtDT(x.at)+"</td><td><b>"+esc(x.name)+"</b></td><td>"+esc(x.qty)+"</td><td class='muted'>"+esc(x.reason||"—")+"</td><td style='color:var(--red)'>"+money(x.cost||0)+"</td><td>"+statusTag3(x.status)+"</td><td></td>");
-      const act=tr.lastChild;
-      const v=el("button","btn sm","عرض");v.onclick=()=>viewWaste(x.id,x);act.appendChild(v);
-      if(x.status!=="approved"){ const ap=el("button","btn sm","اعتماد");ap.style.marginRight="6px";ap.onclick=()=>viewWaste(x.id,x,true);act.appendChild(ap); }
-      if(x.status!=="rejected"){ const rj=el("button","btn sm danger","رفض");rj.style.marginRight="6px";rj.onclick=()=>setWasteStatus(x.id,x,"rejected");act.appendChild(rj); }
+      const tr=el("tr",null,"<td>"+fmtDT(x.at)+"</td><td><b>"+esc(x.name)+"</b></td><td>"+esc(x.qty)+"</td><td class='muted'>"+esc(x.reason||"—")+"</td><td style='color:var(--red)'>"+money(x.cost||0)+"</td><td></td>");
+      const b=statusActionBtn(x.status,{
+        onView:()=>viewWaste(x.id,x),
+        onApprove:()=>viewWaste(x.id,x,true),
+        onReject:()=>setWasteStatus(x.id,x,"rejected")
+      });
+      tr.lastChild.appendChild(b);
       tb.appendChild(tr);
     });
-  },()=>{const tb=$("wsRows");if(tb)tb.innerHTML="<tr><td colspan='7' style='color:var(--red)'>تعذّر التحميل</td></tr>";});
+  },()=>{const tb=$("wsRows");if(tb)tb.innerHTML="<tr><td colspan='6' style='color:var(--red)'>تعذّر التحميل</td></tr>";});
 }
 function viewWaste(id,x,doApprove){
   const canAct=x.status!=="approved";
@@ -3593,29 +3610,37 @@ function pageTransfers(c){
   c.appendChild(bar); $("newTransfer").onclick=()=>transferForm(c);
   const app=canApproveTransfer();
   const card=el("div","card");
-  card.innerHTML="<table><thead><tr><th>التاريخ والوقت</th><th>من</th><th>إلى</th><th>الأصناف</th><th>المُرسِل</th><th>الحالة</th><th>إجراء</th></tr></thead><tbody id='trRows'><tr><td colspan='7' class='muted'>جارٍ التحميل…</td></tr></tbody></table>";
+  card.innerHTML="<table><thead><tr><th>التاريخ والوقت</th><th>من</th><th>إلى</th><th>الأصناف</th><th>المُرسِل</th><th>الحالة</th></tr></thead><tbody id='trRows'><tr><td colspan='6' class='muted'>جارٍ التحميل…</td></tr></tbody></table>";
   c.appendChild(card);
   // الموظف يشوف تحويلاته فقط؛ المدير/المالك يشوفون الكل
   let q=cRef().collection("transfers");
   const handler=s=>{
     const tb=$("trRows"); if(!tb) return; const rows=[]; s.forEach(d=>rows.push({id:d.id,...d.data()}));
-    if(!app){ /* لا شيء إضافي */ }
     rows.sort((a,b)=>((b.at&&b.at.seconds)||0)-((a.at&&a.at.seconds)||0));
-    tb.innerHTML=""; if(!rows.length){ tb.innerHTML="<tr><td colspan='7' class='muted'>"+L("لا توجد تحويلات")+"</td></tr>"; return; }
+    tb.innerHTML=""; if(!rows.length){ tb.innerHTML="<tr><td colspan='6' class='muted'>"+L("لا توجد تحويلات")+"</td></tr>"; return; }
     rows.forEach(x=>{
       const items=(x.items||[]).map(it=>esc(it.name)+" ×"+(it.qty||0)).join("، ");
-      const tr=el("tr",null,"<td>"+fmtDT(x.at)+"</td><td>"+esc(x.fromName||"")+"</td><td>"+esc(x.toName||"")+"</td><td class='muted'>"+items+"</td><td>"+esc(x.byName||"")+"</td><td>"+statusTag3(x.status)+"</td><td></td>");
-      const act=tr.lastChild;
-      const v=el("button","btn sm","عرض"); v.onclick=()=>viewTransfer(x); act.appendChild(v);
-      if(app){
-        if(x.status!=="approved"){ const ap=el("button","btn sm","اعتماد"); ap.style.marginRight="6px"; ap.onclick=()=>approveTransfer(x.id,x); act.appendChild(ap); }
-        if(x.status==="approved"){ const un=el("button","btn sm","إلغاء الاعتماد"); un.style.marginRight="6px"; un.onclick=()=>undoTransfer(x.id,x); act.appendChild(un); }
-        if(x.status!=="rejected"&&x.status!=="approved"){ const rj=el("button","btn sm danger","رفض"); rj.style.marginRight="6px"; rj.onclick=()=>{cRef().collection("transfers").doc(x.id).update({status:"rejected",decidedBy:state.user.uid,decidedByName:state.profile.name||state.user.email,decidedAt:now()});logAction("reject_transfer",x.fromName+" → "+x.toName);}; act.appendChild(rj); }
-      }
+      const tr=el("tr",null,"<td>"+fmtDT(x.at)+"</td><td>"+esc(x.fromName||"")+"</td><td>"+esc(x.toName||"")+"</td><td class='muted'>"+items+"</td><td>"+esc(x.byName||"")+"</td><td></td>");
+      // زر الحالة الذكي — التحويلات لها منطق خاص (إلغاء الاعتماد بدل الرفض بعد الاعتماد)
+      const status=x.status;
+      const isPending=(status!=="approved"&&status!=="rejected");
+      const lbl = isPending ? L("قيد المراجعة") : (status==="approved"?L("تم الاعتماد"):L("مرفوضة"));
+      const cls = status==="approved"?"green":status==="rejected"?"red":"amber";
+      const b=el("button","btn sm status-act "+cls, lbl);
+      b.onclick=(e)=>{ e.stopPropagation();
+        const items2=[{label:L("معاينة"), fn:()=>viewTransfer(x)}];
+        if(app){
+          if(isPending){ items2.push({label:L("اعتماد"), fn:()=>approveTransfer(x.id,x)});
+            items2.push({label:L("رفض"), danger:true, fn:()=>{cRef().collection("transfers").doc(x.id).update({status:"rejected",decidedBy:state.user.uid,decidedByName:state.profile.name||state.user.email,decidedAt:now()});logAction("reject_transfer",x.fromName+" → "+x.toName);}}); }
+          else if(status==="approved"){ items2.push({label:L("إلغاء الاعتماد"), danger:true, fn:()=>undoTransfer(x.id,x)}); }
+        }
+        openActionMenu(b, items2);
+      };
+      tr.lastChild.appendChild(b);
       tb.appendChild(tr);
     });
   };
-  const errf=()=>{const tb=$("trRows");if(tb)tb.innerHTML="<tr><td colspan='7' style='color:var(--red)'>"+L("تعذّر التحميل — تحقّق من قواعد الأمان")+"</td></tr>";};
+  const errf=()=>{const tb=$("trRows");if(tb)tb.innerHTML="<tr><td colspan='6' style='color:var(--red)'>"+L("تعذّر التحميل — تحقّق من قواعد الأمان")+"</td></tr>";};
   if(app) q.onSnapshot(handler,errf); else q.where("byUid","==",state.user.uid).onSnapshot(handler,errf);
 }
 
