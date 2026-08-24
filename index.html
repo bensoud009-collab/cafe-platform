@@ -1026,6 +1026,11 @@ const EN={
   "مسؤول المستودع الرئيسي (يعتمد التحويلات وطلبات الفروع)":"Main warehouse manager (approves transfers & branch orders)",
   "طلبات الفروع":"Branch orders","طلبات المخزون من الفروع":"Stock requests from branches",
   "إلى الفرع":"To branch","الموجود بالمستودع":"In warehouse","المطلوب":"Requested",
+  "بعض المنتجات غير متوفرة كاملة — سيُرسل المتوفر فقط والباقي يُسجّل صفراً:":"Some products aren't fully available — only the available amount is sent, the rest is recorded as zero:",
+  "بعض المنتجات غير متوفرة كاملة. سيُرسل المتوفر فقط. متابعة؟":"Some products aren't fully available. Only the available amount will be sent. Continue?",
+  "تم اعتماد الطلب وخصم المتوفر من المستودع":"Order approved; available quantity deducted from warehouse",
+  "تفاصيل الطلب المعتمد — ":"Approved order — ","المستقبِل":"Recipient","تم الطلب":"Requested","تم الإرسال":"Sent",
+  "الأحمر = غير متوفر (0) · الأصفر = أُرسل جزئياً":"Red = unavailable (0) · Amber = partially sent",
   "الكمية ما تكفي في":"Insufficient quantity in","منتجات":"products","مطلوب":"requested","موجود":"available","ناقص":"short",
   "إضافة المتبقّي للمستودع":"Add the shortfall to warehouse","المنتج الأحمر = الكمية غير كافية":"Red product = insufficient quantity",
   "اعتماد وخصم من المستودع":"Approve & deduct from warehouse","تم اعتماد الطلب وخصمه من المستودع":"Order approved and deducted from warehouse",
@@ -3005,15 +3010,17 @@ async function mainWarehouse(){
 
 // نافذة مراجعة طلب الفرع: المطلوب مقابل الموجود بالمستودع + اعتماد/رفض
 async function reviewOrderModal(orderId, x){
+  // إن كان الطلب معتمداً: افتح صفحة المعاينة (تم الطلب / تم الإرسال)
+  if(x.status==="approved"){ viewApprovedOrder(x); return; }
   const wh=await mainWarehouse();
   if(!wh){ toast(L("لا توجد مستودعات — أضف مستودعاً"),"err"); return; }
   const whStock=await branchStockMap(wh.id);
   const items=(x.items||[]);
-  // بناء صفوف الجدول مع تمييز النقص بالأحمر
+  // بناء صفوف الجدول: المطلوب / الموجود بالمستودع — تمييز النقص بالأحمر
   let anyShort=false; const shortList=[];
   const rowsHtml=items.map(it=>{
     const req=Number(it.qty)||0; const have=Number(whStock[it.productId]!=null?whStock[it.productId]:0);
-    const short = have<req; if(short){ anyShort=true; shortList.push({name:it.name, req, have, need:req-have, productId:it.productId}); }
+    const short = have<req; if(short){ anyShort=true; shortList.push({name:it.name, req, have}); }
     const haveCell = short
       ? "<td style='color:var(--red);font-weight:700'>"+have+" ⚠️</td>"
       : "<td style='color:var(--green)'>"+have+"</td>";
@@ -3022,9 +3029,8 @@ async function reviewOrderModal(orderId, x){
   let warnHtml="";
   if(anyShort){
     warnHtml="<div class='ord-warn'>"+
-      "<div>⚠️ <b>"+L("الكمية ما تكفي في")+" "+shortList.length+" "+(shortList.length===1?L("منتج"):L("منتجات"))+":</b></div>"+
-      shortList.map(s=>"<div>• "+esc(s.name)+": "+L("مطلوب")+" "+s.req+"، "+L("موجود")+" "+s.have+" ("+L("ناقص")+" "+s.need+")</div>").join("")+
-      (canAddWhStock()?"<button class='btn' id='ordAddRest' style='background:var(--brand);color:#fff;border:none;margin-top:6px'>+ "+L("إضافة المتبقّي للمستودع")+"</button>":"")+
+      "<div>⚠️ <b>"+L("بعض المنتجات غير متوفرة كاملة — سيُرسل المتوفر فقط والباقي يُسجّل صفراً:")+"</b></div>"+
+      shortList.map(s=>"<div>• "+esc(s.name)+": "+L("مطلوب")+" "+s.req+"، "+L("موجود")+" "+s.have+"</div>").join("")+
     "</div>";
   }
   const canApp=canApproveOrder();
@@ -3036,9 +3042,7 @@ async function reviewOrderModal(orderId, x){
     "<table style='margin-top:12px'><thead><tr><th>"+L("المنتج")+"</th><th>"+L("المطلوب")+"</th><th>"+L("الموجود بالمستودع")+"</th></tr></thead><tbody>"+rowsHtml+"</tbody></table>"+
     warnHtml+
     "<div class='muted' style='font-size:11px;text-align:center;margin-top:10px'>"+L("المنتج الأحمر = الكمية غير كافية")+"</div>";
-  // أزرار الاعتماد/الرفض داخل المعاينة (للمسؤول فقط، وفقط إن كان الطلب قيد المراجعة)
   const isPending=(x.status!=="approved"&&x.status!=="rejected");
-  let footBtns=null;
   if(canApp && isPending){
     openModal(L("مراجعة طلب — ")+esc(x.branchName||""),
       body+"<div style='display:flex;gap:10px;margin-top:18px'>"+
@@ -3046,29 +3050,38 @@ async function reviewOrderModal(orderId, x){
         "<button class='btn danger' id='ordReject' style='flex:1'>"+esc(L("رفض"))+"</button>"+
       "</div>", null, ()=>true, true, 520);
     setTimeout(()=>{
-      if($("ordApprove"))$("ordApprove").onclick=()=>approveOrder(orderId,x,wh);
+      if($("ordApprove"))$("ordApprove").onclick=()=>{
+        if(anyShort && !confirm(L("بعض المنتجات غير متوفرة كاملة. سيُرسل المتوفر فقط. متابعة؟"))) return;
+        approveOrder(orderId,x,wh,whStock);
+      };
       if($("ordReject"))$("ordReject").onclick=()=>{ rejectOrder(orderId,x); closeModal(); };
-      if($("ordAddRest"))$("ordAddRest").onclick=()=>addRemainingToWarehouse(wh, shortList, ()=>reviewOrderModal(orderId,x));
     },30);
   } else {
     openModal(L("مراجعة طلب — ")+esc(x.branchName||""), body, "تم", ()=>true, true, 520);
-    setTimeout(()=>{ if($("ordAddRest"))$("ordAddRest").onclick=()=>addRemainingToWarehouse(wh, shortList, ()=>reviewOrderModal(orderId,x)); },30);
   }
 }
-function canAddWhStock(){ return state.role==="owner"||isWarehouseKeeper(); }
 
-// اعتماد الطلب: يخصم كل المطلوب من المستودع الرئيسي
-async function approveOrder(orderId, x, wh){
+// اعتماد الطلب: خصم ذكي — يُخصم المتوفر فقط (لا يصير سالب)، ويُسجّل «تم الإرسال» لكل منتج
+async function approveOrder(orderId, x, wh, whStock){
   try{
+    if(!whStock) whStock=await branchStockMap(wh.id);
+    const sent=[]; // {productId,name,requested,sent}
     const batch=db.batch();
-    (x.items||[]).forEach(it=>{ const q=Number(it.qty)||0;
-      const ref=cRef().collection("branchStock").doc(bsId(wh.id,it.productId));
-      batch.set(ref,{branchId:wh.id,productId:it.productId,name:it.name,qty:firebase.firestore.FieldValue.increment(-q),updatedAt:now()},{merge:true});
+    (x.items||[]).forEach(it=>{
+      const req=Number(it.qty)||0;
+      const have=Number(whStock[it.productId]!=null?whStock[it.productId]:0);
+      const send=Math.max(0, Math.min(req, have)); // المتوفر فقط، لا سالب
+      sent.push({productId:it.productId, name:it.name, requested:req, sent:send});
+      if(send>0){ const ref=cRef().collection("branchStock").doc(bsId(wh.id,it.productId));
+        batch.set(ref,{branchId:wh.id,productId:it.productId,name:it.name,qty:firebase.firestore.FieldValue.increment(-send),updatedAt:now()},{merge:true}); }
     });
-    batch.update(cRef().collection("stockOrders").doc(orderId),{status:"approved",approvedBy:state.user.uid,approvedByName:state.profile.name||state.user.email,approvedAt:now(),warehouseId:wh.id,warehouseName:wh.name});
+    batch.update(cRef().collection("stockOrders").doc(orderId),{
+      status:"approved", approvedBy:state.user.uid, approvedByName:state.profile.name||state.user.email, approvedAt:now(),
+      warehouseId:wh.id, warehouseName:wh.name, sent
+    });
     await batch.commit();
     logAction("approve_order",(x.branchName||"")+" — "+L("خصم من ")+wh.name);
-    toast(L("تم اعتماد الطلب وخصمه من المستودع"),"ok");
+    toast(L("تم اعتماد الطلب وخصم المتوفر من المستودع"),"ok");
     closeModal();
   }catch(e){ console.error(e); toast(L("تعذّر الحفظ — تحقّق من قواعد الأمان"),"err"); }
 }
@@ -3077,26 +3090,27 @@ function rejectOrder(orderId, x){
   logAction("reject_order",x.branchName||"");
   toast(L("تم رفض الطلب"),"ok");
 }
-// إضافة الكمية الناقصة تلقائياً للمستودع الرئيسي (توريد سريع)
-async function addRemainingToWarehouse(wh, shortList, done){
-  if(!shortList||!shortList.length) return;
-  const rows=shortList.map(s=>"<div class='review-row'><span>"+esc(s.name)+"</span><b>+"+s.need+"</b></div>").join("");
-  openModal(L("إضافة المتبقّي للمستودع"),
-    "<div class='muted' style='font-size:13px;margin-bottom:8px'>"+L("تُضاف الكميات الناقصة التالية إلى المستودع:")+"</div>"+rows,
-    "تأكيد الإضافة", async ()=>{
-      try{
-        const batch=db.batch();
-        shortList.forEach(s=>{ const ref=cRef().collection("branchStock").doc(bsId(wh.id,s.productId));
-          batch.set(ref,{branchId:wh.id,productId:s.productId,name:s.name,qty:firebase.firestore.FieldValue.increment(s.need),updatedAt:now()},{merge:true}); });
-        await batch.commit();
-        logAction("add_stock",wh.name+" — "+L("إكمال نقص طلب"));
-        toast(L("تمت إضافة المخزون"),"ok");
-        if(done) setTimeout(done,60);
-        return true;
-      }catch(e){ console.error(e); toast(L("تعذّر الحفظ — تحقّق من قواعد الأمان"),"err"); return false; }
-    });
+
+// صفحة معاينة الطلب المعتمد: الوقت/المرسل/من المستودع→إلى الفرع + (المنتج/تم الطلب/تم الإرسال)
+function viewApprovedOrder(x){
+  const sent = Array.isArray(x.sent) ? x.sent : (x.items||[]).map(it=>({name:it.name,requested:Number(it.qty)||0,sent:Number(it.qty)||0}));
+  const rowsHtml=sent.map(s=>{
+    const req=Number(s.requested)||0, sn=Number(s.sent)||0;
+    const zero = sn===0;
+    const partial = sn>0 && sn<req;
+    const sentCol = zero ? "color:var(--red);font-weight:700" : partial ? "color:var(--amber);font-weight:700" : "color:var(--green);font-weight:700";
+    return "<tr><td><b>"+esc(s.name)+"</b></td><td style='font-weight:700'>"+req+"</td><td style='"+sentCol+"'>"+sn+"</td></tr>";
+  }).join("");
+  openModal(L("تفاصيل الطلب المعتمد — ")+esc(x.branchName||""),
+    "<div class='review-row'><span>"+L("التاريخ والوقت")+"</span><b>"+fmtDT(x.approvedAt||x.at)+"</b></div>"+
+    "<div class='review-row'><span>"+L("المُرسِل")+"</span><b>"+esc(x.byName||"")+"</b></div>"+
+    "<div class='review-row'><span>"+L("المستقبِل")+"</span><b>"+esc(x.branchName||"")+"</b></div>"+
+    "<div class='review-row'><span>"+L("من")+" → "+L("إلى")+"</span><b>"+esc(x.warehouseName||L("المستودع الرئيسي"))+" → "+esc(x.branchName||"")+"</b></div>"+
+    "<table style='margin-top:12px'><thead><tr><th>"+L("المنتج")+"</th><th>"+L("تم الطلب")+"</th><th>"+L("تم الإرسال")+"</th></tr></thead><tbody>"+rowsHtml+"</tbody></table>"+
+    "<div class='muted' style='font-size:11px;text-align:center;margin-top:10px'>"+L("الأحمر = غير متوفر (0) · الأصفر = أُرسل جزئياً")+"</div>",
+    "تم", ()=>true, true, 520);
 }
-window.reviewOrderModal=reviewOrderModal; window.approveOrder=approveOrder;
+window.reviewOrderModal=reviewOrderModal; window.approveOrder=approveOrder; window.viewApprovedOrder=viewApprovedOrder;
 const WASTE_REASONS=["منتهي الصلاحية","تلف","كسر","خطأ تحضير","أخرى"];
 
 // ===== الفرع النشط للمخزون =====
