@@ -2292,12 +2292,16 @@ function pageSales(c){
   const card=el("div","card");
   card.innerHTML="<table><thead><tr><th>التاريخ والوقت</th><th>الفرع</th><th>المُرسِل</th><th>الحالة</th></tr></thead><tbody id='clRows'><tr><td colspan='4' class='muted'>جارٍ التحميل…</td></tr></tbody></table>";
   c.appendChild(card);
-  cRef().collection("dailyClosings").orderBy("createdAt","desc").limit(window.__cloLimit).onSnapshot(s=>{
-    const tb=$("clRows");if(!tb)return;tb.innerHTML="";
-    if(s.empty){tb.innerHTML="<tr><td colspan='4' class='muted'>لا توجد إقفالات</td></tr>";return;}
-    s.forEach(d=>{const x=d.data();
-      const tr=el("tr",null,"<td>"+fmtDT(x.createdAt)+"</td><td>"+esc(x.branchName||"—")+"</td><td>"+esc(x.employeeName)+"</td><td></td>");
-      const b=statusActionBtn(x.status,{
+  // معرّفات المستودعات (لاستبعاد أي إقفال مُسجّل على مستودع — الإقفال يخص الفروع فقط)
+  const whIds=new Set();
+  cRef().collection("branches").where("isWarehouse","==",true).get().then(s=>{ s.forEach(d=>whIds.add(d.id)); }).catch(()=>{}).finally(()=>{
+    cRef().collection("dailyClosings").orderBy("createdAt","desc").limit(window.__cloLimit).onSnapshot(s=>{
+      const tb=$("clRows");if(!tb)return;tb.innerHTML="";
+      const docs=[]; s.forEach(d=>{ if(!whIds.has(d.data().branchId)) docs.push(d); });
+      if(!docs.length){tb.innerHTML="<tr><td colspan='4' class='muted'>لا توجد إقفالات</td></tr>";return;}
+      docs.forEach(d=>{const x=d.data();
+        const tr=el("tr",null,"<td>"+fmtDT(x.createdAt)+"</td><td>"+esc(x.branchName||"—")+"</td><td>"+esc(x.employeeName)+"</td><td></td>");
+        const b=statusActionBtn(x.status,{
         onView:()=>viewClosing(d.id,x),
         onApprove:()=>setClosingStatus(d.id,x,"approved"),
         onReject:()=>setClosingStatus(d.id,x,"rejected"),
@@ -2307,7 +2311,8 @@ function pageSales(c){
       tr.lastChild.appendChild(b);
       tb.appendChild(tr);
     });
-  },()=>{const tb=$("clRows");if(tb)tb.innerHTML="<tr><td colspan='4' style='color:var(--red)'>تعذّر التحميل</td></tr>";});
+    },()=>{const tb=$("clRows");if(tb)tb.innerHTML="<tr><td colspan='4' style='color:var(--red)'>تعذّر التحميل</td></tr>";});
+  });
 }
 // عرض تفاصيل الإقفال (للإدارة، بدون تعديل)
 function viewClosing(id,x){
@@ -2385,7 +2390,7 @@ function showEmployeeConfirmation(){
 }
 
 async function openClosingModal(){
-  let branches=[];try{const bs=await cRef().collection("branches").get();bs.forEach(b=>branches.push({id:b.id,...b.data()}));}catch(e){}
+  let branches=[];try{const bs=await cRef().collection("branches").get();bs.forEach(b=>{const x=b.data(); if(!x.isWarehouse) branches.push({id:b.id,...x});});}catch(e){}
   const brOptions=branches.length?branches.map(b=>"<option value='"+b.id+"'>"+esc(b.name)+"</option>").join(""):"<option value=''>لا توجد فروع</option>";
   const showVar=canApproveSales(); // الفروقات تظهر للمدير/المالك فقط
   openModal("إرسال إقفال يومي",
@@ -3304,7 +3309,7 @@ const WASTE_REASONS=["منتهي الصلاحية","تلف","كسر","خطأ ت�
 
 // ===== الفرع النشط للمخزون =====
 // الموظف/المدير: فرعهم الثابت. المالك: يختار من قائمة.
-async function invBranchList(){ const a=[]; try{const s=await cRef().collection("branches").orderBy("name").get(); s.forEach(d=>a.push({id:d.id,name:(d.data().name||"")}));}catch(e){} return a; }
+async function invBranchList(){ const a=[]; try{const s=await cRef().collection("branches").orderBy("name").get(); s.forEach(d=>{ const x=d.data(); if(!x.isWarehouse) a.push({id:d.id,name:(x.name||"")}); });}catch(e){} return a; }
 // يبني شريط الفرع في أعلى الصفحة، ويعيد {id,name} أو null
 async function invBranchBar(c, rerender){
   if(state.role!=="owner"){
