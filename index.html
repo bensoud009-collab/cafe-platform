@@ -2807,20 +2807,35 @@ function inventoryHub(c){
 function branchInventoryPage(c, br){
   c.classList.remove("inv-hub"); c.innerHTML="";
   const back=el("button","btn sm","← رجوع"); back.style.marginBottom="14px"; back.onclick=()=>openPage("inventory"); c.appendChild(back);
-  c.insertAdjacentHTML("beforeend","<div class='page-title'><h2>"+esc(br.name)+"</h2><p>"+L("الطلبات والتحويلات")+"</p></div>");
-  // الزر المزدوج
-  const seg=el("div","seg2");
-  seg.innerHTML="<button id='segOrders' class='active'>"+L("الطلبات")+"<span id='segOrdBadge' class='seg-badge' style='display:none'></span></button>"+
-                "<button id='segTransfers'>"+L("التحويل")+"<span id='segTrBadge' class='seg-badge' style='display:none'></span></button>";
+  c.insertAdjacentHTML("beforeend","<div class='page-title'><h2>"+esc(br.name)+"</h2><p>"+L("تسجيل ومتابعة مخزون الفرع")+"</p></div>");
+  // التبويبات: مبيعات · جرد · طلب · تالف · تحويل
+  const tabs=[
+    {k:"sales",  t:L("المبيعات")},
+    {k:"count",  t:L("الجرد")},
+    {k:"orders", t:L("الطلبات")},
+    {k:"waste",  t:L("التالف")},
+    {k:"transfers", t:L("التحويل")}
+  ];
+  const seg=el("div","seg2"); seg.style.flexWrap="wrap";
+  seg.innerHTML=tabs.map((tb,i)=>"<button id='seg_"+tb.k+"' class='"+(i===0?"active":"")+"' style='min-width:31%'>"+tb.t+"<span id='segbadge_"+tb.k+"' class='seg-badge' style='display:none'></span></button>").join("");
   c.appendChild(seg);
   const panel=el("div"); panel.id="brInvPanel"; c.appendChild(panel);
-  const showOrders=()=>{ $("segOrders").classList.add("active"); $("segTransfers").classList.remove("active"); renderBranchOrders(panel,br); };
-  const showTransfers=()=>{ $("segTransfers").classList.add("active"); $("segOrders").classList.remove("active"); renderBranchTransfers(panel,br); };
-  $("segOrders").onclick=showOrders; $("segTransfers").onclick=showTransfers;
-  showOrders();
+  const activate=(k)=>{ tabs.forEach(t=>{ const b=$("seg_"+t.k); if(b) b.classList.toggle("active",t.k===k); });
+    if(k==="sales") invSales(panel, br, ()=>branchInventoryPage(c,br));
+    else if(k==="count") invCount(panel, br, ()=>branchInventoryPage(c,br));
+    else if(k==="orders") renderBranchOrders(panel, br);
+    else if(k==="waste") invWaste(panel, br, ()=>branchInventoryPage(c,br));
+    else if(k==="transfers") renderBranchTransfers(panel, br);
+    setTimeout(()=>{ if(typeof translateTree==="function") translateTree(panel); },40);
+  };
+  tabs.forEach(t=>{ const b=$("seg_"+t.k); if(b) b.onclick=()=>activate(t.k); });
+  activate("sales");
   // شارات العدد المعلّق
-  cRef().collection("stockOrders").where("branchId","==",br.id).onSnapshot(s=>{ let n=0; s.forEach(d=>{const st=d.data().status; if(st!=="approved"&&st!=="rejected")n++;}); const b=$("segOrdBadge"); if(b){ if(n){b.textContent=n;b.style.display="inline-flex";}else b.style.display="none"; } },()=>{});
-  cRef().collection("transfers").onSnapshot(s=>{ let n=0; s.forEach(d=>{const y=d.data(); if((y.fromId===br.id||y.toId===br.id)&&y.status!=="approved"&&y.status!=="rejected")n++;}); const b=$("segTrBadge"); if(b){ if(n){b.textContent=n;b.style.display="inline-flex";}else b.style.display="none"; } },()=>{});
+  const badge=(coll,key,filter)=>cRef().collection(coll).onSnapshot(s=>{ let n=0; s.forEach(d=>{const y=d.data(); if(!filter(y))return; if(y.status!=="approved"&&y.status!=="rejected")n++;}); const b=$("segbadge_"+key); if(b){ if(n){b.textContent=n;b.style.display="inline-flex";}else b.style.display="none"; } },()=>{});
+  badge("stockOrders","orders",y=>y.branchId===br.id);
+  badge("stockCounts","count",y=>y.branchId===br.id);
+  badge("waste","waste",y=>y.branchId===br.id);
+  badge("transfers","transfers",y=>(y.fromId===br.id||y.toId===br.id));
   setTimeout(()=>{ if(typeof translateTree==="function") translateTree(c); },40);
 }
 window.branchInventoryPage=branchInventoryPage;
