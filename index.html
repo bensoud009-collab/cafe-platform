@@ -205,6 +205,13 @@ tr.ord-short td{background:rgba(229,72,77,.06)}
 tr.ord-short td:first-child{box-shadow:inset 3px 0 0 var(--red)}
 .ord-warn{background:#fff4f4;border:1px solid #f3b4b4;color:#b42318;border-radius:12px;padding:12px 14px;font-size:13px;line-height:1.9;margin-top:14px;display:flex;flex-direction:column;gap:4px}
 .ord-warn b{color:#b42318}
+/* الزر المزدوج (تبويبات الفرع في المخزون) */
+.seg2{display:flex;border:1px solid var(--line);border-radius:14px;overflow:hidden;box-shadow:var(--shadow);margin-bottom:18px}
+.seg2 button{flex:1;border:none;background:var(--surface);padding:15px;font-weight:700;font-size:15px;cursor:pointer;font-family:inherit;color:var(--muted);transition:.18s}
+.seg2 button:first-child{border-left:1px solid var(--line)}
+.seg2 button.active{background:linear-gradient(135deg,var(--brand),var(--brand-2));color:#fff}
+.seg-badge{display:inline-flex;align-items:center;justify-content:center;background:var(--red);color:#fff;border-radius:999px;min-width:20px;height:20px;font-size:12px;padding:0 5px;margin-right:6px;vertical-align:middle}
+.seg2 button.active .seg-badge{background:rgba(255,255,255,.35)}
 </style>
 </head>
 <body>
@@ -1026,6 +1033,7 @@ const EN={
   "مسؤول المستودع الرئيسي (يعتمد التحويلات وطلبات الفروع)":"Main warehouse manager (approves transfers & branch orders)",
   "طلبات الفروع":"Branch orders","طلبات المخزون من الفروع":"Stock requests from branches",
   "إلى الفرع":"To branch","الموجود بالمستودع":"In warehouse","المطلوب":"Requested",
+  "الطلبات والتحويلات":"Orders & transfers","الطلبات":"Orders","التحويل":"Transfers",
   "بعض المنتجات غير متوفرة كاملة — سيُرسل المتوفر فقط والباقي يُسجّل صفراً:":"Some products aren't fully available — only the available amount is sent, the rest is recorded as zero:",
   "بعض المنتجات غير متوفرة كاملة. سيُرسل المتوفر فقط. متابعة؟":"Some products aren't fully available. Only the available amount will be sent. Continue?",
   "تم اعتماد الطلب وخصم المتوفر من المستودع":"Order approved; available quantity deducted from warehouse",
@@ -2757,7 +2765,7 @@ function inventoryHub(c){
       const card=el("div","card tapc br-card animin"); card.style.animationDelay=(0.32+i*0.06)+"s";
       card.innerHTML="<span id='invbrbadge_"+d.id+"' style='position:absolute;top:8px;left:8px;background:var(--red);color:#fff;border-radius:999px;min-width:18px;height:18px;font-size:11px;font-weight:700;display:none;align-items:center;justify-content:center;padding:0 5px'></span>"+
         "<div class='t'>"+esc(x.name)+"</div><div class='st'>"+starHtml+"</div>";
-      card.onclick=()=>branchDetail(c,d.id,x);
+      card.onclick=()=>branchInventoryPage(c,{id:d.id,name:x.name});
       row.appendChild(card);
     });
     // شارة المعلّق لكل فرع
@@ -2776,6 +2784,78 @@ function inventoryHub(c){
   },()=>{});
 
   setTimeout(()=>{ if(typeof translateTree==="function") translateTree(c); },0);
+}
+
+// صفحة الفرع داخل المخزون: تبويبان (الطلبات | التحويل) مع جدول متبدّل
+function branchInventoryPage(c, br){
+  c.classList.remove("inv-hub"); c.innerHTML="";
+  const back=el("button","btn sm","← رجوع"); back.style.marginBottom="14px"; back.onclick=()=>openPage("inventory"); c.appendChild(back);
+  c.insertAdjacentHTML("beforeend","<div class='page-title'><h2>"+esc(br.name)+"</h2><p>"+L("الطلبات والتحويلات")+"</p></div>");
+  // الزر المزدوج
+  const seg=el("div","seg2");
+  seg.innerHTML="<button id='segOrders' class='active'>"+L("الطلبات")+"<span id='segOrdBadge' class='seg-badge' style='display:none'></span></button>"+
+                "<button id='segTransfers'>"+L("التحويل")+"<span id='segTrBadge' class='seg-badge' style='display:none'></span></button>";
+  c.appendChild(seg);
+  const panel=el("div"); panel.id="brInvPanel"; c.appendChild(panel);
+  const showOrders=()=>{ $("segOrders").classList.add("active"); $("segTransfers").classList.remove("active"); renderBranchOrders(panel,br); };
+  const showTransfers=()=>{ $("segTransfers").classList.add("active"); $("segOrders").classList.remove("active"); renderBranchTransfers(panel,br); };
+  $("segOrders").onclick=showOrders; $("segTransfers").onclick=showTransfers;
+  showOrders();
+  // شارات العدد المعلّق
+  cRef().collection("stockOrders").where("branchId","==",br.id).onSnapshot(s=>{ let n=0; s.forEach(d=>{const st=d.data().status; if(st!=="approved"&&st!=="rejected")n++;}); const b=$("segOrdBadge"); if(b){ if(n){b.textContent=n;b.style.display="inline-flex";}else b.style.display="none"; } },()=>{});
+  cRef().collection("transfers").onSnapshot(s=>{ let n=0; s.forEach(d=>{const y=d.data(); if((y.fromId===br.id||y.toId===br.id)&&y.status!=="approved"&&y.status!=="rejected")n++;}); const b=$("segTrBadge"); if(b){ if(n){b.textContent=n;b.style.display="inline-flex";}else b.style.display="none"; } },()=>{});
+  setTimeout(()=>{ if(typeof translateTree==="function") translateTree(c); },40);
+}
+window.branchInventoryPage=branchInventoryPage;
+
+// جدول طلبات فرع محدّد
+function renderBranchOrders(panel, br){
+  panel.innerHTML="<div class='card'><table><thead><tr><th>"+L("التاريخ والوقت")+"</th><th>"+L("الطالب")+"</th><th>"+L("الأصناف")+"</th><th>"+L("الحالة")+"</th></tr></thead><tbody id='brOrdRows'><tr><td colspan='4' class='muted'>"+L("جارٍ التحميل…")+"</td></tr></tbody></table></div>";
+  cRef().collection("stockOrders").where("branchId","==",br.id).onSnapshot(s=>{
+    const tb=$("brOrdRows"); if(!tb) return; const rows=[]; s.forEach(d=>rows.push({id:d.id,...d.data()}));
+    rows.sort((a,b)=>((b.at&&b.at.seconds)||0)-((a.at&&a.at.seconds)||0));
+    tb.innerHTML=""; if(!rows.length){ tb.innerHTML="<tr><td colspan='4' class='muted'>"+L("لا توجد طلبات")+"</td></tr>"; return; }
+    rows.forEach(x=>{
+      const items=(x.items||[]).map(it=>esc(it.name)+" ×"+(it.qty||0)).join("، ");
+      const tr=el("tr",null,"<td>"+fmtDT(x.at)+"</td><td>"+esc(x.byName||"")+"</td><td class='muted'>"+items+"</td><td></td>");
+      const status=x.status, isPending=(status!=="approved"&&status!=="rejected");
+      const lbl=isPending?L("قيد المراجعة"):(status==="approved"?L("تم الاعتماد"):L("مرفوضة"));
+      const cls=status==="approved"?"green":status==="rejected"?"red":"amber";
+      const b=el("button","btn sm status-act "+cls,lbl);
+      b.onclick=(e)=>{ e.stopPropagation(); openActionMenu(b,[{label:L("معاينة"), fn:()=>reviewOrderModal(x.id,x)}]); };
+      tr.lastChild.appendChild(b); tb.appendChild(tr);
+    });
+  },()=>{ const tb=$("brOrdRows"); if(tb) tb.innerHTML="<tr><td colspan='4' style='color:var(--red)'>"+L("تعذّر التحميل")+"</td></tr>"; });
+}
+
+// جدول تحويلات فرع محدّد (وارد + صادر)
+function renderBranchTransfers(panel, br){
+  panel.innerHTML="<div class='card'><table><thead><tr><th>"+L("التاريخ والوقت")+"</th><th>"+L("من")+" → "+L("إلى")+"</th><th>"+L("الأصناف")+"</th><th>"+L("الحالة")+"</th></tr></thead><tbody id='brTrRows'><tr><td colspan='4' class='muted'>"+L("جارٍ التحميل…")+"</td></tr></tbody></table></div>";
+  const app=canApproveTransfer();
+  cRef().collection("transfers").onSnapshot(s=>{
+    const tb=$("brTrRows"); if(!tb) return; const rows=[]; s.forEach(d=>{ const y=d.data(); if(y.fromId===br.id||y.toId===br.id) rows.push({id:d.id,...y}); });
+    rows.sort((a,b)=>((b.at&&b.at.seconds)||0)-((a.at&&a.at.seconds)||0));
+    tb.innerHTML=""; if(!rows.length){ tb.innerHTML="<tr><td colspan='4' class='muted'>"+L("لا توجد تحويلات")+"</td></tr>"; return; }
+    rows.forEach(x=>{
+      const items=(x.items||[]).map(it=>esc(it.name)+" ×"+(it.qty||0)).join("، ");
+      const arrow=esc(x.fromName||"")+" → "+esc(x.toName||"");
+      const tr=el("tr",null,"<td>"+fmtDT(x.at)+"</td><td class='muted'>"+arrow+"</td><td class='muted'>"+items+"</td><td></td>");
+      const status=x.status, isPending=(status!=="approved"&&status!=="rejected");
+      const lbl=isPending?L("قيد المراجعة"):(status==="approved"?L("تم الاعتماد"):L("مرفوضة"));
+      const cls=status==="approved"?"green":status==="rejected"?"red":"amber";
+      const b=el("button","btn sm status-act "+cls,lbl);
+      b.onclick=(e)=>{ e.stopPropagation();
+        const items2=[{label:L("معاينة"), fn:()=>viewTransfer(x)}];
+        if(app){
+          if(isPending){ items2.push({label:L("اعتماد"), fn:()=>approveTransfer(x.id,x)});
+            items2.push({label:L("رفض"), danger:true, fn:()=>{cRef().collection("transfers").doc(x.id).update({status:"rejected",decidedBy:state.user.uid,decidedByName:state.profile.name||state.user.email,decidedAt:now()});logAction("reject_transfer",x.fromName+" → "+x.toName);}}); }
+          else if(status==="approved"){ items2.push({label:L("إلغاء الاعتماد"), danger:true, fn:()=>undoTransfer(x.id,x)}); }
+        }
+        openActionMenu(b, items2);
+      };
+      tr.lastChild.appendChild(b); tb.appendChild(tr);
+    });
+  },()=>{ const tb=$("brTrRows"); if(tb) tb.innerHTML="<tr><td colspan='4' style='color:var(--red)'>"+L("تعذّر التحميل — تحقّق من قواعد الأمان")+"</td></tr>"; });
 }
 
 // فتح المستودع الرئيسي مباشرة على الجرد (مستودع واحد)
