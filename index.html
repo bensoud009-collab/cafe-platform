@@ -298,13 +298,13 @@ function planLabel(cd){ const p=PLANS[planOf(cd)]; return LANG==="en"?p.nameEn:p
 const MODULES = [
   {key:"dashboard",  name:"لوحة التحكم", icon:""},
   {key:"sales",      name:"الإقفال اليومي", icon:""},
-  {key:"invoices",   name:"الفواتير", icon:""},
-  {key:"inventory",  name:"المخزون", icon:""},
-  {key:"expenses",   name:"المصروفات", icon:""},
-  {key:"suppliers",  name:"الموردين", icon:""},
-  {key:"staff",      name:"شؤون الموظفين", icon:""},
   {key:"checklist",  name:"قوائم التحقّق التشغيلي", icon:""},
+  {key:"inventory",  name:"المخزون", icon:""},
+  {key:"invoices",   name:"الفواتير", icon:""},
+  {key:"suppliers",  name:"الموردين", icon:""},
   {key:"recipes",    name:"الوصفات", icon:""},
+  {key:"expenses",   name:"المصروفات", icon:""},
+  {key:"staff",      name:"شؤون الموظفين", icon:""},
   {key:"reports",    name:"التقارير", icon:""},
   {key:"branches",   name:"الفروع", icon:""},
   {key:"settings",   name:"الإعدادات", icon:""}
@@ -703,6 +703,8 @@ const EN={
   "حفظ التنفيذ":"Save run",
   "حفظ الجرد":"Save count",
   "حفظ الصلاحيات":"Save permissions",
+  "قوالب جاهزة (اضغط لتعبئة الصلاحيات ثم عدّل يدوياً):":"Ready templates (tap to fill permissions, then edit manually):","تفريغ الكل":"Clear all","طُبّق القالب — عدّل ثم احفظ":"Template applied — edit then save",
+  "موظف فرع":"Branch employee","مدير فرع":"Branch manager","مسؤول المستودع":"Warehouse keeper",
   "حفظ الفاتورة":"Save invoice",
   "حفظ كشف رواتب":"Save payroll",
   "حفظ وثيقة":"Save document",
@@ -1988,6 +1990,47 @@ async function createCompany(){
 
 function fullPermissions(){const p={};MODULES.forEach(m=>{p[m.key]={};ACTIONS.forEach(a=>p[m.key][a.key]=true);});return p;}
 function emptyPermissions(){const p={};MODULES.forEach(m=>{p[m.key]={};ACTIONS.forEach(a=>p[m.key][a.key]=false);});return p;}
+
+// قوالب صلاحيات حسب الدور (من دليل إعادة التنظيم)
+// الأدوار: branch_employee (موظف فرع) · branch_manager (مدير فرع) · warehouse_keeper (مسؤول المستودع)
+function rolePermissions(roleKey){
+  const p=emptyPermissions();
+  const grant=(mod,acts)=>{ acts.forEach(a=>{ if(p[mod]) p[mod][a]=true; }); };
+  if(roleKey==="branch_employee"){
+    // يشاهد بياناته فقط: إقفال يومي · قوائم تحقق · جرد/هدر/طلب (المخزون) · وصفات (عرض)
+    grant("dashboard",["view"]);
+    grant("sales",["view","add"]);            // إرسال إقفال
+    grant("checklist",["view","add"]);        // تنفيذ قوائم التحقق
+    grant("inventory",["view","add"]);        // جرد · هدر · طلب مواد
+    grant("recipes",["view"]);                // عرض الوصفات فقط (لا تعديل)
+    // لا: تعديل المبيعات/الوصفات/التكلفة/مخزون المستودع/الرواتب/فروع أخرى
+  } else if(roleKey==="branch_manager"){
+    // صلاحيات الموظف + مراجعة/اعتماد الإقفالات والجرد والهدر والطلبات + تقارير فرعه
+    grant("dashboard",["view"]);
+    grant("sales",["view","add","edit","approve"]);
+    grant("checklist",["view","add","edit","approve"]);
+    grant("inventory",["view","add","edit","approve"]);
+    grant("invoices",["view","add","approve"]);
+    grant("expenses",["view","add"]);
+    grant("recipes",["view"]);
+    grant("reports",["view"]);
+    grant("branches",["view"]);
+  } else if(roleKey==="warehouse_keeper"){
+    // المستودع: إدارة المخزون · استلام مشتريات · صرف/تحويل · جرد المستودع · الموردين
+    grant("dashboard",["view"]);
+    grant("inventory",["view","add","edit","approve"]);
+    grant("invoices",["view","add"]);         // استلام مشتريات
+    grant("suppliers",["view","add","edit"]); // إدارة الموردين
+    grant("recipes",["view"]);
+    // لا: تعديل مبيعات/إقفالات الفروع
+  }
+  return p;
+}
+const ROLE_TEMPLATES=[
+  {key:"branch_employee", name:"موظف فرع"},
+  {key:"branch_manager",  name:"مدير فرع"},
+  {key:"warehouse_keeper",name:"مسؤول المستودع"}
+];
 
 function pageSuperSubs(c){
   c.innerHTML=pageTitle("الاشتراكات","متابعة اشتراكات الشركات")+
@@ -4913,8 +4956,13 @@ function permMatrixModal(uid,x){
     const ck=perms[m.key]&&perms[m.key][a.key]?"checked":"";
     return "<td><input type='checkbox' data-m='"+m.key+"' data-a='"+a.key+"' "+ck+"></td>";
   }).join("")+"</tr>").join("");
+  const tplBtns="<div style='margin-bottom:12px'><div class='muted' style='font-size:12px;margin-bottom:6px'>"+L("قوالب جاهزة (اضغط لتعبئة الصلاحيات ثم عدّل يدوياً):")+"</div>"+
+    "<div style='display:flex;gap:8px;flex-wrap:wrap'>"+
+    ROLE_TEMPLATES.map(r=>"<button type='button' class='btn sm role-tpl' data-r='"+r.key+"'>"+esc(r.name)+"</button>").join("")+
+    "<button type='button' class='btn sm' id='tplClear' style='color:var(--red)'>"+L("تفريغ الكل")+"</button>"+
+    "</div></div>";
   openModal("صلاحيات: "+esc(x.name||""),
-    "<div class='matrix'><table><thead>"+head+"</thead><tbody>"+rows+"</tbody></table></div>",
+    tplBtns+"<div class='matrix'><table><thead>"+head+"</thead><tbody>"+rows+"</tbody></table></div>",
     "حفظ الصلاحيات", async ()=>{
       const p=emptyPermissions();
       document.querySelectorAll("#modalRoot input[type=checkbox]").forEach(cb=>{p[cb.dataset.m][cb.dataset.a]=cb.checked;});
@@ -4922,6 +4970,12 @@ function permMatrixModal(uid,x){
       logAction("edit_permissions",x.name);
       return true;
     }, false, 720);
+  // تطبيق القوالب على مربّعات الاختيار
+  const applyPerms=(p)=>{ document.querySelectorAll("#modalRoot input[type=checkbox]").forEach(cb=>{ cb.checked=!!(p[cb.dataset.m]&&p[cb.dataset.m][cb.dataset.a]); }); };
+  setTimeout(()=>{
+    document.querySelectorAll("#modalRoot .role-tpl").forEach(b=>{ b.onclick=()=>{ applyPerms(rolePermissions(b.dataset.r)); toast(L("طُبّق القالب — عدّل ثم احفظ"),"ok"); }; });
+    const clr=$("tplClear"); if(clr) clr.onclick=()=>applyPerms(emptyPermissions());
+  },30);
 }
 
 /* ================================================================== */
