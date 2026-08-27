@@ -703,6 +703,8 @@ const EN={
   "حفظ التنفيذ":"Save run",
   "حفظ الجرد":"Save count",
   "حفظ الصلاحيات":"Save permissions",
+  "الشفت":"Shift","صباح":"Morning","مساء":"Evening","اسم الموظف":"Employee name","اختر الموظف…":"Choose employee…","الموظف":"Employee",
+  "اختر الشفت":"Choose the shift","اختر اسم الموظف":"Choose the employee","كل الإقفالات":"All closings","ملخّص الشفتات":"Shifts summary",
   "قوالب جاهزة (اضغط لتعبئة الصلاحيات ثم عدّل يدوياً):":"Ready templates (tap to fill permissions, then edit manually):","تفريغ الكل":"Clear all","طُبّق القالب — عدّل ثم احفظ":"Template applied — edit then save",
   "موظف فرع":"Branch employee","مدير فرع":"Branch manager","مسؤول المستودع":"Warehouse keeper",
   "حفظ الفاتورة":"Save invoice",
@@ -2328,35 +2330,76 @@ function pageSales(c){
     return;
   }
 
-  // ===== المالك/المدير: سجل كامل + زر إجراء ذكي + عدّاد =====
+  // ===== المالك/المدير: تبديل بين الجدول التفصيلي وملخّص الشفتات =====
+  if(window.__cloView==null) window.__cloView="list";
+  const toggle=el("div"); toggle.style.cssText="display:flex;gap:8px;margin-bottom:12px";
+  const mkBtn=(key,label)=>{ const b=el("button","btn sm"+(window.__cloView===key?" primary":""),label); b.onclick=()=>{ window.__cloView=key; pageSales(c); }; return b; };
+  toggle.appendChild(mkBtn("list","📋 "+L("كل الإقفالات")));
+  toggle.appendChild(mkBtn("shift","🌅🌙 "+L("ملخّص الشفتات")));
+  c.appendChild(toggle);
+
+  if(window.__cloView==="shift"){ renderShiftSummary(c); return; }
+
+  // الجدول التفصيلي مع الشفت + الموظف
   if(window.__cloLimit==null) window.__cloLimit=10;
   const counter=pageSizeControl(window.__cloLimit,(n)=>{ window.__cloLimit=n; pageSales(c); });
   c.appendChild(counter);
   const card=el("div","card");
-  card.innerHTML="<table><thead><tr><th>التاريخ والوقت</th><th>الفرع</th><th>المُرسِل</th><th>الحالة</th></tr></thead><tbody id='clRows'><tr><td colspan='4' class='muted'>جارٍ التحميل…</td></tr></tbody></table>";
+  card.innerHTML="<table><thead><tr><th>التاريخ</th><th>الفرع</th><th>"+L("الشفت")+"</th><th>"+L("الموظف")+"</th><th>الحالة</th></tr></thead><tbody id='clRows'><tr><td colspan='5' class='muted'>جارٍ التحميل…</td></tr></tbody></table>";
   c.appendChild(card);
-  // معرّفات المستودعات (لاستبعاد أي إقفال مُسجّل على مستودع — الإقفال يخص الفروع فقط)
   const whIds=new Set();
   cRef().collection("branches").where("isWarehouse","==",true).get().then(s=>{ s.forEach(d=>whIds.add(d.id)); }).catch(()=>{}).finally(()=>{
     cRef().collection("dailyClosings").orderBy("createdAt","desc").limit(window.__cloLimit).onSnapshot(s=>{
       const tb=$("clRows");if(!tb)return;tb.innerHTML="";
       const docs=[]; s.forEach(d=>{ if(!whIds.has(d.data().branchId)) docs.push(d); });
-      if(!docs.length){tb.innerHTML="<tr><td colspan='4' class='muted'>لا توجد إقفالات</td></tr>";return;}
+      if(!docs.length){tb.innerHTML="<tr><td colspan='5' class='muted'>لا توجد إقفالات</td></tr>";return;}
       docs.forEach(d=>{const x=d.data();
-        const tr=el("tr",null,"<td>"+fmtDT(x.createdAt)+"</td><td>"+esc(x.branchName||"—")+"</td><td>"+esc(x.employeeName)+"</td><td></td>");
+        const shiftHtml = x.shift ? (x.shift==="مساء"?"<span style='color:#6366f1;font-weight:700'>🌙 "+L("مساء")+"</span>":"<span style='color:var(--amber);font-weight:700'>🌅 "+L("صباح")+"</span>") : "<span class='muted'>—</span>";
+        const empName = x.shiftEmployee || x.employeeName || "—";
+        const tr=el("tr",null,"<td>"+fmtDT(x.createdAt)+"</td><td>"+esc(x.branchName||"—")+"</td><td>"+shiftHtml+"</td><td>"+esc(empName)+"</td><td></td>");
         const b=statusActionBtn(x.status,{
-        onView:()=>viewClosing(d.id,x),
-        onApprove:()=>setClosingStatus(d.id,x,"approved"),
-        onReject:()=>setClosingStatus(d.id,x,"rejected"),
-        onDelete:()=>deleteClosing(d.id,x),
-        canDelete:canDeleteClosing()
+          onView:()=>viewClosing(d.id,x),
+          onApprove:()=>setClosingStatus(d.id,x,"approved"),
+          onReject:()=>setClosingStatus(d.id,x,"rejected"),
+          onDelete:()=>deleteClosing(d.id,x),
+          canDelete:canDeleteClosing()
+        });
+        tr.lastChild.appendChild(b);
+        tb.appendChild(tr);
       });
-      tr.lastChild.appendChild(b);
-      tb.appendChild(tr);
-    });
-    },()=>{const tb=$("clRows");if(tb)tb.innerHTML="<tr><td colspan='4' style='color:var(--red)'>تعذّر التحميل</td></tr>";});
+    },()=>{const tb=$("clRows");if(tb)tb.innerHTML="<tr><td colspan='5' style='color:var(--red)'>تعذّر التحميل</td></tr>";});
   });
 }
+
+// ملخّص الشفتات: تجميع الإقفالات حسب اليوم (صباح/مساء) مع الموظف والمبيعات
+function renderShiftSummary(c){
+  const card=el("div"); card.id="shiftSummary"; card.innerHTML="<div class='card muted'>جارٍ التحميل…</div>"; c.appendChild(card);
+  const whIds=new Set();
+  cRef().collection("branches").where("isWarehouse","==",true).get().then(s=>{ s.forEach(d=>whIds.add(d.id)); }).catch(()=>{}).finally(()=>{
+    cRef().collection("dailyClosings").orderBy("createdAt","desc").limit(120).onSnapshot(s=>{
+      const box=$("shiftSummary"); if(!box) return;
+      const days={}; // dateStr -> {am:{}, pm:{}}
+      s.forEach(d=>{ const x=d.data(); if(whIds.has(x.branchId)) return; if(x.status==="rejected") return;
+        const dt=x.createdAt&&x.createdAt.seconds?new Date(x.createdAt.seconds*1000):new Date();
+        const key=dt.toLocaleDateString("ar-SA-u-ca-gregory",{year:"numeric",month:"long",day:"numeric"});
+        if(!days[key]) days[key]={ts:dt.getTime(),am:null,pm:null};
+        const rec={emp:x.shiftEmployee||x.employeeName||"—", sales:Number(x.net)||0, branch:x.branchName||""};
+        if(x.shift==="مساء") days[key].pm=rec; else if(x.shift==="صباح") days[key].am=rec; else days[key].am=rec;
+      });
+      const keys=Object.keys(days).sort((a,b)=>days[b].ts-days[a].ts);
+      if(!keys.length){ box.innerHTML="<div class='card muted'>لا توجد إقفالات</div>"; return; }
+      box.innerHTML=keys.map(k=>{ const d=days[k]; const am=d.am,pm=d.pm; const tot=(am?am.sales:0)+(pm?pm.sales:0);
+        const row=(icon,color,label,rec)=> rec ? "<div style='display:flex;justify-content:space-between;padding:12px 15px;border-top:1px solid var(--line);align-items:center'><span style='color:"+color+";font-weight:700'>"+icon+" "+label+" · "+esc(rec.emp)+"</span><b>"+money(rec.sales)+"</b></div>" : "<div style='display:flex;justify-content:space-between;padding:12px 15px;border-top:1px solid var(--line);align-items:center'><span class='muted'>"+icon+" "+label+"</span><span class='muted'>—</span></div>";
+        return "<div style='border:1px solid var(--line);border-radius:14px;overflow:hidden;margin-bottom:12px;background:var(--surface);box-shadow:var(--shadow)'>"+
+          "<div style='background:linear-gradient(135deg,#faf6ee,#fff);padding:12px 15px;font-weight:800;display:flex;justify-content:space-between;border-bottom:1px solid var(--line)'><span>"+esc(k)+"</span><span style='color:var(--brand)'>"+money(tot)+"</span></div>"+
+          row("🌅","var(--amber)",L("صباح"),am)+
+          row("🌙","#6366f1",L("مساء"),pm)+
+        "</div>";
+      }).join("");
+    },()=>{ const box=$("shiftSummary"); if(box) box.innerHTML="<div class='card' style='color:var(--red)'>تعذّر التحميل</div>"; });
+  });
+}
+window.renderShiftSummary=renderShiftSummary;
 // عرض تفاصيل الإقفال (للإدارة، بدون تعديل)
 function viewClosing(id,x){
   const showVar=canApproveSales();
@@ -2364,7 +2407,9 @@ function viewClosing(id,x){
   // إقفال جديد (فيه net) أم قديم (فيه actualSales فقط)
   const isNew = x.net!=null || x.orders!=null || x.cashSys!=null;
   let inner="<div class='review-row'><span>التاريخ والوقت</span><b>"+fmtDT(x.createdAt)+"</b></div>"+
-    "<div class='review-row'><span>المُرسِل</span><b>"+esc(x.employeeName)+"</b></div>";
+    "<div class='review-row'><span>المُرسِل</span><b>"+esc(x.employeeName)+"</b></div>"+
+    (x.shift?"<div class='review-row'><span>"+L("الشفت")+"</span><b>"+(x.shift==="مساء"?"🌙 ":"🌅 ")+esc(L(x.shift))+"</b></div>":"")+
+    (x.shiftEmployee?"<div class='review-row'><span>"+L("اسم الموظف")+"</span><b>"+esc(x.shiftEmployee)+"</b></div>":"");
   if(isNew){
     const net=Number(x.net)||0, orders=Number(x.orders)||0, at=Number(x.at)|| (orders>0?net/orders:0);
     const cashSys=Number(x.cashSys)||0, cashPhy=Number(x.cashPhy)||0;
@@ -2438,6 +2483,10 @@ async function openClosingModal(){
   const showVar=canApproveSales(); // الفروقات تظهر للمدير/المالك فقط
   openModal("إرسال إقفال يومي",
     "<label class='field'><span>الفرع *</span><select id='clBranch'>"+brOptions+"</select></label>"+
+    "<div class='grid' style='grid-template-columns:1fr 1fr'>"+
+      "<label class='field'><span>"+L("الشفت")+" *</span><select id='clShift'><option value='صباح'>🌅 "+L("صباح")+"</option><option value='مساء'>🌙 "+L("مساء")+"</option></select></label>"+
+      "<label class='field'><span>"+L("اسم الموظف")+" *</span><select id='clEmp'><option value=''>"+L("اختر الموظف…")+"</option></select></label>"+
+    "</div>"+
     // المبيعات
     "<div class='sec'><div class='sec-title'>المبيعات</div>"+
       "<div class='grid' style='grid-template-columns:1fr 1fr'>"+
@@ -2483,6 +2532,21 @@ async function openClosingModal(){
   };
   document.querySelectorAll("#modalRoot .clc").forEach(i=>i.oninput=recompute);
   const ph=$("clPhoto");ph.onchange=()=>{const f=ph.files[0];if(f){const u=URL.createObjectURL(f);$("clPrev").src=u;$("clPrev").classList.remove("hidden");}};
+  // تعبئة اسم الموظف من موظفي الفرع المختار
+  const loadEmps=async ()=>{
+    const sel=$("clEmp"); if(!sel) return; const brId=$("clBranch")?$("clBranch").value:"";
+    sel.innerHTML="<option value=''>"+L("اختر الموظف…")+"</option>";
+    try{
+      const s=await cRef().collection("users").get();
+      const seen=new Set();
+      s.forEach(d=>{ const u=d.data(); const nm=u.name||u.email; if(!nm||seen.has(nm)) return;
+        // موظفو هذا الفرع (أو غير المربوطين بفرع محدد)
+        if(!u.branchId || u.branchId===brId){ seen.add(nm); sel.insertAdjacentHTML("beforeend","<option value='"+esc(nm)+"'>"+esc(nm)+"</option>"); }
+      });
+    }catch(e){}
+  };
+  if($("clBranch")) $("clBranch").onchange=loadEmps;
+  loadEmps();
 }
 
 function reviewClosing(){
@@ -2497,18 +2561,24 @@ function reviewClosing(){
   const at=orders>0?net/orders:0;
   const cashVar=cashPhy-cashSys, cardVar=cardPhy-cardSys;
   const actualSales=cashPhy+cardPhy+online; // المبيعات الفعلية = مجموع المقبوضات الفعلية
+  const shift=g("clShift"), shiftEmp=g("clEmp");
   const data={branchId:branchSel?branchSel.value:"",branchName,
+    shift, shiftEmployee:shiftEmp,
     net, orders, at, cashSys, cashPhy, cashVar,
     cardSys, mada, visa, mastercard, cardPhy, cardVar,
     online, actualSales:net, receiptsTotal:(cashPhy+cardPhy+online), systemSales:net};
   const file=$("clPhoto").files[0];
   if(!data.branchId){toast("اختر الفرع","err");return false;}
+  if(!shift){toast(L("اختر الشفت"),"err");return false;}
+  if(!shiftEmp){toast(L("اختر اسم الموظف"),"err");return false;}
   if(!g("clNet")){toast("أدخل صافي المبيعات","err");return false;}
   if(!file){toast("أرفق صورة الإقفال","err");return false;}
   const vRow=(t,val)=>"<div class='review-row'><span>"+t+"</span><b style='color:"+(val>0?"var(--green)":val<0?"var(--red)":"inherit")+"'>"+(val>0?"+":"")+money(val)+"</b></div>";
   if(!canApproveSales()){
     openModal("تأكيد الإرسال",
       "<div class='review-row'><span>الفرع</span><b>"+esc(branchName)+"</b></div>"+
+      "<div class='review-row'><span>"+L("الشفت")+"</span><b>"+(shift==="مساء"?"🌙 ":"🌅 ")+esc(L(shift))+"</b></div>"+
+      "<div class='review-row'><span>"+L("اسم الموظف")+"</span><b>"+esc(shiftEmp)+"</b></div>"+
       "<div class='review-row'><span>صافي المبيعات</span><b>"+money(net)+"</b></div>"+
       "<div class='review-row'><span>عدد الطلبات</span><b>"+orders+"</b></div>"+
       "<div class='review-row'><span>متوسط الفاتورة</span><b>"+money(at)+"</b></div>"+
