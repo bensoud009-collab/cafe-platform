@@ -704,6 +704,9 @@ const EN={
   "حفظ الجرد":"Save count",
   "حفظ الصلاحيات":"Save permissions",
   "الشفت":"Shift","صباح":"Morning","مساء":"Evening","اسم الموظف":"Employee name","اختر الموظف…":"Choose employee…","الموظف":"Employee",
+  "مصاريف التشغيل حسب التكرار":"Operating expenses by recurrence","اسم المصروف":"Expense name","مثال: الإيجار":"e.g. Rent","نوع التكرار":"Recurrence type",
+  "يومي":"Daily","شهري":"Monthly","سنوي":"Yearly","النوع":"Type","شهري موحّد":"Unified monthly","أدخل اسم المصروف":"Enter expense name","حذف المصروف؟":"Delete this expense?",
+  "إضافة/ترتيب البطاقات":"Add / arrange cards","بطاقات الملخّص":"Summary cards","اختر البطاقات التي تظهر:":"Choose which cards to show:",
   "اختر الشفت":"Choose the shift","اختر اسم الموظف":"Choose the employee","كل الإقفالات":"All closings","ملخّص الشفتات":"Shifts summary",
   "قوالب جاهزة (اضغط لتعبئة الصلاحيات ثم عدّل يدوياً):":"Ready templates (tap to fill permissions, then edit manually):","تفريغ الكل":"Clear all","طُبّق القالب — عدّل ثم احفظ":"Template applied — edit then save",
   "موظف فرع":"Branch employee","مدير فرع":"Branch manager","مسؤول المستودع":"Warehouse keeper",
@@ -2335,7 +2338,7 @@ function pageSales(c){
   const toggle=el("div"); toggle.style.cssText="display:flex;gap:8px;margin-bottom:12px";
   const mkBtn=(key,label)=>{ const b=el("button","btn sm"+(window.__cloView===key?" primary":""),label); b.onclick=()=>{ window.__cloView=key; pageSales(c); }; return b; };
   toggle.appendChild(mkBtn("list","📋 "+L("كل الإقفالات")));
-  toggle.appendChild(mkBtn("shift","🌅🌙 "+L("ملخّص الشفتات")));
+  toggle.appendChild(mkBtn("shift",L("ملخّص الشفتات")));
   c.appendChild(toggle);
 
   if(window.__cloView==="shift"){ renderShiftSummary(c); return; }
@@ -2354,7 +2357,7 @@ function pageSales(c){
       const docs=[]; s.forEach(d=>{ if(!whIds.has(d.data().branchId)) docs.push(d); });
       if(!docs.length){tb.innerHTML="<tr><td colspan='5' class='muted'>لا توجد إقفالات</td></tr>";return;}
       docs.forEach(d=>{const x=d.data();
-        const shiftHtml = x.shift ? (x.shift==="مساء"?"<span style='color:#6366f1;font-weight:700'>🌙 "+L("مساء")+"</span>":"<span style='color:var(--amber);font-weight:700'>🌅 "+L("صباح")+"</span>") : "<span class='muted'>—</span>";
+        const shiftHtml = x.shift ? (x.shift==="مساء"?"<span style='color:#6366f1;font-weight:700'>"+L("مساء")+"</span>":"<span style='color:var(--amber);font-weight:700'>"+L("صباح")+"</span>") : "<span class='muted'>—</span>";
         const empName = x.shiftEmployee || x.employeeName || "—";
         const tr=el("tr",null,"<td>"+fmtDT(x.createdAt)+"</td><td>"+esc(x.branchName||"—")+"</td><td>"+shiftHtml+"</td><td>"+esc(empName)+"</td><td></td>");
         const b=statusActionBtn(x.status,{
@@ -2392,8 +2395,8 @@ function renderShiftSummary(c){
         const row=(icon,color,label,rec)=> rec ? "<div style='display:flex;justify-content:space-between;padding:12px 15px;border-top:1px solid var(--line);align-items:center'><span style='color:"+color+";font-weight:700'>"+icon+" "+label+" · "+esc(rec.emp)+"</span><b>"+money(rec.sales)+"</b></div>" : "<div style='display:flex;justify-content:space-between;padding:12px 15px;border-top:1px solid var(--line);align-items:center'><span class='muted'>"+icon+" "+label+"</span><span class='muted'>—</span></div>";
         return "<div style='border:1px solid var(--line);border-radius:14px;overflow:hidden;margin-bottom:12px;background:var(--surface);box-shadow:var(--shadow)'>"+
           "<div style='background:linear-gradient(135deg,#faf6ee,#fff);padding:12px 15px;font-weight:800;display:flex;justify-content:space-between;border-bottom:1px solid var(--line)'><span>"+esc(k)+"</span><span style='color:var(--brand)'>"+money(tot)+"</span></div>"+
-          row("🌅","var(--amber)",L("صباح"),am)+
-          row("🌙","#6366f1",L("مساء"),pm)+
+          row("","var(--amber)",L("صباح"),am)+
+          row("","#6366f1",L("مساء"),pm)+
         "</div>";
       }).join("");
     },()=>{ const box=$("shiftSummary"); if(box) box.innerHTML="<div class='card' style='color:var(--red)'>تعذّر التحميل</div>"; });
@@ -2408,7 +2411,7 @@ function viewClosing(id,x){
   const isNew = x.net!=null || x.orders!=null || x.cashSys!=null;
   let inner="<div class='review-row'><span>التاريخ والوقت</span><b>"+fmtDT(x.createdAt)+"</b></div>"+
     "<div class='review-row'><span>المُرسِل</span><b>"+esc(x.employeeName)+"</b></div>"+
-    (x.shift?"<div class='review-row'><span>"+L("الشفت")+"</span><b>"+(x.shift==="مساء"?"🌙 ":"🌅 ")+esc(L(x.shift))+"</b></div>":"")+
+    (x.shift?"<div class='review-row'><span>"+L("الشفت")+"</span><b>"+esc(L(x.shift))+"</b></div>":"")+
     (x.shiftEmployee?"<div class='review-row'><span>"+L("اسم الموظف")+"</span><b>"+esc(x.shiftEmployee)+"</b></div>":"");
   if(isNew){
     const net=Number(x.net)||0, orders=Number(x.orders)||0, at=Number(x.at)|| (orders>0?net/orders:0);
@@ -2484,7 +2487,7 @@ async function openClosingModal(){
   openModal("إرسال إقفال يومي",
     "<label class='field'><span>الفرع *</span><select id='clBranch'>"+brOptions+"</select></label>"+
     "<div class='grid' style='grid-template-columns:1fr 1fr'>"+
-      "<label class='field'><span>"+L("الشفت")+" *</span><select id='clShift'><option value='صباح'>🌅 "+L("صباح")+"</option><option value='مساء'>🌙 "+L("مساء")+"</option></select></label>"+
+      "<label class='field'><span>"+L("الشفت")+" *</span><select id='clShift'><option value='صباح'>"+L("صباح")+"</option><option value='مساء'>"+L("مساء")+"</option></select></label>"+
       "<label class='field'><span>"+L("اسم الموظف")+" *</span><select id='clEmp'><option value=''>"+L("اختر الموظف…")+"</option></select></label>"+
     "</div>"+
     // المبيعات
@@ -2577,7 +2580,7 @@ function reviewClosing(){
   if(!canApproveSales()){
     openModal("تأكيد الإرسال",
       "<div class='review-row'><span>الفرع</span><b>"+esc(branchName)+"</b></div>"+
-      "<div class='review-row'><span>"+L("الشفت")+"</span><b>"+(shift==="مساء"?"🌙 ":"🌅 ")+esc(L(shift))+"</b></div>"+
+      "<div class='review-row'><span>"+L("الشفت")+"</span><b>"+esc(L(shift))+"</b></div>"+
       "<div class='review-row'><span>"+L("اسم الموظف")+"</span><b>"+esc(shiftEmp)+"</b></div>"+
       "<div class='review-row'><span>صافي المبيعات</span><b>"+money(net)+"</b></div>"+
       "<div class='review-row'><span>عدد الطلبات</span><b>"+orders+"</b></div>"+
@@ -3867,51 +3870,111 @@ async function invWasteForm(c,br){
 
 /* ==================== المصروفات (لكل فرع) ==================== */
 const EXPENSE_CATEGORIES=["إيجار","رواتب","كهرباء وماء","صيانة","مشتريات","تسويق","أخرى"];
+// أنواع تكرار المصروف + معاملات التوحيد
+const EXP_RECUR=[{k:"daily",t:"يومي"},{k:"monthly",t:"شهري"},{k:"yearly",t:"سنوي"}];
+// بطاقات الملخّص الافتراضية (يمكن إخفاء/ترتيب)
+function expCardsPref(){ try{ const v=state.profile&&state.profile.expCards; if(Array.isArray(v)&&v.length) return v; }catch(e){} return ["yearly","monthly","daily"]; }
+
 async function pageExpenses(c, forcedBr, backFn){
   const back=backFn||(()=>{ if(cardsMode()) renderCardsHome(); else openPage("dashboard"); });
-  c.innerHTML=(forcedBr?"<button class='btn sm' id='exBack' style='margin-bottom:14px'>← رجوع</button>":"")+pageTitle("المصروفات","مصروفات الفرع التشغيلية");
+  const app=invApprover();
+  // زر (+) مربّع أعلى + عنوان
+  c.innerHTML=(forcedBr?"<button class='btn sm' id='exBack' style='margin-bottom:14px'>← رجوع</button>":"");
+  const head=el("div"); head.style.cssText="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:16px";
+  head.innerHTML="<button class='inv-add-sq' id='newExp' title='"+L("تسجيل مصروف")+"'>+</button>"+
+    "<div class='page-title' style='text-align:right;margin-bottom:0'><h2>"+L("المصروفات")+"</h2><p>"+L("مصاريف التشغيل حسب التكرار")+"</p></div>";
+  c.appendChild(head);
   if($("exBack"))$("exBack").onclick=back;
   let br;
   if(forcedBr){ br=forcedBr; c.insertAdjacentHTML("beforeend","<div class='muted' style='margin-bottom:12px'>الفرع: <b>"+esc(br.name)+"</b></div>"); }
   else { br=await invBranchBar(c, ()=>pageExpenses(c)); if(!br) return; }
-  const bar=el("div"); bar.style.marginBottom="16px"; bar.innerHTML="<button class='btn primary' id='newExp'>+ تسجيل مصروف</button>";
-  c.appendChild(bar); $("newExp").onclick=()=>expenseForm(c,br);
-  const app=invApprover();
-  const card=el("div","card");
+  if($("newExp"))$("newExp").onclick=()=>expenseForm(c,br);
+
+  // ===== الموظف: طلباتي =====
   if(!app){
-    card.innerHTML="<h3 style='margin-bottom:10px'>طلباتي</h3><table><thead><tr><th>التاريخ والوقت</th><th>الحالة</th></tr></thead><tbody id='exRows'><tr><td colspan='2' class='muted'>جارٍ التحميل…</td></tr></tbody></table>";
+    const card=el("div","card");
+    card.innerHTML="<h3 style='margin-bottom:10px'>طلباتي</h3><table><thead><tr><th>التاريخ والوقت</th><th>المصروف</th><th>الحالة</th></tr></thead><tbody id='exRows'><tr><td colspan='3' class='muted'>جارٍ التحميل…</td></tr></tbody></table>";
     c.appendChild(card);
     cRef().collection("expenses").where("byUid","==",state.user.uid).onSnapshot(s=>{
       const tb=$("exRows");if(!tb)return;const rows=[];s.forEach(d=>rows.push(d.data()));
       rows.sort((a,b)=>((b.at&&b.at.seconds)||0)-((a.at&&a.at.seconds)||0));
-      tb.innerHTML=rows.length?"":"<tr><td colspan='2' class='muted'>لا يوجد</td></tr>";
-      rows.forEach(x=>tb.appendChild(el("tr",null,"<td>"+fmtDT(x.at)+"</td><td>"+statusTag3(x.status)+"</td>")));
-    },()=>{const tb=$("exRows");if(tb)tb.innerHTML="<tr><td colspan='2' style='color:var(--red)'>تعذّر التحميل</td></tr>";});
+      tb.innerHTML=rows.length?"":"<tr><td colspan='3' class='muted'>لا يوجد</td></tr>";
+      rows.forEach(x=>tb.appendChild(el("tr",null,"<td>"+fmtDT(x.at)+"</td><td>"+esc(x.name||x.category||"—")+"</td><td>"+statusTag3(x.status)+"</td>")));
+    },()=>{const tb=$("exRows");if(tb)tb.innerHTML="<tr><td colspan='3' style='color:var(--red)'>تعذّر التحميل</td></tr>";});
     return;
   }
-  card.innerHTML="<table><thead><tr><th>التاريخ والوقت</th><th>الفئة</th><th>البيان</th><th>المبلغ</th><th>المُسجِّل</th><th>الحالة</th><th>إجراء</th></tr></thead><tbody id='exRows'><tr><td colspan='7' class='muted'>جارٍ التحميل…</td></tr></tbody></table>";
+
+  // ===== المالك/المدير: بطاقات الملخّص + الجدول =====
+  const kpisWrap=el("div"); kpisWrap.id="expKpis"; kpisWrap.style.cssText="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:10px"; c.appendChild(kpisWrap);
+  const addCardBtn=el("button","btn sm",""+L("إضافة/ترتيب البطاقات")); addCardBtn.style.cssText="width:100%;border:1.5px dashed var(--line);background:transparent;color:var(--muted);margin-bottom:18px;padding:12px";
+  addCardBtn.onclick=()=>expCardsManager(c,br); c.appendChild(addCardBtn);
+
+  const card=el("div","card");
+  card.innerHTML="<table><thead><tr><th>المصروف</th><th>المبلغ</th><th>"+L("النوع")+"</th><th>"+L("شهري موحّد")+"</th><th>الحالة</th></tr></thead><tbody id='exRows'><tr><td colspan='5' class='muted'>جارٍ التحميل…</td></tr></tbody></table>";
   c.appendChild(card);
+
   cRef().collection("expenses").where("branchId","==",br.id).onSnapshot(s=>{
     const tb=$("exRows");if(!tb)return;const rows=[];s.forEach(d=>rows.push({id:d.id,...d.data()}));
     rows.sort((a,b)=>((b.at&&b.at.seconds)||0)-((a.at&&a.at.seconds)||0));
-    tb.innerHTML=""; if(!rows.length){tb.innerHTML="<tr><td colspan='7' class='muted'>لا يوجد</td></tr>";return;}
+    // حساب الملخّصات الموحّدة (المعتمدة فقط)
+    let sumDaily=0,sumMonthly=0,sumYearly=0;
+    rows.forEach(x=>{ if(x.status!=="approved") return; const amt=Number(x.amount)||0; const r=x.recur||"monthly";
+      if(r==="daily") sumDaily+=amt; else if(r==="yearly") sumYearly+=amt; else sumMonthly+=amt; });
+    // البطاقات:
+    const yearly = sumMonthly*12 + sumDaily*360 + sumYearly;          // سنوي
+    const monthly= sumYearly/12 + sumMonthly + sumDaily*30;           // شهري
+    const daily  = sumYearly/360 + sumMonthly/30 + sumDaily;          // يومي
+    const vals={yearly,monthly,daily};
+    const meta={yearly:{t:L("سنوي"),col:"#6366f1"},monthly:{t:L("شهري"),col:"var(--brand)"},daily:{t:L("يومي"),col:"var(--green)"}};
+    const kw=$("expKpis"); if(kw){ kw.innerHTML=expCardsPref().map(k=>{ const m=meta[k]; if(!m) return "";
+      return "<div class='card' style='text-align:center;padding:16px'><div class='muted' style='font-size:13px;margin-bottom:6px'>"+m.t+"</div><div style='font-size:20px;font-weight:800;color:"+m.col+"'>"+money(vals[k])+"</div></div>";
+    }).join(""); }
+    // الجدول
+    tb.innerHTML=""; if(!rows.length){tb.innerHTML="<tr><td colspan='5' class='muted'>لا يوجد</td></tr>";return;}
     rows.forEach(x=>{
-      const tr=el("tr",null,"<td>"+fmtDT(x.at)+"</td><td class='muted'>"+esc(x.category||"—")+"</td><td>"+esc(x.note||"—")+"</td><td style='color:var(--red)'>"+money(x.amount||0)+"</td><td class='muted'>"+esc(x.byName||"")+"</td><td>"+statusTag3(x.status)+"</td><td></td>");
-      const act=tr.lastChild;
-      const v=el("button","btn sm","عرض");v.onclick=()=>viewExpense(x);act.appendChild(v);
-      if(x.status!=="approved"){ const ap=el("button","btn sm","اعتماد");ap.style.marginRight="6px";ap.onclick=()=>setExpenseStatus(x.id,x,"approved");act.appendChild(ap); }
-      if(x.status!=="rejected"){ const rj=el("button","btn sm danger","رفض");rj.style.marginRight="6px";rj.onclick=()=>setExpenseStatus(x.id,x,"rejected");act.appendChild(rj); }
+      const amt=Number(x.amount)||0; const r=x.recur||"monthly";
+      const unified = r==="daily"?amt*30 : r==="yearly"?amt/12 : amt;
+      const typeLabel = r==="daily"?L("يومي"):r==="yearly"?L("سنوي"):L("شهري");
+      const typeCol = r==="daily"?"var(--green)":r==="yearly"?"#6366f1":"var(--brand)";
+      const tr=el("tr",null,"<td><b>"+esc(x.name||x.category||"—")+"</b></td><td style='color:var(--red)'>"+money(amt)+"</td><td><span style='font-weight:700;color:"+typeCol+"'>"+typeLabel+"</span></td><td class='muted'>"+money(unified)+"</td><td></td>");
+      const b=statusActionBtn(x.status,{
+        onView:()=>viewExpense(x),
+        onApprove:()=>setExpenseStatus(x.id,x,"approved"),
+        onReject:()=>setExpenseStatus(x.id,x,"rejected"),
+        onDelete:()=>{ if(confirm(L("حذف المصروف؟"))){ cRef().collection("expenses").doc(x.id).delete(); logAction("delete_expense",(x.name||"")); } },
+        canDelete:(state.role==="owner"||state.role==="super")
+      });
+      tr.lastChild.appendChild(b);
       tb.appendChild(tr);
     });
-  },()=>{const tb=$("exRows");if(tb)tb.innerHTML="<tr><td colspan='7' style='color:var(--red)'>تعذّر التحميل</td></tr>";});
+  },()=>{const tb=$("exRows");if(tb)tb.innerHTML="<tr><td colspan='5' style='color:var(--red)'>تعذّر التحميل</td></tr>";});
 }
+
+// مدير بطاقات الملخّص: إظهار/إخفاء + ترتيب
+function expCardsManager(c,br){
+  const all=[{k:"yearly",t:L("سنوي")},{k:"monthly",t:L("شهري")},{k:"daily",t:L("يومي")}];
+  const cur=expCardsPref();
+  const rows=all.map(a=>{ const on=cur.includes(a.k);
+    return "<label class='field' style='display:flex;align-items:center;gap:10px;cursor:pointer;padding:10px;border:1px solid var(--line);border-radius:10px;margin-bottom:8px'><input type='checkbox' class='exc-ck' data-k='"+a.k+"' "+(on?"checked":"")+"><span style='font-weight:700'>"+a.t+"</span></label>";
+  }).join("");
+  openModal(L("بطاقات الملخّص"),
+    "<div class='muted' style='font-size:13px;margin-bottom:10px'>"+L("اختر البطاقات التي تظهر:")+"</div>"+rows,
+    "حفظ", async ()=>{
+      const sel=[]; document.querySelectorAll("#modalRoot .exc-ck").forEach(ck=>{ if(ck.checked) sel.push(ck.dataset.k); });
+      try{ await cRef().collection("users").doc(state.user.uid).update({expCards:sel}); if(state.profile) state.profile.expCards=sel; }catch(e){}
+      toast(L("تم الحفظ"),"ok"); pageExpenses(c,br); return true;
+    });
+}
+
 function viewExpense(x){
+  const r=x.recur||"monthly"; const typeLabel=r==="daily"?L("يومي"):r==="yearly"?L("سنوي"):L("شهري");
   openModal(L("تفاصيل المصروف — ")+esc(x.branchName||""),
     "<div class='review-row'><span>التاريخ والوقت</span><b>"+fmtDT(x.at)+"</b></div>"+
     "<div class='review-row'><span>الفرع</span><b>"+esc(x.branchName||"")+"</b></div>"+
-    "<div class='review-row'><span>الفئة</span><b>"+esc(x.category||"—")+"</b></div>"+
-    "<div class='review-row'><span>البيان</span><b>"+esc(x.note||"—")+"</b></div>"+
+    "<div class='review-row'><span>المصروف</span><b>"+esc(x.name||x.category||"—")+"</b></div>"+
+    "<div class='review-row'><span>"+L("النوع")+"</span><b>"+typeLabel+"</b></div>"+
     "<div class='review-row'><span>المبلغ</span><b style='color:var(--red)'>"+money(x.amount||0)+"</b></div>"+
+    (x.note?"<div class='review-row'><span>البيان</span><b>"+esc(x.note)+"</b></div>":"")+
     "<div class='review-row'><span>المُسجِّل</span><b>"+esc(x.byName||"")+"</b></div>"+
     "<div class='review-row'><span>الحالة</span>"+statusTag3(x.status)+"</div>",
     "تم",()=>true,true);
@@ -3919,23 +3982,37 @@ function viewExpense(x){
 async function setExpenseStatus(id,x,newStatus){
   if(x.status===newStatus) return;
   await cRef().collection("expenses").doc(id).update({status:newStatus,approvedBy:state.user.uid,approvedAt:now()});
-  logAction(newStatus==="approved"?"approve_expense":newStatus==="rejected"?"reject_expense":"update_expense",(x.category||"")+" "+money(x.amount||0)+" — "+(x.branchName||""));
+  logAction(newStatus==="approved"?"approve_expense":newStatus==="rejected"?"reject_expense":"update_expense",(x.name||x.category||"")+" "+money(x.amount||0)+" — "+(x.branchName||""));
   toast(newStatus==="approved"?"تم اعتماد المصروف":newStatus==="rejected"?"تم رفض المصروف":"تم التحديث","ok");
 }
 async function expenseForm(c,br){
-  const catOpts=EXPENSE_CATEGORIES.map(r=>"<option value='"+esc(r)+"'>"+esc(r)+"</option>").join("");
   openModal(L("تسجيل مصروف — ")+esc(br.name),
-    "<label class='field'><span>الفئة *</span><select id='exCat'>"+catOpts+"</select></label>"+
+    "<label class='field'><span>"+L("اسم المصروف")+" *</span><input id='exName' class='input' placeholder='"+L("مثال: الإيجار")+"'></label>"+
     "<label class='field'><span>المبلغ *</span><input id='exAmount' class='input' type='number' inputmode='decimal' placeholder='0.00'></label>"+
+    "<label class='field'><span>"+L("نوع التكرار")+" *</span>"+
+      "<div class='seg-recur' style='display:flex;gap:6px'>"+
+        EXP_RECUR.map((r,i)=>"<button type='button' class='recur-opt"+(i===1?" active":"")+"' data-r='"+r.k+"' style='flex:1;padding:11px;border:1px solid var(--line);border-radius:10px;font-weight:700;background:"+(i===1?"var(--brand)":"var(--surface)")+";color:"+(i===1?"#fff":"var(--text)")+";cursor:pointer'>"+L(r.t)+"</button>").join("")+
+      "</div></label>"+
     "<label class='field'><span>البيان (اختياري)</span><input id='exNote' class='input' placeholder='وصف المصروف'></label>"+
-    "<div class='muted' style='font-size:12px'>يُرسل للإدارة، ويُحتسب ضمن صافي الربح بعد الاعتماد.</div>",
+    "<div class='muted' style='font-size:12px'>يُرسل للإدارة، ويُحتسب ضمن الملخّص بعد الاعتماد.</div>",
     "إرسال", async ()=>{
+      const name=$("exName").value.trim();
       const amount=parseFloat($("exAmount").value)||0;
+      if(!name){toast(L("أدخل اسم المصروف"),"err");return false;}
       if(amount<=0){toast("أدخل المبلغ","err");return false;}
-      await cRef().collection("expenses").add({branchId:br.id,branchName:br.name,category:$("exCat").value,amount,note:$("exNote").value.trim(),status:"pending",byName:state.profile.name||state.user.email,byUid:state.user.uid,date:todayStr(),at:now()});
-      logAction("expense",$("exCat").value+" "+money(amount)+" — "+br.name);
+      const recBtn=document.querySelector("#modalRoot .recur-opt.active");
+      const recur=recBtn?recBtn.dataset.r:"monthly";
+      await cRef().collection("expenses").add({branchId:br.id,branchName:br.name,name,amount,recur,note:$("exNote").value.trim(),status:"pending",byName:state.profile.name||state.user.email,byUid:state.user.uid,date:todayStr(),at:now()});
+      logAction("expense",name+" "+money(amount)+" — "+br.name);
       toast("تم إرسال المصروف","ok"); return true;
     });
+  // تفعيل الزر الذكي
+  setTimeout(()=>{
+    document.querySelectorAll("#modalRoot .recur-opt").forEach(b=>{ b.onclick=()=>{
+      document.querySelectorAll("#modalRoot .recur-opt").forEach(o=>{ o.classList.remove("active"); o.style.background="var(--surface)"; o.style.color="var(--text)"; });
+      b.classList.add("active"); b.style.background="var(--brand)"; b.style.color="#fff";
+    }; });
+  },30);
 }
 
 
