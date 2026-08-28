@@ -5425,7 +5425,7 @@ function openModal(title,bodyHtml,okLabel,onOk,hideCancel,maxWidth){
   $("modalRoot").appendChild(ov);
   $("mClose").onclick=closeModal;
   if($("mCancel"))$("mCancel").onclick=closeModal;
-  if($("mOk"))$("mOk").onclick=async()=>{const b=$("mOk");b.disabled=true;const keep=await onOk();b.disabled=false;if(keep!==false)closeModal();};
+  if($("mOk"))$("mOk").onclick=async()=>{const b=$("mOk");b.disabled=true;let keep;try{keep=await onOk();}catch(e){console.error(e);toast(L("حدث خطأ — حاول مجدداً"),"err");keep=false;}b.disabled=false;if(keep!==false)closeModal();};
   ov.addEventListener("mousedown",e=>{if(e.target===ov)closeModal();});
   setTimeout(()=>translateTree(ov),0);
 }
