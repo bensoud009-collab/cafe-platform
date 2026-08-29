@@ -706,7 +706,7 @@ const EN={
   "الشفت":"Shift","صباح":"Morning","مساء":"Evening","اسم الموظف":"Employee name","اختر الموظف…":"Choose employee…","الموظف":"Employee",
   "مصاريف التشغيل حسب التكرار":"Operating expenses by recurrence","اسم المصروف":"Expense name","مثال: الإيجار":"e.g. Rent","نوع التكرار":"Recurrence type",
   "يومي":"Daily","شهري":"Monthly","سنوي":"Yearly","النوع":"Type","شهري موحّد":"Unified monthly","أدخل اسم المصروف":"Enter expense name","حذف المصروف؟":"Delete this expense?",
-  "إضافة/ترتيب البطاقات":"Add / arrange cards","بطاقات الملخّص":"Summary cards","اختر البطاقات التي تظهر:":"Choose which cards to show:",
+  "إضافة/ترتيب البطاقات":"Add / arrange cards","بطاقات الملخّص":"Summary cards","اختر البطاقات التي تظهر:":"Choose which cards to show:","هذا القسم خاص بمالك الشركة فقط.":"This section is for the company owner only.",
   "اختر الشفت":"Choose the shift","اختر اسم الموظف":"Choose the employee","كل الإقفالات":"All closings","ملخّص الشفتات":"Shifts summary",
   "قوالب جاهزة (اضغط لتعبئة الصلاحيات ثم عدّل يدوياً):":"Ready templates (tap to fill permissions, then edit manually):","تفريغ الكل":"Clear all","طُبّق القالب — عدّل ثم احفظ":"Template applied — edit then save",
   "موظف فرع":"Branch employee","مدير فرع":"Branch manager","مسؤول المستودع":"Warehouse keeper",
@@ -1454,7 +1454,10 @@ function renderSuperNav(){
 }
 function renderCompanyNav(){
   const nav=$("navList");nav.innerHTML="";
-  MODULES.forEach(m=>{ if(moduleHidden(m.key)&&!bypassMaintenance()) return; if(m.key==="staff" || m.key==="recipes" || (m.key==="inventory"&&isWarehouseKeeper()) || can(m.key,"view")||can(m.key,"add")) nav.appendChild(navButton(t("nav_"+m.key)||m.name,m.icon,m.key)); });
+  const isOwner=(state.role==="owner"||state.role==="super"||impersonation.active);
+  MODULES.forEach(m=>{ if(moduleHidden(m.key)&&!bypassMaintenance()) return;
+    if(m.key==="expenses" && !isOwner) return; // المصروفات لمالك الشركة فقط
+    if(m.key==="staff" || m.key==="recipes" || (m.key==="inventory"&&isWarehouseKeeper()) || can(m.key,"view")||can(m.key,"add")) nav.appendChild(navButton(t("nav_"+m.key)||m.name,m.icon,m.key)); });
 }
 
 // مولّد كلمة مرور عشوائية قوية
@@ -1525,6 +1528,8 @@ function renderCardsHome(){
   MODULES.forEach(m=>{
     if(m.key==="settings") return; // الإعدادات للمالك
     if(moduleHidden(m.key)&&!bypassMaintenance()) return; // مخفي عن الشركات
+    const isOwner=(state.role==="owner"||state.role==="super"||impersonation.active);
+    if(m.key==="expenses" && !isOwner) return; // المصروفات لمالك الشركة فقط
     const allowed = (m.key==="staff"||m.key==="recipes"||(m.key==="inventory"&&isWarehouseKeeper())||can(m.key,"view")||can(m.key,"add"));
     if(!allowed) return;
     const card=el("div","card"); card.style.cssText="cursor:pointer;min-height:120px;text-align:center;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px";
@@ -2277,7 +2282,8 @@ function statusActionBtn(status, opts){
   b.onclick=(e)=>{ e.stopPropagation();
     const items=[];
     if(opts.onView) items.push({label:L("معاينة"), fn:opts.onView});
-    if(!isPending){
+    // إظهار الاعتماد/الرفض: دائماً إن كان approveWhenPending، أو بعد الحسم كالمعتاد
+    if(!isPending || opts.approveWhenPending){
       if(status!=="approved" && opts.onApprove) items.push({label:L("اعتماد"), fn:opts.onApprove});
       if(status!=="rejected" && opts.onReject) items.push({label:L("رفض"), danger:true, fn:opts.onReject});
       if(opts.canDelete && opts.onDelete) items.push({label:L("حذف"), danger:true, fn:opts.onDelete});
@@ -3877,7 +3883,14 @@ function expCardsPref(){ try{ const v=state.profile&&state.profile.expCards; if(
 
 async function pageExpenses(c, forcedBr, backFn){
   const back=backFn||(()=>{ if(cardsMode()) renderCardsHome(); else openPage("dashboard"); });
-  const app=invApprover();
+  // المصروفات خاصة بمالك الشركة فقط
+  const isOwner=(state.role==="owner"||state.role==="super"||impersonation.active);
+  if(!isOwner){
+    c.innerHTML=(forcedBr?"<button class='btn sm' id='exBack' style='margin-bottom:14px'>← رجوع</button>":"")+pageTitle("المصروفات","")+
+      "<div class='card muted' style='text-align:center;padding:30px'>"+L("هذا القسم خاص بمالك الشركة فقط.")+"</div>";
+    if($("exBack"))$("exBack").onclick=back;
+    return;
+  }
   // زر (+) مربّع أعلى + عنوان
   c.innerHTML=(forcedBr?"<button class='btn sm' id='exBack' style='margin-bottom:14px'>← رجوع</button>":"");
   const head=el("div"); head.style.cssText="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:16px";
@@ -3890,21 +3903,7 @@ async function pageExpenses(c, forcedBr, backFn){
   else { br=await invBranchBar(c, ()=>pageExpenses(c)); if(!br) return; }
   if($("newExp"))$("newExp").onclick=()=>expenseForm(c,br);
 
-  // ===== الموظف: طلباتي =====
-  if(!app){
-    const card=el("div","card");
-    card.innerHTML="<h3 style='margin-bottom:10px'>طلباتي</h3><table><thead><tr><th>التاريخ والوقت</th><th>المصروف</th><th>الحالة</th></tr></thead><tbody id='exRows'><tr><td colspan='3' class='muted'>جارٍ التحميل…</td></tr></tbody></table>";
-    c.appendChild(card);
-    cRef().collection("expenses").where("byUid","==",state.user.uid).onSnapshot(s=>{
-      const tb=$("exRows");if(!tb)return;const rows=[];s.forEach(d=>rows.push(d.data()));
-      rows.sort((a,b)=>((b.at&&b.at.seconds)||0)-((a.at&&a.at.seconds)||0));
-      tb.innerHTML=rows.length?"":"<tr><td colspan='3' class='muted'>لا يوجد</td></tr>";
-      rows.forEach(x=>tb.appendChild(el("tr",null,"<td>"+fmtDT(x.at)+"</td><td>"+esc(x.name||x.category||"—")+"</td><td>"+statusTag3(x.status)+"</td>")));
-    },()=>{const tb=$("exRows");if(tb)tb.innerHTML="<tr><td colspan='3' style='color:var(--red)'>تعذّر التحميل</td></tr>";});
-    return;
-  }
-
-  // ===== المالك/المدير: بطاقات الملخّص + الجدول =====
+  // ===== بطاقات الملخّص + الجدول (المالك) =====
   const kpisWrap=el("div"); kpisWrap.id="expKpis"; kpisWrap.style.cssText="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:10px"; c.appendChild(kpisWrap);
   const addCardBtn=el("button","btn sm",""+L("إضافة/ترتيب البطاقات")); addCardBtn.style.cssText="width:100%;border:1.5px dashed var(--line);background:transparent;color:var(--muted);margin-bottom:18px;padding:12px";
   addCardBtn.onclick=()=>expCardsManager(c,br); c.appendChild(addCardBtn);
@@ -3916,14 +3915,13 @@ async function pageExpenses(c, forcedBr, backFn){
   cRef().collection("expenses").where("branchId","==",br.id).onSnapshot(s=>{
     const tb=$("exRows");if(!tb)return;const rows=[];s.forEach(d=>rows.push({id:d.id,...d.data()}));
     rows.sort((a,b)=>((b.at&&b.at.seconds)||0)-((a.at&&a.at.seconds)||0));
-    // حساب الملخّصات الموحّدة (المعتمدة فقط)
+    // حساب الملخّصات الموحّدة (كل المصروفات — معتمدة تلقائياً)
     let sumDaily=0,sumMonthly=0,sumYearly=0;
-    rows.forEach(x=>{ if(x.status!=="approved") return; const amt=Number(x.amount)||0; const r=x.recur||"monthly";
+    rows.forEach(x=>{ const amt=Number(x.amount)||0; const r=x.recur||"monthly";
       if(r==="daily") sumDaily+=amt; else if(r==="yearly") sumYearly+=amt; else sumMonthly+=amt; });
-    // البطاقات:
-    const yearly = sumMonthly*12 + sumDaily*360 + sumYearly;          // سنوي
-    const monthly= sumYearly/12 + sumMonthly + sumDaily*30;           // شهري
-    const daily  = sumYearly/360 + sumMonthly/30 + sumDaily;          // يومي
+    const yearly = sumMonthly*12 + sumDaily*360 + sumYearly;
+    const monthly= sumYearly/12 + sumMonthly + sumDaily*30;
+    const daily  = sumYearly/360 + sumMonthly/30 + sumDaily;
     const vals={yearly,monthly,daily};
     const meta={yearly:{t:L("سنوي"),col:"#6366f1"},monthly:{t:L("شهري"),col:"var(--brand)"},daily:{t:L("يومي"),col:"var(--green)"}};
     const kw=$("expKpis"); if(kw){ kw.innerHTML=expCardsPref().map(k=>{ const m=meta[k]; if(!m) return "";
@@ -3937,13 +3935,12 @@ async function pageExpenses(c, forcedBr, backFn){
       const typeLabel = r==="daily"?L("يومي"):r==="yearly"?L("سنوي"):L("شهري");
       const typeCol = r==="daily"?"var(--green)":r==="yearly"?"#6366f1":"var(--brand)";
       const tr=el("tr",null,"<td><b>"+esc(x.name||x.category||"—")+"</b></td><td style='color:var(--red)'>"+money(amt)+"</td><td><span style='font-weight:700;color:"+typeCol+"'>"+typeLabel+"</span></td><td class='muted'>"+money(unified)+"</td><td></td>");
-      const b=statusActionBtn(x.status,{
-        onView:()=>viewExpense(x),
-        onApprove:()=>setExpenseStatus(x.id,x,"approved"),
-        onReject:()=>setExpenseStatus(x.id,x,"rejected"),
-        onDelete:()=>{ if(confirm(L("حذف المصروف؟"))){ cRef().collection("expenses").doc(x.id).delete(); logAction("delete_expense",(x.name||"")); } },
-        canDelete:(state.role==="owner"||state.role==="super")
-      });
+      // زر إجراء بسيط: معاينة / حذف (لا اعتماد — تلقائي)
+      const b=el("button","btn sm","⋯");
+      b.onclick=(e)=>{ e.stopPropagation(); openActionMenu(b,[
+        {label:L("معاينة"), fn:()=>viewExpense(x)},
+        {label:L("حذف"), danger:true, fn:()=>{ if(confirm(L("حذف المصروف؟"))){ cRef().collection("expenses").doc(x.id).delete(); logAction("delete_expense",(x.name||"")); } }}
+      ]); };
       tr.lastChild.appendChild(b);
       tb.appendChild(tr);
     });
@@ -4002,9 +3999,9 @@ async function expenseForm(c,br){
       if(amount<=0){toast("أدخل المبلغ","err");return false;}
       const recBtn=document.querySelector("#modalRoot .recur-opt.active");
       const recur=recBtn?recBtn.dataset.r:"monthly";
-      await cRef().collection("expenses").add({branchId:br.id,branchName:br.name,name,amount,recur,note:$("exNote").value.trim(),status:"pending",byName:state.profile.name||state.user.email,byUid:state.user.uid,date:todayStr(),at:now()});
+      await cRef().collection("expenses").add({branchId:br.id,branchName:br.name,name,amount,recur,note:$("exNote").value.trim(),status:"approved",byName:state.profile.name||state.user.email,byUid:state.user.uid,date:todayStr(),at:now()});
       logAction("expense",name+" "+money(amount)+" — "+br.name);
-      toast("تم إرسال المصروف","ok"); return true;
+      toast(L("تم حفظ المصروف"),"ok"); return true;
     });
   // تفعيل الزر الذكي
   setTimeout(()=>{
