@@ -711,6 +711,7 @@ const EN={
   "تفاصيل ":"Details ","إجمالي المبيعات (net)":"Total sales (net)","عدد الإقفالات":"Closings count","إجمالي الفائض":"Total surplus","إجمالي العجز":"Total deficit","الهدف الشهري":"Monthly target","المتبقّي للهدف":"Remaining to target",
   "تارقت الفرع (شهري)":"Branch target (monthly)","تارقت فرع ":"Target for ","هدف شفت الصباح":"Morning shift target","هدف شفت المساء":"Evening shift target","تم حفظ التارقت":"Target saved",
   "اقتراح تلقائي:":"Auto suggestion:","مبني على متوسط آخر الأشهر +10%":"Based on recent months' average +10%","تطبيق":"Apply",
+  "تغيير الشفت":"Change shift","الشفت الحالي":"Current shift","الشفت الجديد":"New shift","تم تغيير الشفت":"Shift changed","لا تغيير":"No change",
   "اختر الشفت":"Choose the shift","اختر اسم الموظف":"Choose the employee","كل الإقفالات":"All closings","ملخّص الشفتات":"Shifts summary",
   "قوالب جاهزة (اضغط لتعبئة الصلاحيات ثم عدّل يدوياً):":"Ready templates (tap to fill permissions, then edit manually):","تفريغ الكل":"Clear all","طُبّق القالب — عدّل ثم احفظ":"Template applied — edit then save",
   "موظف فرع":"Branch employee","مدير فرع":"Branch manager","مسؤول المستودع":"Warehouse keeper",
@@ -2362,6 +2363,8 @@ function statusActionBtn(status, opts){
   b.onclick=(e)=>{ e.stopPropagation();
     const items=[];
     if(opts.onView) items.push({label:L("معاينة"), fn:opts.onView});
+    // خيارات إضافية مخصّصة (مثل تغيير الشفت)
+    if(Array.isArray(opts.extraItems)) opts.extraItems.forEach(it=>items.push(it));
     // إظهار الاعتماد/الرفض: دائماً إن كان approveWhenPending، أو بعد الحسم كالمعتاد
     if(!isPending || opts.approveWhenPending){
       if(status!=="approved" && opts.onApprove) items.push({label:L("اعتماد"), fn:opts.onApprove});
@@ -2451,7 +2454,8 @@ function pageSales(c){
           onApprove:()=>setClosingStatus(d.id,x,"approved"),
           onReject:()=>setClosingStatus(d.id,x,"rejected"),
           onDelete:()=>deleteClosing(d.id,x),
-          canDelete:canDeleteClosing()
+          canDelete:canDeleteClosing(),
+          extraItems: canApproveSales() ? [{label:L("تغيير الشفت"), fn:()=>changeShiftModal(d.id,x)}] : []
         });
         tr.lastChild.appendChild(b);
         tb.appendChild(tr);
@@ -2459,6 +2463,27 @@ function pageSales(c){
     },()=>{const tb=$("clRows");if(tb)tb.innerHTML="<tr><td colspan='5' style='color:var(--red)'>تعذّر التحميل</td></tr>";});
   });
 }
+
+// تغيير شفت إقفال (المالك/المدير) — المبيعات تنتقل تلقائياً للشفت الجديد
+function changeShiftModal(id, x){
+  const cur=x.shift||"صباح";
+  openModal(L("تغيير الشفت"),
+    "<div class='muted' style='font-size:13px;margin-bottom:10px'>"+esc(x.branchName||"")+" · "+fmtDT(x.createdAt)+"</div>"+
+    "<div class='review-row'><span>"+L("الشفت الحالي")+"</span><b>"+esc(L(cur))+"</b></div>"+
+    "<label class='field' style='margin-top:10px'><span>"+L("الشفت الجديد")+"</span><select id='csShift'>"+
+      "<option value='صباح' "+(cur==="صباح"?"selected":"")+">"+L("صباح")+"</option>"+
+      "<option value='مساء' "+(cur==="مساء"?"selected":"")+">"+L("مساء")+"</option>"+
+    "</select></label>",
+    "حفظ", async ()=>{
+      const ns=$("csShift").value;
+      if(ns===cur){ toast(L("لا تغيير"),""); return true; }
+      await cRef().collection("dailyClosings").doc(id).update({shift:ns});
+      logAction("change_shift",(x.branchName||"")+" — "+L(cur)+" → "+L(ns));
+      toast(L("تم تغيير الشفت"),"ok");
+      return true;
+    });
+}
+window.changeShiftModal=changeShiftModal;
 
 // ملخّص الشفتات: تجميع الإقفالات حسب اليوم (صباح/مساء) مع الموظف والمبيعات
 function renderShiftSummary(c){
@@ -3043,9 +3068,8 @@ function branchInventoryPage(c, br){
   c.classList.remove("inv-hub"); c.innerHTML="";
   const back=el("button","btn sm","← رجوع"); back.style.marginBottom="14px"; back.onclick=()=>openPage("inventory"); c.appendChild(back);
   c.insertAdjacentHTML("beforeend","<div class='page-title'><h2>"+esc(br.name)+"</h2><p>"+L("تسجيل ومتابعة مخزون الفرع")+"</p></div>");
-  // التبويبات: مبيعات · جرد · طلب · تالف · تحويل
+  // التبويبات: جرد · طلب · تالف · تحويل (بدون المبيعات — المخزون للمنتجات والجرد فقط)
   const tabs=[
-    {k:"sales",  t:L("المبيعات")},
     {k:"count",  t:L("الجرد")},
     {k:"orders", t:L("الطلبات")},
     {k:"waste",  t:L("التالف")},
@@ -3056,15 +3080,14 @@ function branchInventoryPage(c, br){
   c.appendChild(seg);
   const panel=el("div"); panel.id="brInvPanel"; c.appendChild(panel);
   const activate=(k)=>{ tabs.forEach(t=>{ const b=$("seg_"+t.k); if(b) b.classList.toggle("active",t.k===k); });
-    if(k==="sales") invSales(panel, br, ()=>branchInventoryPage(c,br));
-    else if(k==="count") invCount(panel, br, ()=>branchInventoryPage(c,br));
+    if(k==="count") invCount(panel, br, ()=>branchInventoryPage(c,br));
     else if(k==="orders") renderBranchOrders(panel, br);
     else if(k==="waste") invWaste(panel, br, ()=>branchInventoryPage(c,br));
     else if(k==="transfers") renderBranchTransfers(panel, br);
     setTimeout(()=>{ if(typeof translateTree==="function") translateTree(panel); },40);
   };
   tabs.forEach(t=>{ const b=$("seg_"+t.k); if(b) b.onclick=()=>activate(t.k); });
-  activate("sales");
+  activate("count");
   // شارات العدد المعلّق
   const badge=(coll,key,filter)=>cRef().collection(coll).onSnapshot(s=>{ let n=0; s.forEach(d=>{const y=d.data(); if(!filter(y))return; if(y.status!=="approved"&&y.status!=="rejected")n++;}); const b=$("segbadge_"+key); if(b){ if(n){b.textContent=n;b.style.display="inline-flex";}else b.style.display="none"; } },()=>{});
   badge("stockOrders","orders",y=>y.branchId===br.id);
