@@ -707,6 +707,10 @@ const EN={
   "مصاريف التشغيل حسب التكرار":"Operating expenses by recurrence","اسم المصروف":"Expense name","مثال: الإيجار":"e.g. Rent","نوع التكرار":"Recurrence type",
   "يومي":"Daily","شهري":"Monthly","سنوي":"Yearly","النوع":"Type","شهري موحّد":"Unified monthly","أدخل اسم المصروف":"Enter expense name","حذف المصروف؟":"Delete this expense?",
   "إضافة/ترتيب البطاقات":"Add / arrange cards","بطاقات الملخّص":"Summary cards","اختر البطاقات التي تظهر:":"Choose which cards to show:","هذا القسم خاص بمالك الشركة فقط.":"This section is for the company owner only.",
+  "إظهار بطاقات الشفتات":"Show shift cards","شفت الصباح":"Morning shift","شفت المساء":"Evening shift","من هدف ":"of target ","لم يُحدّد هدف":"No target set",
+  "تفاصيل ":"Details ","إجمالي المبيعات (net)":"Total sales (net)","عدد الإقفالات":"Closings count","إجمالي الفائض":"Total surplus","إجمالي العجز":"Total deficit","الهدف الشهري":"Monthly target","المتبقّي للهدف":"Remaining to target",
+  "تارقت الفرع (شهري)":"Branch target (monthly)","تارقت فرع ":"Target for ","هدف شفت الصباح":"Morning shift target","هدف شفت المساء":"Evening shift target","تم حفظ التارقت":"Target saved",
+  "اقتراح تلقائي:":"Auto suggestion:","مبني على متوسط آخر الأشهر +10%":"Based on recent months' average +10%","تطبيق":"Apply",
   "اختر الشفت":"Choose the shift","اختر اسم الموظف":"Choose the employee","كل الإقفالات":"All closings","ملخّص الشفتات":"Shifts summary",
   "قوالب جاهزة (اضغط لتعبئة الصلاحيات ثم عدّل يدوياً):":"Ready templates (tap to fill permissions, then edit manually):","تفريغ الكل":"Clear all","طُبّق القالب — عدّل ثم احفظ":"Template applied — edit then save",
   "موظف فرع":"Branch employee","مدير فرع":"Branch manager","مسؤول المستودع":"Warehouse keeper",
@@ -2106,6 +2110,71 @@ const DASH_WIDGETS = {
 };
 let dashReorder=false;
 
+// لون متدرّج حسب نسبة الإنجاز: 0% أحمر → 100% أخضر
+function targetColor(pct){ const p=Math.max(0,Math.min(100,pct))/100;
+  const r=Math.round(229 + (139-229)*p), g=Math.round(72 + (191-72)*p), b=Math.round(77 + (63-77)*p);
+  return "rgb("+r+","+g+","+b+")"; }
+
+// جمع مبيعات الشفتات لكل فرع للشهر الحالي + التارقت
+async function computeShiftSales(){
+  const cur=monthRange(0);
+  const res={}; // branchId -> {am:{sales,surplus,deficit,count}, pm:{...}, name}
+  const ensure=(bid,name)=>{ if(!res[bid]) res[bid]={name:name||"",am:{sales:0,surplus:0,deficit:0,count:0},pm:{sales:0,surplus:0,deficit:0,count:0}}; return res[bid]; };
+  try{
+    const s=await cRef().collection("dailyClosings").where("date",">=",cur.start).where("date","<",cur.next).get();
+    s.forEach(d=>{ const x=d.data(); if(x.status==="rejected") return;
+      const bid=x.branchId||"?"; const o=ensure(bid,x.branchName);
+      const slot = x.shift==="مساء" ? o.pm : o.am; // الافتراضي صباح
+      slot.sales += Number(x.net)||0; slot.count++;
+      const cv=Number(x.cashVar)||0; if(cv>0) slot.surplus+=cv; else if(cv<0) slot.deficit+=Math.abs(cv);
+    });
+  }catch(e){ console.error(e); }
+  return res;
+}
+
+// بطاقتا الصباح/المساء في لوحة التحكم
+async function renderDashShiftCards(wrap){
+  wrap.innerHTML="<div class='muted' style='font-size:13px'>"+L("جارٍ التحميل…")+"</div>";
+  const [sales, targets] = await Promise.all([computeShiftSales(), loadShiftTargets()]);
+  // تجميع كل الفروع (للمالك) — نجمع الإجماليات
+  let amSales=0,pmSales=0,amTarget=0,pmTarget=0, amSurplus=0,amDeficit=0,pmSurplus=0,pmDeficit=0, amCount=0,pmCount=0;
+  Object.keys(sales).forEach(bid=>{ const o=sales[bid]; amSales+=o.am.sales; pmSales+=o.pm.sales; amSurplus+=o.am.surplus; amDeficit+=o.am.deficit; pmSurplus+=o.pm.surplus; pmDeficit+=o.pm.deficit; amCount+=o.am.count; pmCount+=o.pm.count;
+    const t=targets[bid]||{}; amTarget+=Number(t.am)||0; pmTarget+=Number(t.pm)||0; });
+  const mk=(title,sales,target,surplus,deficit,count)=>{
+    const pct = target>0 ? Math.round(sales/target*100) : 0;
+    const col = targetColor(pct);
+    const remain = Math.max(0, target-sales);
+    return "<div class='card shift-card' style='cursor:pointer;position:relative' data-title='"+esc(title)+"' data-sales='"+sales+"' data-target='"+target+"' data-surplus='"+surplus+"' data-deficit='"+deficit+"' data-count='"+count+"' data-remain='"+remain+"'>"+
+      "<div class='muted' style='font-size:13px;font-weight:700;margin-bottom:6px'>"+title+"</div>"+
+      "<div style='font-size:22px;font-weight:800'>"+money(sales)+"</div>"+
+      "<div class='muted' style='font-size:12px;margin-bottom:10px'>"+(target>0?L("من هدف ")+money(target):L("لم يُحدّد هدف"))+"</div>"+
+      "<div style='height:10px;border-radius:99px;background:var(--surface-2);overflow:hidden'><div style='height:100%;border-radius:99px;width:"+Math.min(100,pct)+"%;background:"+col+";transition:.4s'></div></div>"+
+      "<div style='font-size:12px;font-weight:800;margin-top:6px;text-align:left;color:"+col+"'>"+pct+"%</div>"+
+    "</div>";
+  };
+  wrap.innerHTML="<div style='display:grid;grid-template-columns:1fr 1fr;gap:12px'>"+
+    mk(L("شفت الصباح"), amSales, amTarget, amSurplus, amDeficit, amCount)+
+    mk(L("شفت المساء"), pmSales, pmTarget, pmSurplus, pmDeficit, pmCount)+
+  "</div>";
+  wrap.querySelectorAll(".shift-card").forEach(cd=>{ cd.onclick=()=>shiftDetailModal(cd.dataset); });
+}
+
+function shiftDetailModal(d){
+  const sales=Number(d.sales)||0, target=Number(d.target)||0, remain=Number(d.remain)||0;
+  openModal(L("تفاصيل ")+d.title+" — "+monthName(),
+    "<div class='review-row'><span>"+L("إجمالي المبيعات (net)")+"</span><b>"+money(sales)+"</b></div>"+
+    "<div class='review-row'><span>"+L("عدد الإقفالات")+"</span><b>"+(d.count||0)+"</b></div>"+
+    "<div class='review-row'><span>"+L("إجمالي الفائض")+"</span><b style='color:var(--green)'>+"+money(d.surplus||0)+"</b></div>"+
+    "<div class='review-row'><span>"+L("إجمالي العجز")+"</span><b style='color:var(--red)'>−"+money(d.deficit||0)+"</b></div>"+
+    "<div class='review-row'><span>"+L("الهدف الشهري")+"</span><b>"+(target>0?money(target):"—")+"</b></div>"+
+    (target>0?"<div class='review-row'><span>"+L("المتبقّي للهدف")+"</span><b>"+money(remain)+"</b></div>":""),
+    "تم",()=>true,true);
+}
+function monthName(){ const d=new Date(); return d.toLocaleDateString(LANG==="en"?"en-US":"ar-SA-u-ca-gregory",{month:"long",year:"numeric"}); }
+
+// تحميل/حفظ تارقت الفروع (وثيقة meta/shiftTargets)
+async function loadShiftTargets(){ try{ const d=await cRef().collection("meta").doc("shiftTargets").get(); return d.exists?(d.data()||{}):{}; }catch(e){ return {}; } }
+
 function pageDashboard(c){
   // الموظف لا يرى أرقام المبيعات
   if(isEmployeeView()){
@@ -2145,6 +2214,17 @@ function pageDashboard(c){
   html+="</div>";
   if(!cards.length && !compare) html+="<div class='card muted' style='text-align:center;padding:30px'>لوحتك فاضية — اضغط «+ إضافة بطاقة» لتخصيصها.</div>";
   c.innerHTML=html;
+
+  // ===== بطاقات الشفتات (صباح/مساء) مع التارقت — اختيارية =====
+  const showShift = !(state.profile&&state.profile.hideShiftCards);
+  const shiftWrap=el("div"); shiftWrap.id="shiftCardsWrap"; shiftWrap.style.marginBottom="16px";
+  c.insertBefore(shiftWrap, c.querySelector("#kpis"));
+  const shiftToggle=el("div"); shiftToggle.style.cssText="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--muted);margin-bottom:10px";
+  shiftToggle.innerHTML="<input type='checkbox' id='shiftToggle' "+(showShift?"checked":"")+"><label for='shiftToggle' style='cursor:pointer'>"+L("إظهار بطاقات الشفتات")+"</label>";
+  c.insertBefore(shiftToggle, shiftWrap);
+  $("shiftToggle").onchange=async(e)=>{ try{ await cRef().collection("users").doc(state.user.uid).update({hideShiftCards:!e.target.checked}); if(state.profile) state.profile.hideShiftCards=!e.target.checked; }catch(err){} pageDashboard(c); };
+  if(showShift) renderDashShiftCards(shiftWrap);
+  else shiftWrap.style.display="none";
 
   // الأحداث
   $("addCardBtn").onclick=()=>addCardModal(cards);
@@ -4554,6 +4634,41 @@ function pageBranches(c){
   },()=>{const g=$("brGrid");if(g)g.innerHTML="<div class='card' style='grid-column:1/-1;color:var(--red)'>تعذّر التحميل</div>";});
 }
 
+// نافذة تحديد تارقت الفرع (صباح/مساء شهري) + اقتراح تلقائي
+async function branchTargetModal(branchId, x){
+  const targets=await loadShiftTargets();
+  const cur=targets[branchId]||{};
+  openModal(L("تارقت فرع ")+esc(x.name)+" ("+L("شهري")+")",
+    "<div id='tgtSuggest'></div>"+
+    "<label class='field'><span>"+L("هدف شفت الصباح")+"</span><input id='tgtAm' class='input' type='number' inputmode='decimal' value='"+(cur.am!=null?cur.am:"")+"'></label>"+
+    "<label class='field'><span>"+L("هدف شفت المساء")+"</span><input id='tgtPm' class='input' type='number' inputmode='decimal' value='"+(cur.pm!=null?cur.pm:"")+"'></label>",
+    "حفظ التارقت", async ()=>{
+      const am=parseFloat($("tgtAm").value)||0, pm=parseFloat($("tgtPm").value)||0;
+      const all=await loadShiftTargets(); all[branchId]={am,pm,name:x.name};
+      await cRef().collection("meta").doc("shiftTargets").set(all,{merge:true});
+      logAction("set_target",x.name+" — "+L("صباح")+" "+money(am)+" / "+L("مساء")+" "+money(pm));
+      toast(L("تم حفظ التارقت"),"ok"); return true;
+    });
+  // اقتراح تلقائي: متوسط آخر 3 أشهر +10%
+  setTimeout(async ()=>{
+    try{
+      let amTot=0,pmTot=0,months={};
+      for(let m=1;m<=3;m++){ const r=monthRange(-m); const s=await cRef().collection("dailyClosings").where("date",">=",r.start).where("date","<",r.next).get();
+        s.forEach(d=>{ const y=d.data(); if(y.branchId!==branchId||y.status==="rejected") return; const v=Number(y.net)||0;
+          if(y.shift==="مساء") pmTot+=v; else amTot+=v; months[m]=true; }); }
+      const nMonths=Math.max(1,Object.keys(months).length);
+      const amSug=Math.round(amTot/nMonths*1.1), pmSug=Math.round(pmTot/nMonths*1.1);
+      const box=$("tgtSuggest"); if(box && (amSug>0||pmSug>0)){
+        box.innerHTML="<div style='background:rgba(99,102,241,.08);border:1px solid rgba(99,102,241,.3);border-radius:10px;padding:10px 12px;font-size:12px;color:#4f46e5;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center;gap:8px'>"+
+          "<span>"+L("اقتراح تلقائي:")+" "+L("صباح")+" "+money(amSug)+" · "+L("مساء")+" "+money(pmSug)+"<br><span style='opacity:.7'>"+L("مبني على متوسط آخر الأشهر +10%")+"</span></span>"+
+          "<button type='button' class='btn sm' id='tgtApply'>"+L("تطبيق")+"</button></div>";
+        if($("tgtApply"))$("tgtApply").onclick=()=>{ if($("tgtAm"))$("tgtAm").value=amSug; if($("tgtPm"))$("tgtPm").value=pmSug; };
+      }
+    }catch(e){}
+  },50);
+}
+window.branchTargetModal=branchTargetModal;
+
 async function branchDetail(c,id,x){
   const isWh=!!x.isWarehouse;
   const fromInv=(state.current==="inventory");
@@ -4571,6 +4686,11 @@ async function branchDetail(c,id,x){
       "<div class='kpi' id='brEvalCard' style='cursor:pointer'><div class='l'>تقييم الفرع</div><div class='v' id='brEvalAvg'>—</div><div class='muted' style='font-size:12px'>اضغط للتقييم</div></div>";
     c.appendChild(grid);
     $("brEvalCard").onclick=()=>branchEvalPage(c,id,x);
+    // بطاقة تحديد التارقت (للمالك فقط)
+    if(state.role==="owner"||state.role==="super"||impersonation.active){
+      const tbtn=el("button","btn",L("تارقت الفرع (شهري)")); tbtn.style.cssText="width:100%;margin-bottom:16px";
+      tbtn.onclick=()=>branchTargetModal(id,x); c.appendChild(tbtn);
+    }
   }
   // بطاقات المخزون لكل موقع (جرد/طلب/تالف/مصروفات) — للمالك/المدير
   if(invApprover()){
