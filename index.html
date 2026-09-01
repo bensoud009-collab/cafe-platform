@@ -713,6 +713,9 @@ const EN={
   "اقتراح تلقائي:":"Auto suggestion:","مبني على متوسط آخر الأشهر +10%":"Based on recent months' average +10%","تطبيق":"Apply",
   "تغيير الشفت":"Change shift","الشفت الحالي":"Current shift","الشفت الجديد":"New shift","تم تغيير الشفت":"Shift changed","لا تغيير":"No change",
   "الكتالوج والتصنيفات — إضافة وتعديل":"Catalog & categories — add and edit",
+  "فروقات الكاشير":"Cashier deficits","الفرق (عجز)":"Difference (deficit)","الإجراء":"Action","تم الخصم":"Deducted","مرفوض":"Rejected",
+  "تأكيد (خصم)":"Confirm (deduct)","لا توجد فروقات عجز في هذه الدورة":"No deficits in this cycle","تم خصم العجز من الراتب":"Deficit deducted from salary","تم رفض الفرق":"Difference rejected",
+  "اسم الموظف غير مطابق لموظف مسجّل: ":"Employee name doesn't match a registered employee: ",
   "اختر الشفت":"Choose the shift","اختر اسم الموظف":"Choose the employee","كل الإقفالات":"All closings","ملخّص الشفتات":"Shifts summary",
   "قوالب جاهزة (اضغط لتعبئة الصلاحيات ثم عدّل يدوياً):":"Ready templates (tap to fill permissions, then edit manually):","تفريغ الكل":"Clear all","طُبّق القالب — عدّل ثم احفظ":"Template applied — edit then save",
   "موظف فرع":"Branch employee","مدير فرع":"Branch manager","مسؤول المستودع":"Warehouse keeper",
@@ -5152,9 +5155,113 @@ function staffPayroll(c){
   c.appendChild(sel);
   c.appendChild(el("div","kpi-grid",kpi("إجمالي رواتب الشهر (صافي)","payTotal","—")));
   const wrap=el("div"); wrap.id="payWrap"; wrap.style.marginTop="16px"; c.appendChild(wrap);
-  $("payMonth").onchange=()=>loadPayroll($("payMonth").value);
+  // جدول فروقات الكاشير (العجز من الإقفالات المعتمدة)
+  const defWrap=el("div"); defWrap.id="deficitWrap"; defWrap.style.marginTop="22px"; c.appendChild(defWrap);
+  $("payMonth").onchange=()=>{ loadPayroll($("payMonth").value); renderCashierDeficits(defWrap,$("payMonth").value); };
   loadPayroll(months[0]);
+  renderCashierDeficits(defWrap, months[0]);
 }
+
+// دورة المسيّر: من 28 الشهر السابق إلى 27 الحالي. نُرجع مفتاح الدورة لتاريخ معيّن
+function fmtDate(d){ try{ return new Date(d).toLocaleDateString(LANG==="en"?"en-US":"ar-SA-u-ca-gregory",{year:"numeric",month:"numeric",day:"numeric"}); }catch(e){ return ""; } }
+function payrollCycleKey(dateObj){
+  const d=new Date(dateObj); const day=d.getDate();
+  // إن كان اليوم >= 28 فالدورة تخص الشهر التالي
+  let y=d.getFullYear(), m=d.getMonth();
+  if(day>=28){ m+=1; if(m>11){m=0;y++;} }
+  return (y)+"-"+String(m+1).padStart(2,"0");
+}
+
+// جدول فروقات الكاشير: عجوزات الإقفالات المعتمدة، لكل يوم صف، تأكيد=خصم
+async function renderCashierDeficits(wrap, month){
+  if(!wrap) return;
+  wrap.innerHTML="<div class='section-label'>"+L("فروقات الكاشير")+"</div><div class='card muted'>"+L("جارٍ التحميل…")+"</div>";
+  try{
+    // نطاق دورة الشهر المختار: من 28 الشهر السابق إلى 27 الحالي
+    const [yy,mm]=month.split("-").map(Number);
+    const start=new Date(yy,mm-2,28), end=new Date(yy,mm-1,28); // [28 قبل السابق ... 28 الحالي)
+    const s=await cRef().collection("dailyClosings").orderBy("createdAt","desc").limit(300).get();
+    const confirmed=(await cRef().collection("meta").doc("cashierDeficits").get());
+    const decided=(confirmed.exists&&confirmed.data().items)||{}; // id -> {status,amount,emp,...}
+    const rows=[];
+    s.forEach(d=>{ const x=d.data();
+      if(x.status!=="approved") return;                       // فقط الإقفالات المعتمدة
+      const cv=Number(x.cashVar)||0; if(cv>=0) return;         // فقط العجز (سالب)
+      const dt=x.createdAt&&x.createdAt.seconds?new Date(x.createdAt.seconds*1000):null; if(!dt) return;
+      if(dt<start||dt>=end) return;                            // ضمن دورة الشهر
+      rows.push({id:d.id, date:dt, emp:x.shiftEmployee||x.employeeName||"—", amount:Math.abs(cv), branch:x.branchName||""});
+    });
+    if(!rows.length){ wrap.innerHTML="<div class='section-label'>"+L("فروقات الكاشير")+"</div><div class='card muted' style='text-align:center;padding:20px'>"+L("لا توجد فروقات عجز في هذه الدورة")+"</div>"; return; }
+    const card=el("div","card");
+    card.innerHTML="<table><thead><tr><th>"+L("التاريخ")+"</th><th>"+L("الموظف")+"</th><th>"+L("الفرق (عجز)")+"</th><th>"+L("الإجراء")+"</th></tr></thead><tbody id='defRows'></tbody></table>";
+    wrap.innerHTML="<div class='section-label'>"+L("فروقات الكاشير")+"</div>"; wrap.appendChild(card);
+    const tb=$("defRows");
+    rows.forEach(r=>{
+      const dec=decided[r.id]; const status=dec?dec.status:"pending";
+      const tr=el("tr",null,"<td>"+fmtDate(r.date)+"</td><td><b>"+esc(r.emp)+"</b></td><td style='color:var(--red);font-weight:800'>−"+money(r.amount)+"</td><td></td>");
+      const cell=tr.lastChild;
+      if(status==="approved"){ cell.innerHTML="<span class='tag green'>"+L("تم الخصم")+"</span>"; }
+      else if(status==="rejected"){ cell.innerHTML="<span class='tag red'>"+L("مرفوض")+"</span>"; }
+      else {
+        const b=el("button","btn sm status-act amber",L("قيد المراجعة"));
+        b.onclick=(e)=>{ e.stopPropagation(); openActionMenu(b,[
+          {label:L("تأكيد (خصم)"), fn:()=>confirmDeficit(r,month,wrap)},
+          {label:L("رفض"), danger:true, fn:()=>rejectDeficit(r,wrap,month)}
+        ]); };
+        cell.appendChild(b);
+      }
+      tb.appendChild(tr);
+    });
+  }catch(e){ console.error(e); wrap.innerHTML="<div class='section-label'>"+L("فروقات الكاشير")+"</div><div class='card' style='color:var(--red)'>"+L("تعذّر التحميل — تحقّق من قواعد الأمان")+"</div>"; }
+}
+
+// تأكيد عجز: يُسجّل الحالة + يُضاف للخصومات في مسيّر الموظف
+async function confirmDeficit(r, month, wrap){
+  try{
+    // 1) طابق اسم الموظف مع الموظفين المسجّلين
+    const empSnap=await cRef().collection("employees").orderBy("name").get();
+    let empId=null,empUid=null;
+    empSnap.forEach(d=>{ const x=d.data(); if((x.name||"").trim()===r.emp.trim()){ empId=d.id; empUid=x.uid||null; } });
+    if(!empId){ toast(L("اسم الموظف غير مطابق لموظف مسجّل: ")+r.emp,"err"); return; }
+    // 2) سجّل قرار العجز
+    const decDoc=await cRef().collection("meta").doc("cashierDeficits").get();
+    const items=(decDoc.exists&&decDoc.data().items)||{};
+    items[r.id]={status:"approved",amount:r.amount,emp:r.emp,empId,date:r.date.toISOString(),month,at:now()};
+    await cRef().collection("meta").doc("cashierDeficits").set({items},{merge:true});
+    // 3) أضف الخصم في مسيّر الشهر
+    const payRef=cRef().collection("payroll").doc(month);
+    const paySnap=await payRef.get();
+    let payData=paySnap.exists?paySnap.data():{month,rows:[]};
+    let prows=payData.rows||[];
+    // ابحث عن صف الموظف أو أنشئه من بياناته
+    let row=prows.find(p=>p.empId===empId);
+    if(!row){ const ed=empSnap.docs.find(d=>d.id===empId).data();
+      row={empId,uid:empUid,name:ed.name,salary:Number(ed.salary)||0,overtime:0,bonus:0,deductions:0,advance:0}; prows.push(row); }
+    row.deductions=(Number(row.deductions)||0)+r.amount;
+    row.deductReason="فروقات الكاشير";
+    row.net=(Number(row.salary)||0)+(Number(row.overtime)||0)+(Number(row.bonus)||0)-(Number(row.deductions)||0)-(Number(row.advance)||0);
+    payData.rows=prows; payData.total=prows.reduce((a,b)=>a+(Number(b.net)||0),0); payData.updatedAt=now();
+    await payRef.set(payData,{merge:true});
+    // نسخة الموظف
+    if(empUid){ try{ await cRef().collection("mySalary").doc(empUid).set({month,...row},{merge:true}); }catch(e){} }
+    logAction("confirm_deficit",r.emp+" — "+money(r.amount)+" — "+L("فروقات الكاشير"));
+    toast(L("تم خصم العجز من الراتب"),"ok");
+    renderCashierDeficits(wrap,month);
+    if(typeof loadPayroll==="function" && $("payMonth")) loadPayroll($("payMonth").value);
+  }catch(e){ console.error(e); toast(L("تعذّر الحفظ — تحقّق من قواعد الأمان"),"err"); }
+}
+async function rejectDeficit(r, wrap, month){
+  try{
+    const decDoc=await cRef().collection("meta").doc("cashierDeficits").get();
+    const items=(decDoc.exists&&decDoc.data().items)||{};
+    items[r.id]={status:"rejected",amount:r.amount,emp:r.emp,date:r.date.toISOString(),month,at:now()};
+    await cRef().collection("meta").doc("cashierDeficits").set({items},{merge:true});
+    logAction("reject_deficit",r.emp+" — "+money(r.amount));
+    toast(L("تم رفض الفرق"),"ok");
+    renderCashierDeficits(wrap,month);
+  }catch(e){ console.error(e); toast(L("تعذّر الحفظ"),"err"); }
+}
+window.renderCashierDeficits=renderCashierDeficits;
 async function loadPayroll(month){
   const wrap=$("payWrap"); if(!wrap) return; wrap.innerHTML="<div class='card muted'>جارٍ التحميل…</div>";
   const [empSnap,paySnap]=await Promise.all([cRef().collection("employees").orderBy("name").get(),cRef().collection("payroll").doc(month).get()]);
