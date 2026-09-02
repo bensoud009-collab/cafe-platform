@@ -718,6 +718,12 @@ const EN={
   "اسم الموظف غير مطابق لموظف مسجّل: ":"Employee name doesn't match a registered employee: ",
   "اليوم":"Today","أمس":"Yesterday","هذا الأسبوع":"This week","الأسبوع السابق":"Last week","هذا الشهر":"This month","الشهر السابق":"Last month","الكل":"All",
   "اختر يوم البداية ثم يوم النهاية":"Pick start day then end day",
+  "ملخص الرواتب":"Payroll summary","مسير الرواتب":"Payroll sheet","الرقم الوظيفي":"Job no.","مدة العمل":"Tenure","الراتب الأساسي":"Base salary","لا يوجد موظفون":"No employees",
+  "سنة":"year","سنوات":"years","شهر":"month","أشهر":"months","أقل من شهr":"Less than a month",
+  "اعتماد الراتب":"Approve payroll","معتمد":"Approved","اعتُمد كشف ":"Approved sheet ","فك الاعتماد":"Unlock approval","فك اعتماد الكشف؟ يمكن التعديل بعدها.":"Unlock the sheet? Editing will be allowed.","تم فك الاعتماد":"Approval unlocked",
+  "زر الاعتماد يُفعّل يوم 27 من الشهر":"Approval enabled on the 27th","زر الاعتماد يُفعّل يوم 27 من شهر الكشف":"Approval enabled on the 27th of the sheet month","يُفعّل يوم 27":"Enabled on the 27th",
+  "اعتماد كشف ":"Approve sheet ","؟ سيُقفل الكشف ويُرسل لكل موظف.":"? The sheet will lock and be sent to each employee.","احفظ الكشف أولاً":"Save the sheet first","تم اعتماد الراتب":"Payroll approved","تعذّر الاعتماد — تحقّق من قواعد الأمان":"Approval failed — check security rules",
+  "الكشف معتمد ومقفل — فُكّ الاعتماد للتعديل":"Sheet approved & locked — unlock to edit",
   "اختر الشفت":"Choose the shift","اختر اسم الموظف":"Choose the employee","كل الإقفالات":"All closings","ملخّص الشفتات":"Shifts summary",
   "قوالب جاهزة (اضغط لتعبئة الصلاحيات ثم عدّل يدوياً):":"Ready templates (tap to fill permissions, then edit manually):","تفريغ الكل":"Clear all","طُبّق القالب — عدّل ثم احفظ":"Template applied — edit then save",
   "موظف فرع":"Branch employee","مدير فرع":"Branch manager","مسؤول المستودع":"Warehouse keeper",
@@ -2866,6 +2872,7 @@ function pageInvoices(c){
   loadCategories().then(cats=>{ const sel=$("invCatFilter"); if(sel&&cats.length) sel.innerHTML="<option value=''>كل التصنيفات</option>"+cats.map(k=>"<option value='"+esc(k)+"'>"+esc(k)+"</option>").join(""); });
   cRef().collection("products").get().then(s=>{ s.forEach(d=>{const x=d.data(); if(x.name) nameCat[x.name]=x.category||"";}); });
   if(window.__invLimit==null) window.__invLimit=10;
+  c.appendChild(dateRangeControl("invoices", ()=>pageInvoices(c)));
   const invCounter=pageSizeControl(window.__invLimit,(n)=>{ window.__invLimit=n; pageInvoices(c); });
   c.appendChild(invCounter);
   const card=el("div","card");
@@ -2879,7 +2886,7 @@ function pageInvoices(c){
   let allInv=[];
   const renderInv=()=>{
     const tb=$("invRows");if(!tb)return; const filter=($("invCatFilter")&&$("invCatFilter").value)||"";
-    const rows=allInv.filter(x=>{ if(!filter)return true; return (x.items||[]).some(it=>(nameCat[it.name]||"")===filter); });
+    const rows=allInv.filter(x=>{ if(!inRange(x.createdAt,"invoices"))return false; if(!filter)return true; return (x.items||[]).some(it=>(nameCat[it.name]||"")===filter); });
     tb.innerHTML=""; if(!rows.length){tb.innerHTML="<tr><td colspan='5' class='muted'>لا توجد فواتير</td></tr>";return;}
     rows.forEach(x=>{
       const supplier=x.supplier?esc(x.supplier):"—";
@@ -3806,10 +3813,11 @@ async function invCount(c, forcedBr, backFn){
     return;
   }
   const costTh=canSeeCost()?"<th>قيمة العجز</th>":"";
+  c.appendChild(dateRangeControl("count", ()=>invCount(c,forcedBr,backFn)));
   card.innerHTML="<table><thead><tr><th>التاريخ والوقت</th><th>المُجري</th><th>عناصر</th>"+costTh+"<th>الحالة</th></tr></thead><tbody id='cntRows'><tr><td colspan='5' class='muted'>جارٍ التحميل…</td></tr></tbody></table>";
   c.appendChild(card);
   cRef().collection("stockCounts").where("branchId","==",br.id).onSnapshot(s=>{
-    const tb=$("cntRows");if(!tb)return;const rows=[];s.forEach(d=>rows.push({id:d.id,...d.data()}));
+    const tb=$("cntRows");if(!tb)return;const rows=[];s.forEach(d=>{ if(inRange(d.data().at,"count")) rows.push({id:d.id,...d.data()}); });
     rows.sort((a,b)=>((b.at&&b.at.seconds)||0)-((a.at&&a.at.seconds)||0));
     tb.innerHTML=""; if(!rows.length){tb.innerHTML="<tr><td colspan='5' class='muted'>لا يوجد</td></tr>";return;}
     rows.forEach(x=>{
@@ -3999,10 +4007,11 @@ async function invWaste(c, forcedBr, backFn){
     },()=>{const tb=$("wsRows");if(tb)tb.innerHTML="<tr><td colspan='2' style='color:var(--red)'>تعذّر التحميل</td></tr>";});
     return;
   }
+  c.appendChild(dateRangeControl("waste", ()=>invWaste(c,forcedBr,backFn)));
   card.innerHTML="<table><thead><tr><th>التاريخ والوقت</th><th>المنتج</th><th>الكمية</th><th>السبب</th><th>التكلفة</th><th>الحالة</th></tr></thead><tbody id='wsRows'><tr><td colspan='6' class='muted'>جارٍ التحميل…</td></tr></tbody></table>";
   c.appendChild(card);
   cRef().collection("waste").where("branchId","==",br.id).onSnapshot(s=>{
-    const tb=$("wsRows");if(!tb)return;const rows=[];s.forEach(d=>rows.push({id:d.id,...d.data()}));
+    const tb=$("wsRows");if(!tb)return;const rows=[];s.forEach(d=>{ if(inRange(d.data().at,"waste")) rows.push({id:d.id,...d.data()}); });
     rows.sort((a,b)=>((b.at&&b.at.seconds)||0)-((a.at&&a.at.seconds)||0));
     tb.innerHTML=""; if(!rows.length){tb.innerHTML="<tr><td colspan='6' class='muted'>لا يوجد</td></tr>";return;}
     rows.forEach(x=>{
@@ -5234,6 +5243,18 @@ function resetEmployeePassword(x){
 
 /* ---------- (2) الرواتب (شهري) ---------- */
 function monthKey(offset){ const d=new Date(); d.setDate(1); d.setMonth(d.getMonth()+(offset||0)); return d.toISOString().slice(0,7); }
+// حساب مدة العمل من تاريخ المباشرة لليوم
+function tenureText(startDate){
+  if(!startDate) return "—";
+  const s=new Date(startDate); if(isNaN(s)) return "—";
+  const n=new Date(); let months=(n.getFullYear()-s.getFullYear())*12+(n.getMonth()-s.getMonth());
+  if(n.getDate()<s.getDate()) months--;
+  if(months<0) return "—";
+  const y=Math.floor(months/12), m=months%12;
+  const parts=[]; if(y>0) parts.push(y+" "+(y===1?L("سنة"):L("سنوات"))); if(m>0) parts.push(m+" "+(m===1?L("شهر"):L("أشهر")));
+  if(!parts.length) return L("أقل من شهr");
+  return parts.join(" و");
+}
 function staffPayroll(c){
   c.innerHTML=""; c.appendChild(staffBack(c));
   c.appendChild(el("div",null,pageTitle("الرواتب","كشف شهري — الصافي يُحسب تلقائياً")));
@@ -5242,14 +5263,87 @@ function staffPayroll(c){
   const sel=el("div"); sel.style.marginBottom="16px";
   sel.innerHTML="<label class='field' style='max-width:220px'><span>الشهر</span><select id='payMonth'>"+months.map(m=>"<option value='"+m+"'>"+m+"</option>").join("")+"</select></label>";
   c.appendChild(sel);
+  // (1) ملخص الرواتب الثابت (عرض فقط)
+  const sumWrap=el("div"); sumWrap.id="paySummary"; sumWrap.style.marginBottom="18px"; c.appendChild(sumWrap);
+  renderPayrollSummary(sumWrap);
+  // بطاقة الإجمالي
   c.appendChild(el("div","kpi-grid",kpi("إجمالي رواتب الشهر (صافي)","payTotal","—")));
+  // (2) مسير الرواتب
   const wrap=el("div"); wrap.id="payWrap"; wrap.style.marginTop="16px"; c.appendChild(wrap);
-  // جدول فروقات الكاشير (العجز من الإقفالات المعتمدة)
+  // (3) زر اعتماد الراتب (يوم 27)
+  const apprWrap=el("div"); apprWrap.id="payApprove"; apprWrap.style.margin="16px 0"; c.appendChild(apprWrap);
+  // (4) جدول فروقات الكاشير
   const defWrap=el("div"); defWrap.id="deficitWrap"; defWrap.style.marginTop="22px"; c.appendChild(defWrap);
-  $("payMonth").onchange=()=>{ loadPayroll($("payMonth").value); renderCashierDeficits(defWrap,$("payMonth").value); };
+  $("payMonth").onchange=()=>{ loadPayroll($("payMonth").value); renderCashierDeficits(defWrap,$("payMonth").value); renderPayApproval(apprWrap,$("payMonth").value); };
   loadPayroll(months[0]);
   renderCashierDeficits(defWrap, months[0]);
+  renderPayApproval(apprWrap, months[0]);
 }
+
+// (1) ملخص الرواتب الثابت
+async function renderPayrollSummary(wrap){
+  if(!wrap) return;
+  wrap.innerHTML="<div class='section-label'>"+L("ملخص الرواتب")+"</div><div class='card muted'>"+L("جارٍ التحميل…")+"</div>";
+  try{
+    const s=await cRef().collection("employees").orderBy("name").get();
+    if(s.empty){ wrap.innerHTML="<div class='section-label'>"+L("ملخص الرواتب")+"</div><div class='card muted' style='text-align:center;padding:20px'>"+L("لا يوجد موظفون")+"</div>"; return; }
+    let rows="";
+    s.forEach(d=>{ const x=d.data();
+      rows+="<tr><td><b>"+esc(x.name||"")+"</b></td><td class='muted'>"+esc(x.jobNo||"—")+"</td><td class='muted'>"+tenureText(x.startDate)+"</td><td>"+money(Number(x.salary)||0)+"</td></tr>";
+    });
+    const card=el("div","card");
+    card.innerHTML="<table><thead><tr><th>"+L("الاسم")+"</th><th>"+L("الرقم الوظيفي")+"</th><th>"+L("مدة العمل")+"</th><th>"+L("الراتب الأساسي")+"</th></tr></thead><tbody>"+rows+"</tbody></table>";
+    wrap.innerHTML="<div class='section-label'>"+L("ملخص الرواتب")+"</div>"; wrap.appendChild(card);
+  }catch(e){ wrap.innerHTML="<div class='section-label'>"+L("ملخص الرواتب")+"</div><div class='card' style='color:var(--red)'>"+L("تعذّر التحميل")+"</div>"; }
+}
+
+// (3) زر اعتماد الراتب — يشتغل يوم 27 من شهر الكشف أو بعده
+async function renderPayApproval(wrap, month){
+  if(!wrap) return;
+  const isOwner=(state.role==="owner"||state.role==="super"||impersonation.active);
+  if(!isOwner){ wrap.innerHTML=""; return; }
+  let approved=false, approvedAt=null;
+  try{ const d=await cRef().collection("payroll").doc(month).get(); if(d.exists){ approved=!!d.data().approved; approvedAt=d.data().approvedAt; } }catch(e){}
+  // هل نحن في يوم 27+ من شهر الكشف، أو الشهر مضى؟
+  const [yy,mm]=month.split("-").map(Number);
+  const now=new Date();
+  const cycleUnlock=new Date(yy,mm-1,27); // يوم 27 من شهر الكشف
+  const canApprove = now>=cycleUnlock;
+  if(approved){
+    wrap.innerHTML="<div class='card' style='display:flex;justify-content:space-between;align-items:center;background:rgba(22,163,74,.06);border-color:rgba(22,163,74,.3)'>"+
+      "<span class='tag green'>"+L("معتمد")+"</span>"+
+      "<span class='muted' style='font-size:13px'>"+L("اعتُمد كشف ")+month+(approvedAt&&approvedAt.toDate?" · "+approvedAt.toDate().toLocaleDateString("ar-SA-u-ca-gregory-nu-latn"):"")+"</span>"+
+      "</div>";
+    const unbtn=el("button","btn sm danger",L("فك الاعتماد")); unbtn.style.marginTop="8px";
+    unbtn.onclick=async()=>{ if(!confirm(L("فك اعتماد الكشف؟ يمكن التعديل بعدها.")))return;
+      await cRef().collection("payroll").doc(month).set({approved:false,approvedAt:null},{merge:true});
+      logAction("unapprove_payroll",month); toast(L("تم فك الاعتماد"),"ok"); staffPayroll($("pageContent")); };
+    wrap.appendChild(unbtn);
+  } else {
+    const b=el("button","btn primary",L("اعتماد الراتب")); b.style.width="100%";
+    if(!canApprove){ b.disabled=true; b.title=L("يُفعّل يوم 27"); b.style.opacity=".5"; }
+    b.onclick=async()=>{
+      if(!canApprove){ toast(L("زر الاعتماد يُفعّل يوم 27 من الشهر"),""); return; }
+      if(!confirm(L("اعتماد كشف ")+month+L("؟ سيُقفل الكشف ويُرسل لكل موظف.")))return;
+      try{
+        const payRef=cRef().collection("payroll").doc(month);
+        const snap=await payRef.get();
+        if(!snap.exists){ toast(L("احفظ الكشف أولاً"),"err"); return; }
+        const data=snap.data(); const out=data.rows||[];
+        await payRef.set({approved:true,approvedAt:now,approvedBy:state.user.uid},{merge:true});
+        // نسخة رسمية لكل موظف
+        for(const r of out){ if(r.uid){ try{ await cRef().collection("mySalary").doc(r.uid).set({
+          month,salary:r.salary,overtime:r.overtime,bonus:r.bonus,deductions:r.deductions,advance:r.advance,net:r.net,approved:true,approvedAt:now,updatedAt:now}); }catch(e){} } }
+        logAction("approve_payroll",month);
+        toast(L("تم اعتماد الراتب"),"ok");
+        staffPayroll($("pageContent"));
+      }catch(e){ console.error(e); toast(L("تعذّر الاعتماد — تحقّق من قواعد الأمان"),"err"); }
+    };
+    wrap.innerHTML=""; wrap.appendChild(b);
+    if(!canApprove){ const note=el("div","muted"); note.style.cssText="font-size:12px;text-align:center;margin-top:6px"; note.textContent=L("زر الاعتماد يُفعّل يوم 27 من شهر الكشف"); wrap.appendChild(note); }
+  }
+}
+window.renderPayApproval=renderPayApproval;
 
 // دورة المسيّر: من 28 الشهر السابق إلى 27 الحالي. نُرجع مفتاح الدورة لتاريخ معيّن
 function fmtDate(d){ try{ return new Date(d).toLocaleDateString(LANG==="en"?"en-US":"ar-SA-u-ca-gregory",{year:"numeric",month:"numeric",day:"numeric"}); }catch(e){ return ""; } }
@@ -5355,21 +5449,23 @@ async function loadPayroll(month){
   const wrap=$("payWrap"); if(!wrap) return; wrap.innerHTML="<div class='card muted'>جارٍ التحميل…</div>";
   const [empSnap,paySnap]=await Promise.all([cRef().collection("employees").orderBy("name").get(),cRef().collection("payroll").doc(month).get()]);
   const saved=(paySnap.exists&&paySnap.data().rows)||[];
+  const isApproved=(paySnap.exists&&paySnap.data().approved)||false;
   const byId={}; saved.forEach(r=>byId[r.empId]=r);
   const rows=[]; empSnap.forEach(d=>{const x=d.data(); const s=byId[d.id]||{};
     rows.push({empId:d.id,uid:x.uid||null,name:x.name,salary:Number(x.salary)||0,
       overtime:s.overtime||0,bonus:s.bonus||0,deductions:s.deductions||0,advance:s.advance||0});
   });
   const card=el("div","card");
-  card.innerHTML="<table><thead><tr><th>الموظف</th><th>الأساسي</th><th>أوفر تايم</th><th>مكافآت</th><th>خصومات</th><th>سلفة</th><th>الصافي</th></tr></thead><tbody id='payRows'></tbody></table>"+
-    (can("staff","edit")?"<div style='margin-top:14px'><button class='btn primary' id='savePay'>حفظ كشف "+month+"</button></div>":"");
+  const lockNote = isApproved ? "<div class='muted' style='font-size:12px;margin-bottom:8px;color:var(--green)'>"+L("الكشف معتمد ومقفل — فُكّ الاعتماد للتعديل")+"</div>" : "";
+  card.innerHTML="<div class='section-label'>"+L("مسير الرواتب")+"</div>"+lockNote+"<table><thead><tr><th>الموظف</th><th>الأساسي</th><th>أوفر تايم</th><th>مكافآت</th><th>خصومات</th><th>سلفة</th><th>الصافي</th></tr></thead><tbody id='payRows'></tbody></table>"+
+    ((can("staff","edit")&&!isApproved)?"<div style='margin-top:14px'><button class='btn primary' id='savePay'>حفظ كشف "+month+"</button></div>":"");
   wrap.innerHTML=""; wrap.appendChild(card);
   const tb=$("payRows");
   const calc=()=>{ let total=0; rows.forEach((r,i)=>{ const net=r.salary+num("ot"+i)+num("bn"+i)-num("dd"+i)-num("ad"+i);
       const cell=$("net"+i); if(cell)cell.textContent=money(net); total+=net; });
     if($("payTotal"))$("payTotal").textContent=money(total); };
   const num=idp=>{const el=$(idp);return el?(parseFloat(el.value)||0):0;};
-  const ed=can("staff","edit");
+  const ed=can("staff","edit")&&!isApproved;
   rows.forEach((r,i)=>{
     const inp=(idp,val)=>ed?"<input id='"+idp+i+"' class='input' type='number' style='width:80px;padding:6px' value='"+(val||0)+"'>":money(val);
     const tr=el("tr",null,"<td><b>"+esc(r.name)+"</b></td><td>"+money(r.salary)+"</td><td>"+inp("ot",r.overtime)+"</td><td>"+inp("bn",r.bonus)+"</td><td>"+inp("dd",r.deductions)+"</td><td>"+inp("ad",r.advance)+"</td><td><b id='net"+i+"'>—</b></td>");
@@ -5381,10 +5477,7 @@ async function loadPayroll(month){
     const out=rows.map((r,i)=>({empId:r.empId,uid:r.uid||null,name:r.name,salary:r.salary,overtime:num("ot"+i),bonus:num("bn"+i),deductions:num("dd"+i),advance:num("ad"+i),
       net:r.salary+num("ot"+i)+num("bn"+i)-num("dd"+i)-num("ad"+i)}));
     const total=out.reduce((a,b)=>a+b.net,0);
-    await cRef().collection("payroll").doc(month).set({month,rows:out,total,updatedAt:now()});
-    // نسخة راتب خاصة لكل موظف له حساب (يقرأها هو فقط)
-    for(const r of out){ if(r.uid){ try{ await cRef().collection("mySalary").doc(r.uid).set({
-      month,salary:r.salary,overtime:r.overtime,bonus:r.bonus,deductions:r.deductions,advance:r.advance,net:r.net,updatedAt:now()}); }catch(e){} } }
+    await cRef().collection("payroll").doc(month).set({month,rows:out,total,updatedAt:now()},{merge:true});
     logAction("save_payroll",month); toast("تم حفظ كشف "+month,"ok");
   };
 }
