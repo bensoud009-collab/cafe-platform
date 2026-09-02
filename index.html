@@ -2405,9 +2405,10 @@ function inRange(dateVal, key){ const r=rangeState(key); if(!r.from||!r.to) retu
 function dateRangeControl(key, onChange){
   const r=rangeState(key);
   const wrap=el("div"); wrap.style.cssText="margin-bottom:14px";
-  const btn=el("button","btn sm"); btn.style.cssText="display:inline-flex;align-items:center;gap:8px;padding:8px 14px";
-  const lbl=()=>{ const rr=rangeState(key); if(rr.label) return rr.label; if(fmtYMD(rr.from)===fmtYMD(rr.to)) return fmtYMD(rr.from); return fmtYMD(rr.from)+" ← "+fmtYMD(rr.to); };
-  btn.innerHTML="<span style='font-size:15px'>🗓</span><span id='drc_lbl_"+key+"'>"+esc(lbl())+"</span>";
+  const btn=el("button","btn sm"); btn.style.cssText="display:inline-flex;align-items:center;justify-content:center;padding:8px 16px;letter-spacing:.5px";
+  const dmy=(d)=>{ if(!d)return""; const x=new Date(d); return String(x.getDate()).padStart(2,"0")+"/"+String(x.getMonth()+1).padStart(2,"0")+"/"+x.getFullYear(); };
+  const lbl=()=>{ const rr=rangeState(key); if(dmy(rr.from)===dmy(rr.to)) return dmy(rr.from); return dmy(rr.from)+" - "+dmy(rr.to); };
+  btn.innerHTML="<span id='drc_lbl_"+key+"'>"+esc(lbl())+"</span>";
   wrap.appendChild(btn);
   const panel=el("div"); panel.style.cssText="display:none;margin-top:8px;background:var(--surface);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);padding:14px;max-width:520px";
   wrap.appendChild(panel);
@@ -2510,18 +2511,22 @@ function pageSales(c){
 
   // ===== المالك/المدير: تبديل بين الجدول التفصيلي وملخّص الشفتات =====
   if(window.__cloView==null) window.__cloView="list";
-  const toggle=el("div"); toggle.style.cssText="display:flex;gap:8px;margin-bottom:12px";
+  const toggle=el("div"); toggle.style.cssText="display:flex;gap:8px;margin-bottom:12px;align-items:center";
+  // زر التاريخ أقصى اليسار (يظهر فقط في عرض القائمة)
+  if(window.__cloView==="list"){
+    const dr=dateRangeControl("closings", ()=>pageSales(c));
+    dr.style.margin="0"; dr.style.marginLeft="auto";
+    toggle.appendChild(dr);
+  }
   const mkBtn=(key,label)=>{ const b=el("button","btn sm"+(window.__cloView===key?" primary":""),label); b.onclick=()=>{ window.__cloView=key; pageSales(c); }; return b; };
-  toggle.appendChild(mkBtn("list","📋 "+L("كل الإقفالات")));
   toggle.appendChild(mkBtn("shift",L("ملخّص الشفتات")));
+  toggle.appendChild(mkBtn("list",L("كل الإقفالات")));
   c.appendChild(toggle);
 
   if(window.__cloView==="shift"){ renderShiftSummary(c); return; }
 
   // الجدول التفصيلي مع الشفت + الموظف
   if(window.__cloLimit==null) window.__cloLimit=10;
-  // منتقي المدى الزمني
-  c.appendChild(dateRangeControl("closings", ()=>pageSales(c)));
   const counter=pageSizeControl(window.__cloLimit,(n)=>{ window.__cloLimit=n; pageSales(c); });
   c.appendChild(counter);
   const card=el("div","card");
