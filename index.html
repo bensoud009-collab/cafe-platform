@@ -716,6 +716,8 @@ const EN={
   "فروقات الكاشير":"Cashier deficits","الفرق (عجز)":"Difference (deficit)","الإجراء":"Action","تم الخصم":"Deducted","مرفوض":"Rejected",
   "تأكيد (خصم)":"Confirm (deduct)","لا توجد فروقات عجز في هذه الدورة":"No deficits in this cycle","تم خصم العجز من الراتب":"Deficit deducted from salary","تم رفض الفرق":"Difference rejected",
   "اسم الموظف غير مطابق لموظف مسجّل: ":"Employee name doesn't match a registered employee: ",
+  "اليوم":"Today","أمس":"Yesterday","هذا الأسبوع":"This week","الأسبوع السابق":"Last week","هذا الشهر":"This month","الشهر السابق":"Last month","الكل":"All",
+  "اختر يوم البداية ثم يوم النهاية":"Pick start day then end day",
   "اختر الشفت":"Choose the shift","اختر اسم الموظف":"Choose the employee","كل الإقفالات":"All closings","ملخّص الشفتات":"Shifts summary",
   "قوالب جاهزة (اضغط لتعبئة الصلاحيات ثم عدّل يدوياً):":"Ready templates (tap to fill permissions, then edit manually):","تفريغ الكل":"Clear all","طُبّق القالب — عدّل ثم احفظ":"Template applied — edit then save",
   "موظف فرع":"Branch employee","مدير فرع":"Branch manager","مسؤول المستودع":"Warehouse keeper",
@@ -2384,6 +2386,86 @@ function fmtDT(ts){ try{ const d=ts&&ts.toDate?ts.toDate():null; if(!d)return "�
 /* ===== عدّاد عدد الصفوف الظاهرة (لأي قائمة طويلة) ===== */
 const PAGE_SIZES=[10,20,30,100];
 // يبني زر عدّاد صغير يعرض العدد الحالي، وتغييره يستدعي onChange بالقيمة الجديدة
+/* ===== منتقي المدى الزمني (من تاريخ – إلى تاريخ) مع اختصارات ===== */
+// حالة عامة لكل قسم: window.__range[key] = {from:Date, to:Date, label}
+window.__range = window.__range || {};
+function rangeState(key){
+  if(!window.__range[key]){ const r=monthBounds(0); window.__range[key]={from:r.from,to:r.to,label:L("هذا الشهر")}; }
+  return window.__range[key];
+}
+function monthBounds(off){ const n=new Date(); const y=n.getFullYear(), m=n.getMonth()+off; const from=new Date(y,m,1); const to=new Date(y,m+1,0); return {from,to}; }
+function dayBounds(d){ const x=new Date(d); return {from:new Date(x.getFullYear(),x.getMonth(),x.getDate()), to:new Date(x.getFullYear(),x.getMonth(),x.getDate())}; }
+function fmtYMD(d){ if(!d)return""; const x=new Date(d); return x.getFullYear()+"-"+String(x.getMonth()+1).padStart(2,"0")+"-"+String(x.getDate()).padStart(2,"0"); }
+function inRange(dateVal, key){ const r=rangeState(key); if(!r.from||!r.to) return true;
+  let d = dateVal&&dateVal.seconds ? new Date(dateVal.seconds*1000) : (dateVal?new Date(dateVal):null); if(!d) return false;
+  const t=new Date(d.getFullYear(),d.getMonth(),d.getDate()).getTime();
+  return t>=new Date(r.from).setHours(0,0,0,0) && t<=new Date(r.to).setHours(23,59,59,999);
+}
+// يبني زر ذكي يعرض المدى الحالي، وضغطه يفتح لوحة التقويم + الاختصارات
+function dateRangeControl(key, onChange){
+  const r=rangeState(key);
+  const wrap=el("div"); wrap.style.cssText="margin-bottom:14px";
+  const btn=el("button","btn sm"); btn.style.cssText="display:inline-flex;align-items:center;gap:8px;padding:8px 14px";
+  const lbl=()=>{ const rr=rangeState(key); if(rr.label) return rr.label; if(fmtYMD(rr.from)===fmtYMD(rr.to)) return fmtYMD(rr.from); return fmtYMD(rr.from)+" ← "+fmtYMD(rr.to); };
+  btn.innerHTML="<span style='font-size:15px'>🗓</span><span id='drc_lbl_"+key+"'>"+esc(lbl())+"</span>";
+  wrap.appendChild(btn);
+  const panel=el("div"); panel.style.cssText="display:none;margin-top:8px;background:var(--surface);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);padding:14px;max-width:520px";
+  wrap.appendChild(panel);
+  let open=false, pick=[]; // pick: [from,to] أثناء الاختيار
+  btn.onclick=()=>{ open=!open; panel.style.display=open?"block":"none"; if(open) build(); };
+  function apply(from,to,label){ const st=rangeState(key); st.from=from; st.to=to; st.label=label||null; const l=$("drc_lbl_"+key); if(l) l.textContent=lbl(); open=false; panel.style.display="none"; if(onChange) onChange(); }
+  function build(){
+    const shortcuts=[
+      {t:L("اليوم"), fn:()=>{ const b=dayBounds(new Date()); apply(b.from,b.to,L("اليوم")); }},
+      {t:L("أمس"), fn:()=>{ const d=new Date(); d.setDate(d.getDate()-1); const b=dayBounds(d); apply(b.from,b.to,L("أمس")); }},
+      {t:L("هذا الأسبوع"), fn:()=>{ const n=new Date(); const day=n.getDay(); const from=new Date(n); from.setDate(n.getDate()-day); const to=new Date(from); to.setDate(from.getDate()+6); apply(from,to,L("هذا الأسبوع")); }},
+      {t:L("الأسبوع السابق"), fn:()=>{ const n=new Date(); const day=n.getDay(); const to=new Date(n); to.setDate(n.getDate()-day-1); const from=new Date(to); from.setDate(to.getDate()-6); apply(from,to,L("الأسبوع السابق")); }},
+      {t:L("هذا الشهر"), fn:()=>{ const b=monthBounds(0); apply(b.from,b.to,L("هذا الشهر")); }},
+      {t:L("الشهر السابق"), fn:()=>{ const b=monthBounds(-1); apply(b.from,b.to,L("الشهر السابق")); }},
+      {t:L("الكل"), fn:()=>{ apply(new Date(2020,0,1),new Date(2099,11,31),L("الكل")); }}
+    ];
+    let viewM=new Date(rangeState(key).from||new Date());
+    const render=()=>{
+      const y=viewM.getFullYear(), m=viewM.getMonth();
+      const first=new Date(y,m,1).getDay(); const days=new Date(y,m+1,0).getDate();
+      const monthName=viewM.toLocaleDateString(LANG==="en"?"en-US":"ar-SA-u-ca-gregory",{month:"long",year:"numeric"});
+      let cells="";
+      const wd=["Su","Mo","Tu","We","Th","Fr","Sa"];
+      cells+="<div style='display:grid;grid-template-columns:repeat(7,1fr);gap:2px;text-align:center'>";
+      wd.forEach(d=>cells+="<div style='font-size:11px;color:var(--muted);padding:4px'>"+d+"</div>");
+      for(let i=0;i<first;i++) cells+="<div></div>";
+      const st=rangeState(key);
+      for(let d=1;d<=days;d++){ const cur=new Date(y,m,d); const ymd=fmtYMD(cur);
+        const inSel = (pick.length===1)? (ymd===fmtYMD(pick[0])) : (new Date(cur).setHours(12)>=new Date(st.from).setHours(0) && new Date(cur).setHours(12)<=new Date(st.to).setHours(23));
+        const isEdge = ymd===fmtYMD(st.from)||ymd===fmtYMD(st.to);
+        cells+="<div class='cal-day' data-ymd='"+ymd+"' style='padding:8px 0;border-radius:8px;cursor:pointer;font-size:14px;"+(isEdge?"background:var(--brand);color:#fff;font-weight:800":inSel?"background:rgba(200,161,90,.15)":"")+"'>"+d+"</div>";
+      }
+      cells+="</div>";
+      panel.innerHTML="<div style='display:flex;gap:14px;flex-wrap:wrap'>"+
+        "<div style='flex:1;min-width:250px'>"+
+          "<div style='display:flex;justify-content:space-between;align-items:center;margin-bottom:8px'>"+
+            "<button class='btn sm' id='calPrev'>‹</button><b>"+esc(monthName)+"</b><button class='btn sm' id='calNext'>›</button>"+
+          "</div>"+cells+
+          "<div class='muted' style='font-size:11px;margin-top:8px;text-align:center'>"+L("اختر يوم البداية ثم يوم النهاية")+"</div>"+
+        "</div>"+
+        "<div style='display:flex;flex-direction:column;gap:6px;min-width:120px'>"+
+          shortcuts.map((s,i)=>"<button class='btn sm sc-btn' data-i='"+i+"'>"+esc(s.t)+"</button>").join("")+
+        "</div>"+
+      "</div>";
+      if($("calPrev"))$("calPrev").onclick=()=>{ viewM=new Date(y,m-1,1); render(); };
+      if($("calNext"))$("calNext").onclick=()=>{ viewM=new Date(y,m+1,1); render(); };
+      panel.querySelectorAll(".sc-btn").forEach(b=>b.onclick=()=>shortcuts[+b.dataset.i].fn());
+      panel.querySelectorAll(".cal-day").forEach(cell=>cell.onclick=()=>{
+        const d=new Date(cell.dataset.ymd);
+        if(pick.length===0||pick.length===2){ pick=[d]; render(); }
+        else if(pick.length===1){ let a=pick[0],b=d; if(b<a){const t=a;a=b;b=t;} pick=[]; apply(a,b,null); }
+      });
+    };
+    render();
+  }
+  return wrap;
+}
+
 function pageSizeControl(current,onChange){
   const wrap=el("div"); wrap.style.cssText="display:block;width:100%;margin-bottom:10px;text-align:right";
   const btn=el("button","btn sm",""+current); btn.style.cssText="padding:5px 12px;min-width:52px";
@@ -2438,6 +2520,8 @@ function pageSales(c){
 
   // الجدول التفصيلي مع الشفت + الموظف
   if(window.__cloLimit==null) window.__cloLimit=10;
+  // منتقي المدى الزمني
+  c.appendChild(dateRangeControl("closings", ()=>pageSales(c)));
   const counter=pageSizeControl(window.__cloLimit,(n)=>{ window.__cloLimit=n; pageSales(c); });
   c.appendChild(counter);
   const card=el("div","card");
@@ -2447,7 +2531,7 @@ function pageSales(c){
   cRef().collection("branches").where("isWarehouse","==",true).get().then(s=>{ s.forEach(d=>whIds.add(d.id)); }).catch(()=>{}).finally(()=>{
     cRef().collection("dailyClosings").orderBy("createdAt","desc").limit(window.__cloLimit).onSnapshot(s=>{
       const tb=$("clRows");if(!tb)return;tb.innerHTML="";
-      const docs=[]; s.forEach(d=>{ if(!whIds.has(d.data().branchId)) docs.push(d); });
+      const docs=[]; s.forEach(d=>{ if(!whIds.has(d.data().branchId) && inRange(d.data().createdAt,"closings")) docs.push(d); });
       if(!docs.length){tb.innerHTML="<tr><td colspan='5' class='muted'>لا توجد إقفالات</td></tr>";return;}
       docs.forEach(d=>{const x=d.data();
         const shiftHtml = x.shift ? (x.shift==="مساء"?"<span style='color:#6366f1;font-weight:700'>"+L("مساء")+"</span>":"<span style='color:var(--amber);font-weight:700'>"+L("صباح")+"</span>") : "<span class='muted'>—</span>";
