@@ -24,6 +24,8 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
+<!-- SheetJS — تصدير Excel (xlsx). يُحمّل من CDN مثل Firebase -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 
 <style>
 /* ============================ نظام التصميم ============================ */
@@ -1609,15 +1611,27 @@ function pageReports(c){
   if(!(state.role==="owner"||state.role==="manager")){ pagePlaceholder(c,"reports"); return; }
   const today=new Date(); const first=new Date(today.getFullYear(),today.getMonth(),1);
   const iso=d=>d.toISOString().slice(0,10);
+  if(window.__repTab==null) window.__repTab="summary";
+  const seg=(k,label)=>"<button id='rseg_"+k+"' class='"+(window.__repTab===k?"active":"")+"'>"+esc(L(label))+"</button>";
   c.innerHTML=pageTitle("التقارير","نظرة على أداء نشاطك")+
+    "<div class='seg2' style='max-width:520px'>"+seg("summary","ملخّص الأداء")+seg("movement","حركة المخزون")+"</div>"+
     "<div class='card' style='margin-bottom:16px'><div class='grid' style='grid-template-columns:1fr 1fr auto;gap:10px;align-items:end'>"+
       "<label class='field'><span>من</span><input id='repFrom' class='input' type='date' value='"+iso(first)+"'></label>"+
       "<label class='field'><span>إلى</span><input id='repTo' class='input' type='date' value='"+iso(today)+"'></label>"+
       "<button class='btn primary' id='repRun'>عرض</button>"+
+    "</div>"+
+    "<div style='display:flex;gap:8px;flex-wrap:wrap;margin-top:12px'>"+
+      "<button class='btn sm' id='repXlsx'>⬇ تصدير Excel</button>"+
+      "<button class='btn sm' id='repPdf'>🖨 تصدير PDF</button>"+
     "</div></div>"+
     "<div id='repBody'><p class='muted'>اختر الفترة واضغط «عرض».</p></div>";
-  $("repRun").onclick=()=>runReports($("repFrom").value,$("repTo").value);
-  runReports($("repFrom").value,$("repTo").value);
+  const runNow=()=>{ if(window.__repTab==="movement") runMovementReport($("repFrom").value,$("repTo").value); else runReports($("repFrom").value,$("repTo").value); };
+  $("rseg_summary").onclick=()=>{ window.__repTab="summary"; pageReports(c); };
+  $("rseg_movement").onclick=()=>{ window.__repTab="movement"; pageReports(c); };
+  $("repRun").onclick=runNow;
+  $("repXlsx").onclick=()=>exportReportXlsx();
+  $("repPdf").onclick=()=>exportReportPdf();
+  runNow();
 }
 async function runReports(from,to){
   const body=$("repBody"); if(!body) return;
@@ -1659,6 +1673,8 @@ async function runReports(from,to){
     // الرواتب (آخر شهر مسجّل) + التقييم
     let payrollTot=0; pay.forEach(d=>{const x=d.data(); payrollTot+=Number(x.net||x.total||0)||0;});
     let evSum=0,evN=0; evals.forEach(d=>{const x=d.data(); evSum+=Number(x.pct||0); evN++;});
+    // خزّن نتائج الملخّص للتصدير (Excel/PDF)
+    window.__lastSummary={from,to,salesTot,salesCount,avgDaily,diff,byBranch,buyTot,buyCount,bySupplier,stockVal,lowCount,wasteTot,byReason,expTot,byCat,netProfit,payrollTot,evgAvg:(evN?Math.round(evSum/evN):null)};
     const kpicard=(t,v,color)=>"<div class='kpi'><div class='l'>"+t+"</div><div class='v'"+(color?" style='color:"+color+"'":"")+">"+v+"</div></div>";
     const rowsHtml=(obj,fmt)=>{const ks=Object.keys(obj).sort((a,b)=>obj[b]-obj[a]); if(!ks.length)return "<p class='muted'>لا توجد بيانات</p>"; return "<table><tbody>"+ks.map(k=>"<tr><td>"+esc(k)+"</td><td style='text-align:left'><b>"+fmt(obj[k])+"</b></td></tr>").join("")+"</tbody></table>";};
     body.innerHTML=
@@ -1691,6 +1707,186 @@ async function runReports(from,to){
     if(typeof translateTree==="function") translateTree(body);
   }catch(e){ console.error(e); body.innerHTML="<p style='color:var(--red)'>تعذّر تحميل التقارير</p>"; }
 }
+
+/* ================================================================== */
+/*  تقرير حركة المخزون — يجمع كل الحركات من مصادرها الحالية            */
+/* ================================================================== */
+// نوع الحركة: وارد (+) أو صادر (−)
+function mvDir(type){ return ["توريد","تحويل وارد","تسوية جرد (زيادة)"].includes(type)?"in":"out"; }
+// تحويل تاريخ حركة (Timestamp/ISO) → كائن Date
+function mvDate(v){ if(!v) return null; if(v.seconds) return new Date(v.seconds*1000); const d=new Date(v); return isNaN(d)?null:d; }
+function inDateRange(d,from,to){ if(!d) return false; const t=new Date(d.getFullYear(),d.getMonth(),d.getDate()).getTime();
+  return t>=new Date(from).setHours(0,0,0,0) && t<=new Date(to).setHours(23,59,59,999); }
+
+async function runMovementReport(from,to){
+  const body=$("repBody"); if(!body) return;
+  body.innerHTML="<p class='muted'>جارٍ التحميل…</p>";
+  try{
+    // خرائط مساعدة: اسم الموقع، سعر المنتج
+    const [brSnap,prodSnap]=await Promise.all([cRef().collection("branches").get(),cRef().collection("products").get()]);
+    const locName={}; brSnap.forEach(d=>{ locName[d.id]=(d.data().name||"")+(d.data().isWarehouse?" (مستودع)":""); });
+    const priceMap={}; prodSnap.forEach(d=>{ priceMap[d.id]=Number(d.data().price)||0; });
+    // اجلب الحركات من مصادرها
+    const [salesSnap,wasteSnap,cntSnap,trSnap]=await Promise.all([
+      cRef().collection("salesLogs").get().catch(()=>({forEach:()=>{}})),
+      cRef().collection("waste").get().catch(()=>({forEach:()=>{}})),
+      cRef().collection("stockCounts").get().catch(()=>({forEach:()=>{}})),
+      cRef().collection("transfers").get().catch(()=>({forEach:()=>{}}))
+    ]);
+    const rows=[]; // {date, type, dir, loc, product, qty, value, by, ref}
+    // 1) المبيعات → استهلاك نظري (صادر) من كل فرع
+    salesSnap.forEach(d=>{ const x=d.data(); const dt=mvDate(x.at); if(!inDateRange(dt,from,to)) return;
+      (x.consumption||[]).forEach(u=>{ const q=Number(u.qty)||0; if(q<=0) return;
+        rows.push({date:dt,type:"بيع/استهلاك",dir:"out",loc:x.branchName||locName[x.branchId]||"—",product:u.name,unit:u.unit||"",qty:q,value:q*(priceMap[u.productId]||0),by:x.byName||"",ref:"مبيعات"});
+      });
+    });
+    // 2) التوالف (المعتمدة فقط) — صادر
+    wasteSnap.forEach(d=>{ const x=d.data(); if(x.status!=="approved") return; const dt=mvDate(x.at); if(!inDateRange(dt,from,to)) return;
+      const q=Number(x.qty)||0; rows.push({date:dt,type:"تالف",dir:"out",loc:x.branchName||locName[x.branchId]||"—",product:x.name,unit:"",qty:q,value:Number(x.cost)||q*(priceMap[x.productId]||0),by:x.byName||"",ref:x.reason||"تالف"});
+    });
+    // 3) تسويات الجرد (المعتمدة) — فرق موجب=زيادة، سالب=عجز
+    cntSnap.forEach(d=>{ const x=d.data(); if(x.status!=="approved") return; const dt=mvDate(x.at); if(!inDateRange(dt,from,to)) return;
+      (x.results||[]).forEach(r=>{ const diff=Number(r.diff)||0; if(diff===0) return;
+        rows.push({date:dt,type:diff>0?"تسوية جرد (زيادة)":"تسوية جرد (عجز)",dir:diff>0?"in":"out",loc:x.branchName||locName[x.branchId]||"—",product:r.name,unit:"",qty:Math.abs(diff),value:Math.abs(Number(r.diffValue)||diff*(priceMap[r.productId]||0)),by:x.byName||"",ref:"جرد"});
+      });
+    });
+    // 4) التحويلات (المعتمدة) — سطر صادر من المصدر + سطر وارد للوجهة
+    trSnap.forEach(d=>{ const x=d.data(); if(x.status!=="approved") return; const dt=mvDate(x.at); if(!inDateRange(dt,from,to)) return;
+      (x.items||[]).forEach(it=>{ const q=Number(it.qty)||0; if(q<=0) return; const val=q*(priceMap[it.productId]||0);
+        rows.push({date:dt,type:"تحويل صادر",dir:"out",loc:x.fromName||"—",product:it.name,unit:"",qty:q,value:val,by:x.byName||"",ref:"→ "+(x.toName||"")});
+        rows.push({date:dt,type:"تحويل وارد",dir:"in",loc:x.toName||"—",product:it.name,unit:"",qty:q,value:val,by:x.byName||"",ref:"← "+(x.fromName||"")});
+      });
+    });
+    // ترتيب زمني تنازلي
+    rows.sort((a,b)=>((b.date&&b.date.getTime())||0)-((a.date&&a.date.getTime())||0));
+    window.__lastMovement={from,to,rows};
+    renderMovementReport(body,rows);
+  }catch(e){ console.error(e); body.innerHTML="<p style='color:var(--red)'>تعذّر تحميل تقرير الحركة — تحقّق من قواعد الأمان</p>"; }
+}
+
+function renderMovementReport(body,rows){
+  // فلاتر: الموقع + المنتج + نوع الحركة
+  const locs=[...new Set(rows.map(r=>r.loc))].sort();
+  const prods=[...new Set(rows.map(r=>r.product))].sort();
+  const types=[...new Set(rows.map(r=>r.type))].sort();
+  const opt=arr=>arr.map(v=>"<option value='"+esc(v)+"'>"+esc(v)+"</option>").join("");
+  // إجماليات
+  const totIn=rows.filter(r=>r.dir==="in").reduce((a,r)=>a+r.value,0);
+  const totOut=rows.filter(r=>r.dir==="out").reduce((a,r)=>a+r.value,0);
+  body.innerHTML=
+    "<div class='kpi-grid' style='margin-bottom:14px'>"+
+      "<div class='kpi'><div class='l'>عدد الحركات</div><div class='v'>"+rows.length+"</div></div>"+
+      "<div class='kpi'><div class='l'>قيمة الوارد</div><div class='v' style='color:var(--green)'>"+money(totIn)+"</div></div>"+
+      "<div class='kpi'><div class='l'>قيمة الصادر</div><div class='v' style='color:var(--red)'>"+money(totOut)+"</div></div>"+
+    "</div>"+
+    "<div class='card' style='margin-bottom:14px'><div class='grid' style='grid-template-columns:1fr 1fr 1fr;gap:10px'>"+
+      "<label class='field'><span>الموقع</span><select id='mvLoc' class='input'><option value=''>الكل</option>"+opt(locs)+"</select></label>"+
+      "<label class='field'><span>المنتج</span><select id='mvProd' class='input'><option value=''>الكل</option>"+opt(prods)+"</select></label>"+
+      "<label class='field'><span>نوع الحركة</span><select id='mvType' class='input'><option value=''>الكل</option>"+opt(types)+"</select></label>"+
+    "</div></div>"+
+    "<div class='card'><table><thead><tr><th>التاريخ</th><th>الحركة</th><th>الموقع</th><th>المنتج</th><th>الكمية</th><th>القيمة</th><th>بواسطة</th><th>مرجع</th></tr></thead><tbody id='mvRows'></tbody></table></div>";
+  const paint=()=>{
+    const fl=$("mvLoc").value, fp=$("mvProd").value, ft=$("mvType").value;
+    const shown=rows.filter(r=>(!fl||r.loc===fl)&&(!fp||r.product===fp)&&(!ft||r.type===ft));
+    window.__mvShown=shown; // المعروض حالياً (للتصدير)
+    const tb=$("mvRows"); if(!tb) return;
+    if(!shown.length){ tb.innerHTML="<tr><td colspan='8' class='muted'>لا توجد حركات في هذه الفترة</td></tr>"; return; }
+    tb.innerHTML=shown.map(r=>{
+      const dir = r.dir==="in" ? "<span style='color:var(--green);font-weight:700'>وارد ▲</span>" : "<span style='color:var(--red);font-weight:700'>صادر ▼</span>";
+      const dtS = r.date?fmtDT({toDate:()=>r.date}):"—";
+      const qSign = r.dir==="in"?"+":"−";
+      return "<tr><td>"+dtS+"</td><td>"+dir+"<div class='muted' style='font-size:11px'>"+esc(r.type)+"</div></td><td>"+esc(r.loc)+"</td><td><b>"+esc(r.product)+"</b></td><td style='font-weight:700;color:"+(r.dir==="in"?"var(--green)":"var(--red)")+"'>"+qSign+(Math.round(r.qty*100)/100)+" "+esc(r.unit||"")+"</td><td>"+money(r.value)+"</td><td class='muted'>"+esc(r.by)+"</td><td class='muted'>"+esc(r.ref)+"</td></tr>";
+    }).join("");
+  };
+  $("mvLoc").onchange=paint; $("mvProd").onchange=paint; $("mvType").onchange=paint;
+  paint();
+  if(typeof translateTree==="function") translateTree(body);
+}
+
+/* ================================================================== */
+/*  التصدير: Excel (SheetJS) + PDF (نافذة طباعة RTL)                    */
+/* ================================================================== */
+function repRangeLabel(){ const f=window.__repTab==="movement"?window.__lastMovement:window.__lastSummary; if(!f) return ""; return (f.from||"")+" — "+(f.to||""); }
+
+// ---- Excel ----
+function exportReportXlsx(){
+  if(typeof XLSX==="undefined"){ toast("مكتبة Excel غير محمّلة — تحقّق من الاتصال","err"); return; }
+  try{
+    const wb=XLSX.utils.book_new();
+    if(window.__repTab==="movement"){
+      const rows=(window.__mvShown&&window.__mvShown.length?window.__mvShown:(window.__lastMovement&&window.__lastMovement.rows))||[];
+      if(!rows.length){ toast("لا توجد بيانات للتصدير","err"); return; }
+      const aoa=[["التاريخ","الحركة","النوع","الموقع","المنتج","الكمية","القيمة","بواسطة","مرجع"]];
+      rows.forEach(r=>aoa.push([ r.date?fmtYMD(r.date):"", r.dir==="in"?"وارد":"صادر", r.type, r.loc, r.product, (r.dir==="in"?1:-1)*r.qty, r.value, r.by, r.ref ]));
+      const ws=XLSX.utils.aoa_to_sheet(aoa); ws["!cols"]=[{wch:12},{wch:8},{wch:16},{wch:18},{wch:20},{wch:10},{wch:12},{wch:16},{wch:16}];
+      XLSX.utils.book_append_sheet(wb,ws,"حركة المخزون");
+    } else {
+      const s=window.__lastSummary; if(!s){ toast("اعرض التقرير أولاً","err"); return; }
+      const kv=[["التقرير","القيمة"],
+        ["الفترة",(s.from||"")+" إلى "+(s.to||"")],
+        ["إجمالي المبيعات",s.salesTot],["عدد الإقفالات",s.salesCount],["متوسط يومي",s.avgDaily],["الفرق (فعلي−نظام)",s.diff],
+        ["إجمالي المشتريات",s.buyTot],["عدد الفواتير",s.buyCount],
+        ["قيمة المخزون",s.stockVal],["منتجات تحت الحد",s.lowCount],
+        ["تكلفة التوالف",s.wasteTot],["إجمالي المصروفات",s.expTot],
+        ["صافي الربح",s.netProfit],["إجمالي الرواتب",s.payrollTot],["متوسط تقييم الفروع",s.evgAvg!=null?s.evgAvg+"%":"—"]];
+      const ws1=XLSX.utils.aoa_to_sheet(kv); ws1["!cols"]=[{wch:24},{wch:18}];
+      XLSX.utils.book_append_sheet(wb,ws1,"ملخّص الأداء");
+      const mkSheet=(obj,name,c1,c2)=>{ const a=[[c1,c2]]; Object.keys(obj||{}).sort((x,y)=>obj[y]-obj[x]).forEach(k=>a.push([k,obj[k]])); const w=XLSX.utils.aoa_to_sheet(a); w["!cols"]=[{wch:22},{wch:16}]; XLSX.utils.book_append_sheet(wb,w,name); };
+      mkSheet(s.byBranch,"المبيعات بالفرع","الفرع","المبيعات");
+      mkSheet(s.bySupplier,"المشتريات بالمورد","المورد","القيمة");
+      mkSheet(s.byReason,"التوالف بالسبب","السبب","التكلفة");
+      mkSheet(s.byCat,"المصروفات بالفئة","الفئة","المبلغ");
+    }
+    const name=(window.__repTab==="movement"?"حركة_المخزون_":"تقرير_الأداء_")+(new Date().toISOString().slice(0,10))+".xlsx";
+    XLSX.writeFile(wb,name);
+    toast("تم تصدير Excel","ok");
+  }catch(e){ console.error(e); toast("تعذّر تصدير Excel","err"); }
+}
+
+// ---- PDF (طباعة نافذة RTL — يعتمد على مربّع طباعة المتصفح → حفظ PDF) ----
+function exportReportPdf(){
+  const isMv=window.__repTab==="movement";
+  const title=isMv?"تقرير حركة المخزون":"تقرير الأداء";
+  const range=repRangeLabel();
+  let inner="";
+  if(isMv){
+    const rows=(window.__mvShown&&window.__mvShown.length?window.__mvShown:(window.__lastMovement&&window.__lastMovement.rows))||[];
+    if(!rows.length){ toast("لا توجد بيانات للتصدير","err"); return; }
+    const totIn=rows.filter(r=>r.dir==="in").reduce((a,r)=>a+r.value,0);
+    const totOut=rows.filter(r=>r.dir==="out").reduce((a,r)=>a+r.value,0);
+    inner="<div class='kpis'><div>عدد الحركات: <b>"+rows.length+"</b></div><div>قيمة الوارد: <b>"+money(totIn)+"</b></div><div>قيمة الصادر: <b>"+money(totOut)+"</b></div></div>"+
+      "<table><thead><tr><th>التاريخ</th><th>الحركة</th><th>الموقع</th><th>المنتج</th><th>الكمية</th><th>القيمة</th><th>بواسطة</th><th>مرجع</th></tr></thead><tbody>"+
+      rows.map(r=>"<tr><td>"+(r.date?fmtYMD(r.date):"")+"</td><td>"+(r.dir==="in"?"وارد ▲":"صادر ▼")+"<br><small>"+esc(r.type)+"</small></td><td>"+esc(r.loc)+"</td><td>"+esc(r.product)+"</td><td>"+(r.dir==="in"?"+":"−")+(Math.round(r.qty*100)/100)+" "+esc(r.unit||"")+"</td><td>"+money(r.value)+"</td><td>"+esc(r.by)+"</td><td>"+esc(r.ref)+"</td></tr>").join("")+
+      "</tbody></table>";
+  } else {
+    const s=window.__lastSummary; if(!s){ toast("اعرض التقرير أولاً","err"); return; }
+    const kv=(t,v)=>"<tr><td>"+t+"</td><td><b>"+v+"</b></td></tr>";
+    const grp=(obj)=>Object.keys(obj||{}).sort((x,y)=>obj[y]-obj[x]).map(k=>"<tr><td>"+esc(k)+"</td><td><b>"+money(obj[k])+"</b></td></tr>").join("")||"<tr><td colspan='2'>لا توجد بيانات</td></tr>";
+    inner=
+      "<h2>المبيعات</h2><table>"+kv("إجمالي المبيعات",money(s.salesTot))+kv("عدد الإقفالات",s.salesCount)+kv("متوسط يومي",money(s.avgDaily))+kv("الفرق (فعلي−نظام)",money(s.diff))+"</table>"+
+      "<h3>المبيعات حسب الفرع</h3><table>"+grp(s.byBranch)+"</table>"+
+      "<h2>المشتريات</h2><table>"+kv("إجمالي المشتريات",money(s.buyTot))+kv("عدد الفواتير",s.buyCount)+"</table>"+
+      "<h3>المشتريات حسب المورد</h3><table>"+grp(s.bySupplier)+"</table>"+
+      "<h2>المخزون</h2><table>"+kv("قيمة المخزون",money(s.stockVal))+kv("منتجات تحت الحد",s.lowCount)+"</table>"+
+      "<h2>التوالف</h2><table>"+kv("تكلفة التوالف",money(s.wasteTot))+"</table><h3>حسب السبب</h3><table>"+grp(s.byReason)+"</table>"+
+      "<h2>المصروفات</h2><table>"+kv("إجمالي المصروفات",money(s.expTot))+"</table><h3>حسب الفئة</h3><table>"+grp(s.byCat)+"</table>"+
+      "<h2>صافي الربح</h2><table>"+kv("صافي الربح",money(s.netProfit))+"</table>"+
+      "<h2>الموظفون</h2><table>"+kv("إجمالي الرواتب",money(s.payrollTot))+kv("متوسط تقييم الفروع",s.evgAvg!=null?s.evgAvg+"%":"—")+"</table>";
+  }
+  const w=window.open("","_blank");
+  if(!w){ toast("اسمح بالنوافذ المنبثقة للطباعة","err"); return; }
+  w.document.write("<!DOCTYPE html><html lang='ar' dir='rtl'><head><meta charset='UTF-8'><title>"+esc(title)+"</title>"+
+    "<style>*{font-family:'Segoe UI',Tahoma,sans-serif}body{padding:24px;color:#1e2532}h1{margin:0 0 4px}h2{margin:20px 0 8px;border-bottom:2px solid #6366f1;padding-bottom:4px;color:#4f46e5}h3{margin:14px 0 6px;font-size:14px;color:#555}table{width:100%;border-collapse:collapse;margin-bottom:8px;font-size:13px}th,td{border:1px solid #ddd;padding:7px 9px;text-align:right}th{background:#f4f6fb}.kpis{display:flex;gap:20px;flex-wrap:wrap;margin:8px 0 14px;font-size:14px}.head{display:flex;justify-content:space-between;align-items:flex-end;border-bottom:3px solid #6366f1;padding-bottom:10px;margin-bottom:16px}.brand{font-size:22px;font-weight:800;color:#6366f1}small{color:#888}@media print{.noprint{display:none}}</style>"+
+    "</head><body>"+
+    "<div class='head'><div><div class='brand'>"+esc(state.companyName||"رُواق")+"</div><div>"+esc(title)+"</div></div>"+
+    "<div style='text-align:left;font-size:13px'><div>الفترة: "+esc(range)+"</div><div>"+new Date().toLocaleDateString("ar-SA-u-ca-gregory-nu-latn")+"</div></div></div>"+
+    inner+
+    "<div class='noprint' style='margin-top:20px;text-align:center'><button onclick='window.print()' style='padding:10px 24px;background:#6366f1;color:#fff;border:none;border-radius:8px;font-size:15px;cursor:pointer'>🖨 طباعة / حفظ PDF</button></div>"+
+    "</body></html>");
+  w.document.close();
+  setTimeout(()=>{ try{ w.focus(); w.print(); }catch(e){} },500);
+}
+window.exportReportXlsx=exportReportXlsx; window.exportReportPdf=exportReportPdf; window.runMovementReport=runMovementReport;
 
 function pagePlaceholder(c,key){
   const m=MODULES.find(x=>x.key===key)||{name:key,icon:"🚧"};
