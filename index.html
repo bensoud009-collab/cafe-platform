@@ -1888,6 +1888,100 @@ function exportReportPdf(){
 }
 window.exportReportXlsx=exportReportXlsx; window.exportReportPdf=exportReportPdf; window.runMovementReport=runMovementReport;
 
+/* ================================================================== */
+/*  سند طباعة عام (PDF) — ترويسة الشركة + بيانات + جدول                */
+/* ================================================================== */
+// meta: [[label,value],...] ، cols: [أعمدة] ، body: [[خلية,...],...]
+function printDoc(title, meta, cols, body, note){
+  const w=window.open("","_blank");
+  if(!w){ toast("اسمح بالنوافذ المنبثقة للطباعة","err"); return; }
+  const metaHtml=(meta||[]).map(m=>"<div><span style='color:#888'>"+esc(m[0])+":</span> <b>"+esc(m[1])+"</b></div>").join("");
+  const thead="<tr>"+(cols||[]).map(c=>"<th>"+esc(c)+"</th>").join("")+"</tr>";
+  const tbody=(body||[]).map(r=>"<tr>"+r.map(c=>"<td>"+esc(c)+"</td>").join("")+"</tr>").join("");
+  w.document.write("<!DOCTYPE html><html lang='ar' dir='rtl'><head><meta charset='UTF-8'><title>"+esc(title)+"</title>"+
+    "<style>*{font-family:'Segoe UI',Tahoma,sans-serif}body{padding:24px;color:#1e2532}.brand{font-size:22px;font-weight:800;color:#6366f1}"+
+    ".head{display:flex;justify-content:space-between;align-items:flex-end;border-bottom:3px solid #6366f1;padding-bottom:10px;margin-bottom:14px}"+
+    ".meta{display:grid;grid-template-columns:1fr 1fr;gap:6px 20px;font-size:13px;margin-bottom:16px}"+
+    "table{width:100%;border-collapse:collapse;font-size:13px}th,td{border:1px solid #ddd;padding:8px 10px;text-align:right}th{background:#f4f6fb}"+
+    ".note{color:#888;font-size:12px;margin-top:12px}@media print{.noprint{display:none}}</style></head><body>"+
+    "<div class='head'><div><div class='brand'>"+esc(state.companyName||"رُواق")+"</div><div>"+esc(title)+"</div></div>"+
+    "<div style='text-align:left;font-size:13px'>"+new Date().toLocaleDateString("ar-SA-u-ca-gregory-nu-latn")+"</div></div>"+
+    "<div class='meta'>"+metaHtml+"</div>"+
+    "<table><thead>"+thead+"</thead><tbody>"+tbody+"</tbody></table>"+
+    (note?"<div class='note'>"+esc(note)+"</div>":"")+
+    "<div class='noprint' style='margin-top:20px;text-align:center'><button onclick='window.print()' style='padding:10px 24px;background:#6366f1;color:#fff;border:none;border-radius:8px;font-size:15px;cursor:pointer'>🖨 طباعة / حفظ PDF</button></div>"+
+    "</body></html>");
+  w.document.close();
+  setTimeout(()=>{ try{ w.focus(); w.print(); }catch(e){} },500);
+}
+// جدول Excel عام من aoa
+function sheetFromAoa(aoa, sheetName, fileName, cols){
+  if(typeof XLSX==="undefined"){ toast("مكتبة Excel غير محمّلة — تحقّق من الاتصال","err"); return; }
+  try{ const wb=XLSX.utils.book_new(); const ws=XLSX.utils.aoa_to_sheet(aoa); if(cols) ws["!cols"]=cols;
+    XLSX.utils.book_append_sheet(wb,ws,sheetName); XLSX.writeFile(wb,fileName); toast("تم تصدير Excel","ok");
+  }catch(e){ console.error(e); toast("تعذّر تصدير Excel","err"); }
+}
+
+/* ---- تصدير طلبية معتمدة (stockOrders) ---- */
+function exportApprovedOrderPdf(x){
+  const sent = Array.isArray(x.sent) ? x.sent : (x.items||[]).map(it=>({name:it.name,requested:Number(it.qty)||0,sent:Number(it.qty)||0}));
+  const meta=[["التاريخ",fmtDT(x.approvedAt||x.at)],["المُرسِل",x.byName||""],["من",x.warehouseName||"المستودع الرئيسي"],["إلى",x.branchName||""]];
+  const body=sent.map(s=>[s.name,(Number(s.requested)||0),(Number(s.sent)||0)]);
+  printDoc("سند طلبية — "+(x.branchName||""), meta, ["المنتج","تم الطلب","تم الإرسال"], body, "الأحمر = غير متوفر · الأصفر = أُرسل جزئياً");
+}
+function exportApprovedOrderXlsx(x){
+  const sent = Array.isArray(x.sent) ? x.sent : (x.items||[]).map(it=>({name:it.name,requested:Number(it.qty)||0,sent:Number(it.qty)||0}));
+  const aoa=[["سند طلبية",""],["من",x.warehouseName||"المستودع الرئيسي"],["إلى",x.branchName||""],["التاريخ",x.approvedAt?fmtYMD(mvDate(x.approvedAt)):(x.at?fmtYMD(mvDate(x.at)):"")],["المُرسِل",x.byName||""],[],["المنتج","تم الطلب","تم الإرسال"]];
+  sent.forEach(s=>aoa.push([s.name,Number(s.requested)||0,Number(s.sent)||0]));
+  sheetFromAoa(aoa,"طلبية","طلبية_"+(x.branchName||"")+"_"+(new Date().toISOString().slice(0,10))+".xlsx",[{wch:22},{wch:12},{wch:12}]);
+}
+window.exportApprovedOrderPdf=exportApprovedOrderPdf; window.exportApprovedOrderXlsx=exportApprovedOrderXlsx;
+
+/* ---- تصدير تحويل (transfers) ---- */
+function exportTransferPdf(x){
+  const meta=[["التاريخ",fmtDT(x.at)],["المُرسِل",x.byName||""],["من",x.fromName||""],["إلى",x.toName||""],["الحالة",x.status==="approved"?"معتمد":x.status==="rejected"?"مرفوض":"قيد المراجعة"]];
+  const body=(x.items||[]).map(it=>[it.name,(Number(it.qty)||0)]);
+  printDoc("سند تحويل — "+(x.fromName||"")+" → "+(x.toName||""), meta, ["الصنف","الكمية"], body);
+}
+function exportTransferXlsx(x){
+  const aoa=[["سند تحويل",""],["من",x.fromName||""],["إلى",x.toName||""],["التاريخ",x.at?fmtYMD(mvDate(x.at)):""],["المُرسِل",x.byName||""],["الحالة",x.status||""],[],["الصنف","الكمية"]];
+  (x.items||[]).forEach(it=>aoa.push([it.name,Number(it.qty)||0]));
+  sheetFromAoa(aoa,"تحويل","تحويل_"+(x.fromName||"")+"_"+(new Date().toISOString().slice(0,10))+".xlsx",[{wch:22},{wch:12}]);
+}
+window.exportTransferPdf=exportTransferPdf; window.exportTransferXlsx=exportTransferXlsx;
+
+/* ---- تصدير فاتورة واحدة ---- */
+function exportInvoicePdf(x){
+  const meta=[["التاريخ",fmtDT(x.createdAt)],["المورد",(x.supplier||"—")+(x.supplierPhone?" ("+x.supplierPhone+")":"")],["المُرسِل",x.employeeName||x.createdByName||""],["الحالة",x.status==="approved"?"معتمدة":x.status==="rejected"?"مرفوضة":"قيد المراجعة"]];
+  const body=(x.items||[]).map(it=>[it.name,(Number(it.value)||0),(Number(it.qty)||0),money((Number(it.value)||0)*(Number(it.qty)||0))]);
+  body.push(["الإجمالي","","",money(x.total)]);
+  printDoc("فاتورة مشتريات", meta, ["المنتج","القيمة","الكمية","الإجمالي"], body);
+}
+function exportInvoiceXlsx(x){
+  const aoa=[["فاتورة مشتريات",""],["المورد",x.supplier||"—"],["التاريخ",x.date||(x.createdAt?fmtYMD(mvDate(x.createdAt)):"")],["المُرسِل",x.employeeName||x.createdByName||""],["الحالة",x.status||""],[],["المنتج","القيمة","الكمية","الإجمالي"]];
+  (x.items||[]).forEach(it=>aoa.push([it.name,Number(it.value)||0,Number(it.qty)||0,(Number(it.value)||0)*(Number(it.qty)||0)]));
+  aoa.push(["الإجمالي","","",Number(x.total)||0]);
+  sheetFromAoa(aoa,"فاتورة","فاتورة_"+(x.supplier||"")+"_"+(new Date().toISOString().slice(0,10))+".xlsx",[{wch:22},{wch:12},{wch:10},{wch:14}]);
+}
+window.exportInvoicePdf=exportInvoicePdf; window.exportInvoiceXlsx=exportInvoiceXlsx;
+
+/* ---- تصدير فواتير فترة (مجمّعة) ---- */
+function exportInvoicesRangePdf(rows,from,to){
+  if(!rows||!rows.length){ toast("لا توجد فواتير في الفترة","err"); return; }
+  const meta=[["الفترة",(from||"")+" — "+(to||"")],["عدد الفواتير",rows.length],["الإجمالي",money(rows.reduce((a,r)=>a+(Number(r.total)||0),0))]];
+  const body=rows.map(x=>[ (x.date||(x.createdAt?fmtYMD(mvDate(x.createdAt)):"")), (x.supplier||"—"), ((x.items||[]).length+" صنف"), money(x.total), (x.status==="approved"?"معتمدة":x.status==="rejected"?"مرفوضة":"قيد المراجعة"), (x.employeeName||x.createdByName||"") ]);
+  printDoc("تقرير الفواتير", meta, ["التاريخ","المورد","الأصناف","الإجمالي","الحالة","المُرسِل"], body);
+}
+function exportInvoicesRangeXlsx(rows,from,to){
+  if(!rows||!rows.length){ toast("لا توجد فواتير في الفترة","err"); return; }
+  const aoa=[["تقرير الفواتير",""],["الفترة",(from||"")+" — "+(to||"")],[],["التاريخ","المورد","عدد الأصناف","الإجمالي","الحالة","المُرسِل"]];
+  rows.forEach(x=>aoa.push([ (x.date||(x.createdAt?fmtYMD(mvDate(x.createdAt)):"")), (x.supplier||"—"), (x.items||[]).length, Number(x.total)||0, (x.status==="approved"?"معتمدة":x.status==="rejected"?"مرفوضة":"قيد المراجعة"), (x.employeeName||x.createdByName||"") ]));
+  aoa.push(["الإجمالي","","",rows.reduce((a,r)=>a+(Number(r.total)||0),0),"",""]);
+  sheetFromAoa(aoa,"الفواتير","فواتير_"+(new Date().toISOString().slice(0,10))+".xlsx",[{wch:12},{wch:20},{wch:12},{wch:14},{wch:12},{wch:16}]);
+}
+window.exportInvoicesRangePdf=exportInvoicesRangePdf; window.exportInvoicesRangeXlsx=exportInvoicesRangeXlsx;
+
+
 function pagePlaceholder(c,key){
   const m=MODULES.find(x=>x.key===key)||{name:key,icon:"🚧"};
   c.innerHTML=pageTitle(m.name)+
@@ -3081,6 +3175,22 @@ function pageInvoices(c){
   cRef().collection("products").get().then(s=>{ s.forEach(d=>{const x=d.data(); if(x.name) nameCat[x.name]=x.category||"";}); });
   if(window.__invLimit==null) window.__invLimit=10;
   c.appendChild(dateRangeControl("invoices", ()=>pageInvoices(c)));
+  // زر تصدير فواتير الفترة (يجلب كامل المدى المختار، لا يتقيّد بحد الجدول)
+  const expBar=el("div"); expBar.style.cssText="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px";
+  expBar.innerHTML="<button class='btn sm' id='invRangePdf'>🖨 تصدير الفترة PDF</button><button class='btn sm' id='invRangeXlsx'>⬇ تصدير الفترة Excel</button>";
+  c.appendChild(expBar);
+  const fetchRangeInvoices=async()=>{
+    const r=rangeState("invoices");
+    const rows=[]; const seen=new Set();
+    try{
+      const snap=await cRef().collection("invoices").orderBy("createdAt","desc").limit(1000).get();
+      snap.forEach(d=>{ const x=d.data(); if(inRange(x.createdAt,"invoices")){ rows.push({id:d.id,...x}); seen.add(d.id); } });
+    }catch(e){ console.error(e); }
+    rows.sort((a,b)=>((b.createdAt&&b.createdAt.seconds)||0)-((a.createdAt&&a.createdAt.seconds)||0));
+    return {rows, from:fmtYMD(r.from), to:fmtYMD(r.to)};
+  };
+  if($("invRangePdf"))$("invRangePdf").onclick=async()=>{ const {rows,from,to}=await fetchRangeInvoices(); exportInvoicesRangePdf(rows,from,to); };
+  if($("invRangeXlsx"))$("invRangeXlsx").onclick=async()=>{ const {rows,from,to}=await fetchRangeInvoices(); exportInvoicesRangeXlsx(rows,from,to); };
   const invCounter=pageSizeControl(window.__invLimit,(n)=>{ window.__invLimit=n; pageInvoices(c); });
   c.appendChild(invCounter);
   const card=el("div","card");
@@ -3135,7 +3245,9 @@ function viewInvoice(x,id){
     "<div style='margin:10px 0'>"+items+"</div>"+
     "<div class='review-row'><span>الإجمالي</span><b>"+money(x.total)+"</b></div>"+
     "<div class='review-row'><span>الحالة</span>"+statusTag3(x.status)+"</div>"+
-    (x.photoUrl?"<div style='margin-top:10px'><div class='muted' style='font-size:13px;margin-bottom:6px'>صورة الفاتورة</div><img src='"+x.photoUrl+"' style='max-width:100%;border-radius:10px;border:1px solid var(--line)'></div>":"");
+    (x.photoUrl?"<div style='margin-top:10px'><div class='muted' style='font-size:13px;margin-bottom:6px'>صورة الفاتورة</div><img src='"+x.photoUrl+"' style='max-width:100%;border-radius:10px;border:1px solid var(--line)'></div>":"")+
+    "<div style='display:flex;gap:8px;margin-top:14px'><button class='btn sm' id='invExpPdf' style='flex:1'>🖨 PDF</button><button class='btn sm' id='invExpXlsx' style='flex:1'>⬇ Excel</button></div>";
+  const bindInvExport=()=>{ if($("invExpPdf"))$("invExpPdf").onclick=()=>exportInvoicePdf(x); if($("invExpXlsx"))$("invExpXlsx").onclick=()=>exportInvoiceXlsx(x); };
   const isPending=(x.status!=="approved"&&x.status!=="rejected");
   const invId=id||x.id;
   if(isPending && canApproveInvoices() && invId){
@@ -3145,12 +3257,14 @@ function viewInvoice(x,id){
     "</div>";
     openModal("تفاصيل الفاتورة", inner, null, ()=>true, true);
     setTimeout(()=>{
+      bindInvExport();
       if($("invApprove"))$("invApprove").onclick=()=>{ setInvoiceStatus(invId,x,"approved"); closeModal(); toast(L("تم الاعتماد"),"ok"); };
       if($("invReject"))$("invReject").onclick=()=>{ setInvoiceStatus(invId,x,"rejected"); closeModal(); toast(L("تم الرفض"),"ok"); };
     },30);
     return;
   }
   openModal("تفاصيل الفاتورة", inner, "تم",()=>true,true);
+  setTimeout(bindInvExport,30);
 }
 
 // صف منتج داخل الفاتورة
@@ -3840,8 +3954,10 @@ function viewApprovedOrder(x){
     "<div class='review-row'><span>"+L("المستقبِل")+"</span><b>"+esc(x.branchName||"")+"</b></div>"+
     "<div class='review-row'><span>"+L("من")+" → "+L("إلى")+"</span><b>"+esc(x.warehouseName||L("المستودع الرئيسي"))+" → "+esc(x.branchName||"")+"</b></div>"+
     "<table style='margin-top:12px'><thead><tr><th>"+L("المنتج")+"</th><th>"+L("تم الطلب")+"</th><th>"+L("تم الإرسال")+"</th></tr></thead><tbody>"+rowsHtml+"</tbody></table>"+
-    "<div class='muted' style='font-size:11px;text-align:center;margin-top:10px'>"+L("الأحمر = غير متوفر (0) · الأصفر = أُرسل جزئياً")+"</div>",
+    "<div class='muted' style='font-size:11px;text-align:center;margin-top:10px'>"+L("الأحمر = غير متوفر (0) · الأصفر = أُرسل جزئياً")+"</div>"+
+    "<div style='display:flex;gap:8px;margin-top:16px'><button class='btn sm' id='ordExpPdf' style='flex:1'>🖨 PDF</button><button class='btn sm' id='ordExpXlsx' style='flex:1'>⬇ Excel</button></div>",
     "تم", ()=>true, true, 520);
+  setTimeout(()=>{ if($("ordExpPdf"))$("ordExpPdf").onclick=()=>exportApprovedOrderPdf(x); if($("ordExpXlsx"))$("ordExpXlsx").onclick=()=>exportApprovedOrderXlsx(x); },30);
 }
 window.reviewOrderModal=reviewOrderModal; window.approveOrder=approveOrder; window.viewApprovedOrder=viewApprovedOrder;
 const WASTE_REASONS=["منتهي الصلاحية","تلف","كسر","خطأ تحضير","أخرى"];
@@ -4861,8 +4977,10 @@ function viewTransfer(x){
     "<div class='review-row'><span>"+L("إلى")+"</span><b>"+esc(x.toName||"")+"</b></div>"+
     "<div class='review-row'><span>"+L("المُرسِل")+"</span><b>"+esc(x.byName||"")+"</b></div>"+
     "<div class='sec-title' style='margin-top:10px'>"+L("الأصناف")+"</div>"+items+
-    "<div class='review-row'><span>"+L("الحالة")+"</span>"+statusTag3(x.status)+"</div>",
+    "<div class='review-row'><span>"+L("الحالة")+"</span>"+statusTag3(x.status)+"</div>"+
+    "<div style='display:flex;gap:8px;margin-top:16px'><button class='btn sm' id='trExpPdf' style='flex:1'>🖨 PDF</button><button class='btn sm' id='trExpXlsx' style='flex:1'>⬇ Excel</button></div>",
     "تم",()=>true,true);
+  setTimeout(()=>{ if($("trExpPdf"))$("trExpPdf").onclick=()=>exportTransferPdf(x); if($("trExpXlsx"))$("trExpXlsx").onclick=()=>exportTransferXlsx(x); },30);
 }
 
 async function approveTransfer(id,x){
