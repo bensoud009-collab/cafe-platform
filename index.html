@@ -267,7 +267,7 @@ tr.ord-short td:first-child{box-shadow:inset 3px 0 0 var(--red)}
         <button class="btn ghost sm hamb" onclick="document.getElementById('sidebar').classList.toggle('open')">☰</button>
         <button class="btn ghost sm" id="backBtn" title="رجوع" onclick="navBack()" style="display:none;font-size:15px;padding:5px 9px">←</button>
         <div style="flex:1"></div>
-        <button class="btn ghost sm" id="homeBtn" title="الرئيسية" onclick="navHome()" style="display:none;font-size:13px;padding:5px 8px">🏠</button>
+        <button class="btn ghost sm" id="homeBtn" title="الرئيسية" onclick="navHome()" style="display:none;font-size:14px;padding:6px 14px;font-weight:700;color:var(--brand-2);border-color:var(--brand-2)">🏠 الرئيسية</button>
         <button class="btn ghost sm" id="profileBtn" title="ملف شخصي" onclick="openProfile()" style="font-size:14px;padding:5px 9px">👤</button>
       </div>
       <div class="content" id="pageContent"></div>
@@ -1541,8 +1541,10 @@ let pageHistory=[];
 function updateNavButtons(){
   const cm=cardsMode();
   const hamb=document.querySelector(".hamb"); if(hamb) hamb.style.display=cm?"none":"";
-  const hb=document.getElementById("homeBtn"); if(hb) hb.style.display=cm?"":"none";
-  const bb=document.getElementById("backBtn"); if(bb) bb.style.display=(cm&&pageHistory.length)?"":"none";
+  // زر الرئيسية: يظهر دائماً في cardsMode داخل أي قسم (عدا الرئيسية نفسها)
+  const hb=document.getElementById("homeBtn"); if(hb) hb.style.display=(cm && state.current!=="__home__")?"":"none";
+  // زر الرجوع خطوة: يظهر لو فيه سجل تنقّل
+  const bb=document.getElementById("backBtn"); if(bb) bb.style.display=(cm && pageHistory.length && state.current!=="__home__")?"":"none";
   const lb=document.getElementById("langBtn"); if(lb){ lb.style.display=cm?"":"none"; lb.textContent=(LANG==="en"?"ع":"EN"); }
 }
 function toggleLang(){ setLang(LANG==="en"?"ar":"en"); }
@@ -1563,7 +1565,7 @@ function renderCardsHome(){
     if(m.key==="expenses" && !isOwner) return; // المصروفات لمالك الشركة فقط
     const allowed = (m.key==="staff"||m.key==="recipes"||(m.key==="inventory"&&isWarehouseKeeper())||can(m.key,"view")||can(m.key,"add"));
     if(!allowed) return;
-    const card=el("div","card"); card.style.cssText="cursor:pointer;min-height:120px;text-align:center;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px";
+    const card=el("div","card animin"); card.style.cssText="cursor:pointer;min-height:120px;text-align:center;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;animation-delay:"+(grid.children.length*0.05)+"s";
     card.innerHTML=(m.icon?"<div style='font-size:34px'>"+m.icon+"</div>":"")+"<div style='font-weight:800'>"+esc(t("nav_"+m.key)||m.name)+"</div>";
     card.onclick=()=>openPage(m.key);
     grid.appendChild(card);
@@ -1597,6 +1599,8 @@ function openPage(key,isBack){
   }
   if(routes[key]) routes[key](c);
   else pagePlaceholder(c,key);
+  // (1) حركة دخول ناعمة متدرّجة على محتوى أي قسم
+  try{ c.classList.remove("view-enter"); void c.offsetWidth; c.classList.add("view-enter"); }catch(e){}
   // تنبيه بسيط لمالك المنصة أثناء الدخول الإداري أن القسم تحت الصيانة
   if(moduleUnderMaintenance(key) && impersonation.active){ setTimeout(()=>toast("هذا القسم تحت الصيانة — الشركات لا تراه الآن",""),200); }
   updateNavButtons();
@@ -4932,17 +4936,18 @@ function recipeDetail(c,id,x){
   const canEdit = can("recipes","edit")||state.role==="owner"||state.role==="manager";
   const canDel  = can("recipes","delete")||state.role==="owner";
   const ings=(x.ingredients||[]);
+  const seeCost=canSeeCost(); // المالك/المدير يشوفون التكلفة؛ الموظف وحساب الفرع لا
   let cost=0; const rows=ings.map(it=>{ const line=(Number(it.qty)||0)*(Number(it.unitCost)||0); cost+=line;
-    return "<div class='review-row'><span>"+esc(it.name)+" — "+(it.qty||0)+" "+esc(it.unit||"")+"</span><b>"+money(line)+"</b></div>"; }).join("");
+    return "<div class='review-row'><span>"+esc(it.name)+" — "+(it.qty||0)+" "+esc(it.unit||"")+"</span>"+(seeCost?"<b>"+money(line)+"</b>":"")+"</div>"; }).join("");
   const sell=Number(x.sellPrice)||0;
   const foodCost = sell>0 ? (cost/sell*100) : 0;
   const photo = x.photoUrl?"<img src='"+x.photoUrl+"' style='max-width:100%;border-radius:10px;margin-bottom:12px'>":"";
   openModal(esc(x.name),
     photo+
     (ings.length?("<div class='sec'><div class='sec-title'>"+L("المكوّنات")+"</div>"+rows+
-      "<div class='review-row' style='border-top:1px solid var(--line);margin-top:6px;padding-top:8px'><span><b>"+L("تكلفة الوصفة")+"</b></span><b>"+money(cost)+"</b></div>"+
+      (seeCost?"<div class='review-row' style='border-top:1px solid var(--line);margin-top:6px;padding-top:8px'><span><b>"+L("تكلفة الوصفة")+"</b></span><b>"+money(cost)+"</b></div>":"")+
       (sell>0?"<div class='review-row'><span>"+L("سعر البيع")+"</span><b>"+money(sell)+"</b></div>"+
-        "<div class='review-row'><span>Food Cost</span><b style='color:"+(foodCost>35?"var(--red)":foodCost>28?"var(--amber)":"var(--green)")+"'>"+foodCost.toFixed(1)+"%</b></div>":"")+
+        (seeCost?"<div class='review-row'><span>Food Cost</span><b style='color:"+(foodCost>35?"var(--red)":foodCost>28?"var(--amber)":"var(--green)")+"'>"+foodCost.toFixed(1)+"%</b></div>":""):"")+
     "</div>"):"")+
     (x.body?"<div style='white-space:pre-wrap;line-height:1.9;margin-top:10px'>"+esc(x.body)+"</div>":"")+
     ((canEdit||canDel)?"<div style='display:flex;gap:8px;margin-top:16px'>"+(canEdit?"<button class='btn sm' id='recEdit'>تعديل</button>":"")+(canDel?"<button class='btn sm danger' id='recDel'>حذف</button>":"")+"</div>":""),
