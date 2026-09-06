@@ -2928,18 +2928,20 @@ function pageSales(c){
 
   // ===== المالك/المدير: تبديل بين الجدول التفصيلي وملخّص الشفتات =====
   if(window.__cloView==null) window.__cloView="list";
-  const toggle=el("div"); toggle.style.cssText="display:flex;gap:8px;margin-bottom:12px;align-items:center";
-  // زر التاريخ أقصى اليسار (يظهر فقط في عرض القائمة)
-  if(window.__cloView==="list"){
-    const dr=dateRangeControl("closings", ()=>pageSales(c));
-    dr.style.margin="0"; dr.style.marginLeft="auto";
-    toggle.appendChild(dr);
-  }
+  const toggle=el("div"); toggle.style.cssText="display:flex;gap:8px;margin-bottom:12px;align-items:center;flex-wrap:wrap";
   const mkBtn=(key,label)=>{ const b=el("button","btn sm"+(window.__cloView===key?" primary":""),label); b.onclick=()=>{ window.__cloView=key; pageSales(c); }; return b; };
   toggle.appendChild(mkBtn("shift",L("ملخّص الشفتات")));
   toggle.appendChild(mkBtn("payments",L("المدفوعات")));
   toggle.appendChild(mkBtn("list",L("كل الإقفالات")));
   c.appendChild(toggle);
+  // منتقي التاريخ في سطر منفصل (يظهر فقط في «كل الإقفالات») — حتى لا يزحزح الأزرار
+  if(window.__cloView==="list"){
+    const drWrap=el("div"); drWrap.style.cssText="margin-bottom:12px";
+    const dr=dateRangeControl("closings", ()=>pageSales(c));
+    dr.style.margin="0";
+    drWrap.appendChild(dr);
+    c.appendChild(drWrap);
+  }
 
   if(window.__cloView==="shift"){ renderShiftSummary(c); return; }
   if(window.__cloView==="payments"){ renderPaymentsSummary(c); return; }
