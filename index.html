@@ -6264,7 +6264,13 @@ async function settingsBizDay(c,canEdit){
     "<div class='review-row'><span>يبدأ اليوم</span><b id='bizStartTxt'>—</b></div>"+
     "<div class='review-row'><span>ينتهي اليوم</span><b id='bizEndTxt'>—</b></div>"+
     "<p class='muted' style='font-size:13px;line-height:1.9;margin-top:10px'>أي إقفال يصير <b>قبل</b> ساعة البداية يُحسب على اليوم السابق. مثال: لو بدأت اليوم <b>6:00 ص</b>، فإقفال شفت الليل الساعة 1 بعد منتصف الليل يُسجّل على يوم أمس التجاري — فيظهر شفت الصباح والليل تحت نفس اليوم.</p>"+
-    (canEdit?"<button class='btn primary' id='bizSave' style='margin-top:8px'>حفظ</button>":"<p class='muted'>التعديل متاح لصاحب الشركة فقط.</p>");
+    (canEdit?"<button class='btn primary' id='bizSave' style='margin-top:8px'>حفظ</button>":"<p class='muted'>التعديل متاح لصاحب الشركة فقط.</p>")+
+    (canEdit?"<div style='margin-top:18px;padding-top:16px;border-top:1px solid var(--line)'>"+
+      "<div style='font-weight:700;margin-bottom:6px'>تصحيح الإقفالات القديمة</div>"+
+      "<p class='muted' style='font-size:13px;line-height:1.9;margin-bottom:10px'>يعيد حساب تاريخ كل الإقفالات السابقة حسب ساعة البداية المحفوظة. سوّه مرة وحدة بعد ما تحدد ساعتك. آمن ويشتغل على دفعات.</p>"+
+      "<button class='btn' id='bizFix'>🔄 تصحيح الإقفالات القديمة</button>"+
+      "<div id='bizFixResult' class='muted' style='font-size:13px;margin-top:10px'></div>"+
+    "</div>":"");
   c.appendChild(box);
   const upd=()=>{ const h=parseInt($("bizHour").value)||0; if($("bizStartTxt"))$("bizStartTxt").textContent=hh(h); if($("bizEndTxt"))$("bizEndTxt").textContent=hh(h)+" (اليوم التالي)"; };
   if($("bizHour"))$("bizHour").onchange=upd; upd();
@@ -6277,7 +6283,39 @@ async function settingsBizDay(c,canEdit){
       toast("تم الحفظ — سيُطبّق على الإقفالات الجديدة","ok");
     }catch(e){ console.error(e); toast("تعذّر الحفظ","err"); }
   };
+  if(canEdit&&$("bizFix"))$("bizFix").onclick=()=>fixOldClosings();
 }
+
+// تصحيح تواريخ الإقفالات القديمة حسب اليوم التجاري (دفعات آمنة)
+async function fixOldClosings(){
+  const res=$("bizFixResult");
+  if(dayStartHour()<=0){ if(res)res.innerHTML="<span style='color:var(--amber)'>حدّد ساعة بداية أكبر من منتصف الليل واحفظها أولاً.</span>"; return; }
+  if(!confirm("تصحيح تواريخ كل الإقفالات القديمة حسب اليوم التجاري؟ هذا آمن ويمكن تكراره.")) return;
+  if(res) res.textContent="جارٍ التصحيح…";
+  try{
+    const snap=await cRef().collection("dailyClosings").get();
+    const toFix=[];
+    snap.forEach(d=>{
+      const x=d.data();
+      const bd=bizDateFrom(x.createdAt); if(!bd) return;
+      const newDate=fmtYMD(bd);
+      if(x.date!==newDate) toFix.push({id:d.id, newDate});
+    });
+    if(!toFix.length){ if(res)res.innerHTML="<span style='color:var(--green)'>✓ كل الإقفالات صحيحة أصلاً — ما فيه شي يحتاج تصحيح.</span>"; return; }
+    let done=0;
+    for(let i=0;i<toFix.length;i+=400){
+      const batch=db.batch();
+      toFix.slice(i,i+400).forEach(f=>{ batch.update(cRef().collection("dailyClosings").doc(f.id),{date:f.newDate}); });
+      await batch.commit();
+      done+=Math.min(400,toFix.length-i);
+      if(res) res.textContent="جارٍ التصحيح… ("+done+"/"+toFix.length+")";
+    }
+    logAction("fix_closings","صُحّح "+toFix.length+" إقفال حسب اليوم التجاري");
+    if(res) res.innerHTML="<span style='color:var(--green)'>✓ تم تصحيح "+toFix.length+" إقفال بنجاح.</span>";
+    toast("تم تصحيح "+toFix.length+" إقفال","ok");
+  }catch(e){ console.error(e); if(res)res.innerHTML="<span style='color:var(--red)'>تعذّر التصحيح — تحقّق من قواعد الأمان.</span>"; }
+}
+window.fixOldClosings=fixOldClosings;
 
 async function settingsProfile(c,canEdit){
   c.innerHTML=""; c.appendChild(settingsBack(c)); c.appendChild(el("div",null,pageTitle("الملف التعريفي","بيانات الشركة")));
@@ -6402,7 +6440,7 @@ function renderAudit(container,ref,title,inline){
   card.innerHTML="<table><thead><tr><th>العملية</th><th>المستخدم</th><th>التفاصيل</th><th>الوقت</th></tr></thead><tbody id='auditRows'><tr><td colspan='4' class='muted'>جارٍ التحميل…</td></tr></tbody></table>";
   ref.orderBy("at","desc").limit(window.__auditLimit).onSnapshot(s=>{const tb=document.getElementById("auditRows");if(!tb)return;tb.innerHTML="";
     if(s.empty){tb.innerHTML="<tr><td colspan='4' class='muted'>لا يوجد سجل</td></tr>";return;}
-    const names={login:"تسجيل دخول",create_company:"إنشاء شركة",suspend_company:"إيقاف شركة",activate_company:"تشغيل شركة",delete_company:"حذف شركة",update_subscription:"تعديل اشتراك",update_plan:"تغيير الباقة",admin_enter:"دخول إداري",add_branch:"إضافة فرع",edit_branch:"تعديل فرع",delete_branch:"حذف فرع",add_user:"إضافة مستخدم",edit_permissions:"تعديل صلاحيات",submit_closing:"إرسال إقفال",approve_closing:"اعتماد إقفال",reject_closing:"رفض إقفال",delete_closing:"حذف إقفال",add_stock:"إضافة مخزون",add_sales:"تسجيل مبيعات",delete_sales:"حذف مبيعات",add_invoice:"إرسال فاتورة",approve_invoice:"اعتماد فاتورة",reject_invoice:"رفض فاتورة",add_product:"إضافة منتج",edit_product:"تعديل منتج",delete_product:"حذف منتج",add_category:"إضافة تصنيف",add_supplier:"إضافة مورد",edit_supplier:"تعديل مورد",delete_supplier:"حذف مورد",add_supplier_product:"إضافة منتج لمورد",update_price:"تحديث سعر",add_employee:"إضافة موظف",edit_employee:"تعديل موظف",save_payroll:"حفظ كشف رواتب",add_evaluation:"تقييم موظف",add_checklist:"إضافة قائمة",edit_checklist:"تعديل قائمة",delete_checklist:"حذف قائمة",add_task:"إضافة مهمة",submit_checklist:"تنفيذ قائمة",approve_checklist:"اعتماد تنفيذ",reject_checklist:"رفض تنفيذ",edit_profile:"تعديل الملف التعريفي",save_document:"حفظ وثيقة",change_theme:"تغيير الثيم",add_branch_eval:"تقييم فرع",add_recipe:"إضافة وصفة",edit_recipe:"تعديل وصفة",delete_recipe:"حذف وصفة",edit_slug:"تعديل رابط الشركة",suspend_account:"إيقاف حساب موظف",activate_account:"تفعيل حساب موظف",delete_account:"حذف حساب موظف",delete_employee:"حذف موظف",stock_count:"إرسال جرد",approve_count:"اعتماد جرد",reject_count:"رفض جرد",stock_order:"إرسال طلب",approve_order:"اعتماد طلب",reject_order:"رفض طلب",order_done:"إنهاء طلب",waste:"إرسال تالف",approve_waste:"اعتماد تالف",reject_waste:"رفض تالف",update_count:"تعديل جرد",update_waste:"تعديل تالف",expense:"تسجيل مصروف",approve_expense:"اعتماد مصروف",reject_expense:"رفض مصروف",update_expense:"تعديل مصروف",section_visibility:"ظهور قسم",toggle_hidden:"إخفاء/إظهار قسم",toggle_maintenance:"صيانة قسم",owner_welcomed:"ترحيب المالك"};
+    const names={login:"تسجيل دخول",create_company:"إنشاء شركة",suspend_company:"إيقاف شركة",activate_company:"تشغيل شركة",delete_company:"حذف شركة",update_subscription:"تعديل اشتراك",update_plan:"تغيير الباقة",admin_enter:"دخول إداري",add_branch:"إضافة فرع",edit_branch:"تعديل فرع",delete_branch:"حذف فرع",add_user:"إضافة مستخدم",edit_permissions:"تعديل صلاحيات",submit_closing:"إرسال إقفال",approve_closing:"اعتماد إقفال",reject_closing:"رفض إقفال",delete_closing:"حذف إقفال",add_stock:"إضافة مخزون",add_sales:"تسجيل مبيعات",delete_sales:"حذف مبيعات",add_invoice:"إرسال فاتورة",approve_invoice:"اعتماد فاتورة",reject_invoice:"رفض فاتورة",add_product:"إضافة منتج",edit_product:"تعديل منتج",delete_product:"حذف منتج",add_category:"إضافة تصنيف",add_supplier:"إضافة مورد",edit_supplier:"تعديل مورد",delete_supplier:"حذف مورد",add_supplier_product:"إضافة منتج لمورد",update_price:"تحديث سعر",add_employee:"إضافة موظف",edit_employee:"تعديل موظف",save_payroll:"حفظ كشف رواتب",add_evaluation:"تقييم موظف",add_checklist:"إضافة قائمة",edit_checklist:"تعديل قائمة",delete_checklist:"حذف قائمة",add_task:"إضافة مهمة",submit_checklist:"تنفيذ قائمة",approve_checklist:"اعتماد تنفيذ",reject_checklist:"رفض تنفيذ",edit_profile:"تعديل الملف التعريفي",save_document:"حفظ وثيقة",change_theme:"تغيير الثيم",add_branch_eval:"تقييم فرع",add_recipe:"إضافة وصفة",edit_recipe:"تعديل وصفة",delete_recipe:"حذف وصفة",edit_slug:"تعديل رابط الشركة",suspend_account:"إيقاف حساب موظف",activate_account:"تفعيل حساب موظف",delete_account:"حذف حساب موظف",delete_employee:"حذف موظف",stock_count:"إرسال جرد",approve_count:"اعتماد جرد",reject_count:"رفض جرد",stock_order:"إرسال طلب",approve_order:"اعتماد طلب",reject_order:"رفض طلب",order_done:"إنهاء طلب",waste:"إرسال تالف",approve_waste:"اعتماد تالف",reject_waste:"رفض تالف",update_count:"تعديل جرد",update_waste:"تعديل تالف",expense:"تسجيل مصروف",approve_expense:"اعتماد مصروف",reject_expense:"رفض مصروف",update_expense:"تعديل مصروف",section_visibility:"ظهور قسم",toggle_hidden:"إخفاء/إظهار قسم",toggle_maintenance:"صيانة قسم",owner_welcomed:"ترحيب المالك",edit_bizday:"تعديل اليوم التجاري",fix_closings:"تصحيح الإقفالات"};
     s.forEach(d=>{const x=d.data();const t=x.at&&x.at.toDate?x.at.toDate().toLocaleString("ar-SA-u-ca-gregory-nu-latn"):"—";
       tb.appendChild(el("tr",null,"<td>"+(names[x.action]||esc(x.action))+"</td><td class='muted'>"+esc(x.userName||"")+"</td><td class='muted'>"+esc(x.details||"")+"</td><td class='muted'>"+t+"</td>"));});
   },()=>{});
