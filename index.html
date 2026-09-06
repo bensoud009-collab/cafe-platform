@@ -2455,6 +2455,17 @@ const ROLE_TEMPLATES=[
   {key:"warehouse_keeper",name:"مسؤول المستودع"}
 ];
 
+/* ===== المسميات الوظيفية (تُعرض للمالك، وتحدد الدور + الصلاحيات تلقائياً) ===== */
+// role: الدور التقني · tpl: قالب الصلاحيات · wh: أمين مستودع
+const JOB_TITLES=[
+  {key:"employee",   name:"موظف",            role:"employee", tpl:"branch_employee", wh:false},
+  {key:"branch_acc", name:"حساب الفرع",       role:"employee", tpl:"branch_employee", wh:false},
+  {key:"manager",    name:"مدير فرع",         role:"manager",  tpl:"branch_manager",  wh:false},
+  {key:"warehouse",  name:"مسؤول المستودع",   role:"employee", tpl:"warehouse_keeper",wh:true}
+];
+function jobTitleByKey(k){ return JOB_TITLES.find(j=>j.key===k)||JOB_TITLES[0]; }
+function jobTitleName(k){ const j=JOB_TITLES.find(x=>x.key===k); return j?j.name:"موظف"; }
+
 function pageSuperSubs(c){
   c.innerHTML=pageTitle("الاشتراكات","متابعة اشتراكات الشركات")+
    "<div id='subAlerts'></div>"+
@@ -4317,9 +4328,11 @@ async function invCountForm(c,br){
         if(diff<0) shortageVal+=Math.abs(diff)*price;
       });
       if(!results.length){toast("أدخل كمية واحدة على الأقل","err");return false;}
-      await cRef().collection("stockCounts").add({branchId:br.id,branchName:br.name,results,shortageValue:shortageVal,status:"pending",byName:state.profile.name||state.user.email,byUid:state.user.uid,date:todayStr(),at:now()});
-      logAction("stock_count",results.length+" منتج — "+br.name);
-      toast("تم إرسال الجرد","ok"); return true;
+      try{
+        await cRef().collection("stockCounts").add({branchId:br.id,branchName:br.name,results,shortageValue:shortageVal,status:"pending",byName:state.profile.name||state.user.email,byUid:state.user.uid,date:todayStr(),at:now()});
+        logAction("stock_count",results.length+" منتج — "+br.name);
+        toast("تم إرسال الجرد","ok"); return true;
+      }catch(e){ console.error(e); toast("تعذّر إرسال الجرد — تحقّق من قواعد الأمان أو الاتصال","err"); return false; }
     });
   // تحديث حيّ للفرق ومستوى الخطورة
   setTimeout(()=>{
@@ -4396,9 +4409,11 @@ async function invOrderForm(c,br){
     "إرسال الطلب", async ()=>{
       const items=[]; document.querySelectorAll("#modalRoot .ordq").forEach(inp=>{ const q=parseFloat(inp.value)||0; if(q>0){ const i=+inp.dataset.i; items.push({name:prods[i].name,productId:prods[i].id,qty:q}); } });
       if(!items.length){toast("أضف صنفاً واحداً على الأقل","err");return false;}
-      await cRef().collection("stockOrders").add({branchId:br.id,branchName:br.name,items,status:"pending",byUid:state.user.uid,byName:state.profile.name||state.user.email,date:todayStr(),at:now()});
-      logAction("stock_order",items.length+" صنف — "+br.name);
-      toast("تم إرسال الطلب","ok"); return true;
+      try{
+        await cRef().collection("stockOrders").add({branchId:br.id,branchName:br.name,items,status:"pending",byUid:state.user.uid,byName:state.profile.name||state.user.email,date:todayStr(),at:now()});
+        logAction("stock_order",items.length+" صنف — "+br.name);
+        toast("تم إرسال الطلب","ok"); return true;
+      }catch(e){ console.error(e); toast("تعذّر إرسال الطلب — تحقّق من قواعد الأمان أو الاتصال","err"); return false; }
     });
 }
 
@@ -4497,9 +4512,11 @@ async function invWasteForm(c,br){
       const p=prods[+$("wsProd").value]; const qty=parseFloat($("wsQty").value)||0;
       if(qty<=0){toast("أدخل الكمية","err");return false;}
       const cost=qty*(Number(p.price)||0);
-      await cRef().collection("waste").add({branchId:br.id,branchName:br.name,productId:p.id,name:p.name,qty,cost,reason:$("wsReason").value,status:"pending",byName:state.profile.name||state.user.email,byUid:state.user.uid,date:todayStr(),at:now()});
-      logAction("waste",p.name+" ×"+qty+" — "+br.name);
-      toast("تم إرسال التالف","ok"); return true;
+      try{
+        await cRef().collection("waste").add({branchId:br.id,branchName:br.name,productId:p.id,name:p.name,qty,cost,reason:$("wsReason").value,status:"pending",byName:state.profile.name||state.user.email,byUid:state.user.uid,date:todayStr(),at:now()});
+        logAction("waste",p.name+" ×"+qty+" — "+br.name);
+        toast("تم إرسال التالف","ok"); return true;
+      }catch(e){ console.error(e); toast("تعذّر إرسال التالف — تحقّق من قواعد الأمان أو الاتصال","err"); return false; }
     });
 }
 
@@ -5573,6 +5590,7 @@ function employeeDetail(id,x){
   const active = x.accountActive!==false; // افتراضياً نشط
   const accBlock = x.hasAccount
     ? "<div class='review-row'><span>حساب المنصة</span><b class='tag "+(active?"green":"red")+"'>"+(active?"مفعّل":"موقوف")+"</b></div>"+
+      "<div class='review-row'><span>المسمّى الوظيفي</span><b>"+esc(jobTitleName(x.jobTitle)||"موظف")+"</b></div>"+
       "<div class='review-row'><span>البريد</span><b>"+esc(x.email||"—")+"</b></div>"
     : "<div class='review-row'><span>حساب المنصة</span><b class='muted'>غير مفعّل</b></div>";
   let btns="";
@@ -5625,27 +5643,31 @@ function employeeDetail(id,x){
 }
 
 function createEmployeeAccount(empId,x){
+  const titleOpts=JOB_TITLES.map(j=>"<option value='"+j.key+"'>"+esc(j.name)+"</option>").join("");
   openModal(L("إنشاء حساب: ")+esc(x.name),
     "<label class='field'><span>البريد الإلكتروني *</span><input id='caEmail' class='input' type='email' placeholder='name@example.com'></label>"+
-    "<label class='field'><span>الدور *</span><select id='caRole'><option value='employee'>موظف</option><option value='manager'>مدير فرع</option></select></label>"+
-    "<p class='muted' style='font-size:13px'>تُولّد كلمة مرور عشوائية تلقائياً.</p>",
+    "<label class='field'><span>المسمّى الوظيفي *</span><select id='caTitle'>"+titleOpts+"</select></label>"+
+    "<p class='muted' style='font-size:13px'>المسمّى يحدد الصلاحيات تلقائياً — وتقدر تعدّلها بعد الإنشاء من «الصلاحيات». تُولّد كلمة مرور عشوائية تلقائياً.</p>",
     "إنشاء الحساب", async ()=>{
-      const email=$("caEmail").value.trim().toLowerCase(), role=$("caRole").value;
+      const email=$("caEmail").value.trim().toLowerCase();
+      const titleKey=$("caTitle").value;
+      const jt=jobTitleByKey(titleKey);
+      const role=jt.role;
       if(!email){toast("أدخل البريد","err");return false;}
       const pass=randomPassword();
       try{
         const cred=await secondaryAuth.createUserWithEmailAndPassword(email,pass);
         const uid=cred.user.uid; await secondaryAuth.signOut();
         await db.collection("users").doc(uid).set({role,companyId:state.companyId,name:x.name,createdAt:now()});
-        const perms=emptyPermissions();
-        if(role==="manager"){["dashboard","sales","inventory","checklist","reports"].forEach(k=>{if(perms[k])perms[k].view=true;});perms.sales.add=true;perms.sales.approve=true;}
-        else{perms.dashboard.view=true;perms.sales.view=true;perms.sales.add=true;perms.checklist.view=true;}
-        await cRef().collection("users").doc(uid).set({name:x.name,email,role,permissions:perms,employeeId:empId,branchId:x.branchId||"",branchName:x.branchName||"",isWarehouseKeeper:!!x.isWarehouseKeeper,createdAt:now()});
-        await cRef().collection("employees").doc(empId).update({hasAccount:true,uid,email,role});
-        logAction("add_user",x.name+" ("+role+")");
+        // الصلاحيات من قالب المسمّى تلقائياً
+        const perms=rolePermissions(jt.tpl);
+        await cRef().collection("users").doc(uid).set({name:x.name,email,role,jobTitle:titleKey,permissions:perms,employeeId:empId,branchId:x.branchId||"",branchName:x.branchName||"",isWarehouseKeeper:jt.wh||!!x.isWarehouseKeeper,createdAt:now()});
+        await cRef().collection("employees").doc(empId).update({hasAccount:true,uid,email,role,jobTitle:titleKey,isWarehouseKeeper:jt.wh||!!x.isWarehouseKeeper});
+        logAction("add_user",x.name+" ("+jt.name+")");
         closeModal();
         openModal("تم إنشاء الحساب ✅",
           "<div class='review-row'><span>الموظف</span><b>"+esc(x.name)+"</b></div>"+
+          "<div class='review-row'><span>المسمّى</span><b>"+esc(jt.name)+"</b></div>"+
           "<div class='review-row'><span>البريد</span><b>"+esc(email)+"</b></div>"+
           "<div class='review-row'><span>كلمة المرور</span><b>"+esc(pass)+"</b></div>"+
           "<p class='muted' style='margin-top:12px;font-size:13px'>سلّمها للموظف. لن تُحفظ — استخدم «كلمة مرور جديدة» لاحقاً عند الحاجة.</p>",
