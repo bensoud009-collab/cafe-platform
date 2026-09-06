@@ -2937,10 +2937,12 @@ function pageSales(c){
   }
   const mkBtn=(key,label)=>{ const b=el("button","btn sm"+(window.__cloView===key?" primary":""),label); b.onclick=()=>{ window.__cloView=key; pageSales(c); }; return b; };
   toggle.appendChild(mkBtn("shift",L("ملخّص الشفتات")));
+  toggle.appendChild(mkBtn("payments",L("المدفوعات")));
   toggle.appendChild(mkBtn("list",L("كل الإقفالات")));
   c.appendChild(toggle);
 
   if(window.__cloView==="shift"){ renderShiftSummary(c); return; }
+  if(window.__cloView==="payments"){ renderPaymentsSummary(c); return; }
 
   // الجدول التفصيلي مع الشفت + الموظف
   if(window.__cloLimit==null) window.__cloLimit=10;
@@ -2996,6 +2998,45 @@ function changeShiftModal(id, x){
 window.changeShiftModal=changeShiftModal;
 
 // ملخّص الشفتات: تجميع الإقفالات حسب اليوم (صباح/مساء) مع الموظف والمبيعات
+// ملخّص المدفوعات: إجماليات الكاش/مدى/فيزا/ماستر عبر الإقفالات
+function renderPaymentsSummary(c){
+  c.appendChild(dateRangeControl("payments", ()=>pageSales(c)));
+  const card=el("div"); card.id="paySummaryBox"; card.innerHTML="<div class='card muted'>"+L("جارٍ التحميل…")+"</div>"; c.appendChild(card);
+  const whIds=new Set();
+  cRef().collection("branches").where("isWarehouse","==",true).get().then(s=>{ s.forEach(d=>whIds.add(d.id)); }).catch(()=>{}).finally(()=>{
+    cRef().collection("dailyClosings").orderBy("createdAt","desc").limit(500).onSnapshot(s=>{
+      const box=$("paySummaryBox"); if(!box) return;
+      let cash=0,mada=0,visa=0,master=0,online=0,count=0,net=0;
+      s.forEach(d=>{ const x=d.data(); if(whIds.has(x.branchId)) return; if(x.status==="rejected") return;
+        if(!inRange(x.createdAt,"payments")) return;
+        // يدعم الإقفال الجديد (cashPhy) والقديم (cash)
+        cash += Number(x.cashPhy)|| Number(x.cash)||0;
+        mada += Number(x.mada)||0; visa += Number(x.visa)||0; master += Number(x.mastercard)||0;
+        online += Number(x.online)||0; net += Number(x.net)||Number(x.actualSales)||0; count++;
+      });
+      const cardTot = mada+visa+master;
+      const grand = cash+cardTot+online;
+      const row=(label,val,color,big)=>"<div style='display:flex;justify-content:space-between;padding:"+(big?"14px":"12px")+" 16px;border-bottom:1px solid var(--line);align-items:center'><span style='"+(big?"font-weight:800":"color:var(--muted)")+"'>"+label+"</span><b style='"+(big?"font-size:20px;":"")+(color?"color:"+color:"")+"'>"+money(val)+"</b></div>";
+      box.innerHTML=
+        "<div class='card' style='padding:0;overflow:hidden;margin-bottom:14px'>"+
+          "<div style='background:linear-gradient(135deg,var(--brand),var(--brand-2));color:#fff;padding:16px'>"+
+            "<div style='font-size:13px;opacity:.85'>"+L("إجمالي المقبوضات")+" · "+count+" "+L("إقفال")+"</div>"+
+            "<div style='font-size:28px;font-weight:800;margin-top:4px'>"+money(grand)+"</div>"+
+          "</div>"+
+          row("💵 "+L("الكاش"),cash,"var(--green)")+
+          "<div style='padding:6px 16px;background:var(--surface-2);font-size:12px;font-weight:700;color:var(--muted)'>"+L("الشبكة")+"</div>"+
+          row(L("مدى"),mada)+
+          row(L("فيزا"),visa)+
+          row(L("ماستركارد"),master)+
+          row(L("مجموع الشبكة"),cardTot,"var(--brand-2)")+
+          (online>0?row("🌐 "+L("أونلاين"),online):"")+
+          row(L("الإجمالي الكلي"),grand,"var(--brand)",true)+
+        "</div>";
+    },()=>{ const box=$("paySummaryBox"); if(box) box.innerHTML="<div class='card' style='color:var(--red)'>"+L("تعذّر التحميل")+"</div>"; });
+  });
+}
+window.renderPaymentsSummary=renderPaymentsSummary;
+
 function renderShiftSummary(c){
   const card=el("div"); card.id="shiftSummary"; card.innerHTML="<div class='card muted'>جارٍ التحميل…</div>"; c.appendChild(card);
   const whIds=new Set();
