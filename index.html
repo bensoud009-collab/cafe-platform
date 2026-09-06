@@ -1426,6 +1426,8 @@ auth.onAuthStateChanged(async user=>{
       }
       if(cdata.status==="suspended"){ toast("انتهى اشتراك الشركة أو تم إيقافه، راجع الإدارة","err"); return doLogout(); }
       state.companyName=cdata.name;
+      // ساعة بداية اليوم التجاري (افتراضي 0 = منتصف الليل / تقويم عادي)
+      state.dayStartHour = (cdata.dayStartHour!=null) ? Number(cdata.dayStartHour) : 0;
       state.profile=profDoc.exists?profDoc.data():{name:user.email,role:map.role,permissions:{}};
       // دمج بيانات الموظف (الفرع + أمين المستودع) لضمان وصولها للملف
       if(state.profile.employeeId){ try{ const ed=await cRef().collection("employees").doc(state.profile.employeeId).get(); if(ed.exists){ const e=ed.data(); if(!state.profile.branchId&&e.branchId) state.profile.branchId=e.branchId; if(!state.profile.branchName&&e.branchName) state.profile.branchName=e.branchName; if(state.profile.isWarehouseKeeper==null) state.profile.isWarehouseKeeper=!!e.isWarehouseKeeper; } }catch(e){} }
@@ -2506,6 +2508,21 @@ function pageSuperAudit(c){ renderAudit(c,db.collection("platform").doc("_").col
 /*  8) لوحة التحكم (الشركة)                                            */
 /* ================================================================== */
 // نطاق الشهر الحالي/الماضي كنصوص YYYY-MM-DD
+// ===== اليوم التجاري: يطرح ساعة البداية، فأي وقت قبلها يُنسب لليوم السابق =====
+function dayStartHour(){ return (state && state.dayStartHour!=null) ? Number(state.dayStartHour)||0 : 0; }
+// يحوّل وقت الإقفال إلى «تاريخ تجاري» (كائن Date عند منتصف الليل لليوم التجاري)
+function businessDate(dateObj){
+  const d = dateObj ? new Date(dateObj) : new Date();
+  const h = dayStartHour();
+  if(h>0 && d.getHours() < h){ d.setDate(d.getDate()-1); }
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+}
+// نسخة تقبل Timestamp/seconds وترجع Date تجاري
+function bizDateFrom(ts){
+  let d = ts && ts.seconds ? new Date(ts.seconds*1000) : (ts ? new Date(ts) : null);
+  if(!d) return null;
+  return businessDate(d);
+}
 function monthRange(offset){
   const d=new Date(); d.setDate(1); d.setMonth(d.getMonth()+(offset||0));
   const start=d.toISOString().slice(0,10);
@@ -2962,7 +2979,11 @@ function pageSales(c){
       docs.forEach(d=>{const x=d.data();
         const shiftHtml = x.shift ? (x.shift==="مساء"?"<span style='color:#6366f1;font-weight:700'>"+L("مساء")+"</span>":"<span style='color:var(--amber);font-weight:700'>"+L("صباح")+"</span>") : "<span class='muted'>—</span>";
         const empName = x.shiftEmployee || x.employeeName || "—";
-        const tr=el("tr",null,"<td>"+fmtDT(x.createdAt)+"</td><td>"+esc(x.branchName||"—")+"</td><td>"+shiftHtml+"</td><td>"+esc(empName)+"</td><td></td>");
+        const bd=bizDateFrom(x.createdAt);
+        const bdTxt=bd?bd.toLocaleDateString(LANG==="en"?"en-GB":"ar-SA-u-ca-gregory-nu-latn"):"—";
+        const tmTxt=(x.createdAt&&x.createdAt.toDate)?x.createdAt.toDate().toLocaleTimeString(LANG==="en"?"en-GB":"ar-SA-u-ca-gregory-nu-latn",{hour:"2-digit",minute:"2-digit"}):"";
+        const dateCell=bdTxt+(tmTxt?" <span class='muted' style='font-size:11px'>"+tmTxt+"</span>":"");
+        const tr=el("tr",null,"<td>"+dateCell+"</td><td>"+esc(x.branchName||"—")+"</td><td>"+shiftHtml+"</td><td>"+esc(empName)+"</td><td></td>");
         const b=statusActionBtn(x.status,{
           onView:()=>viewClosing(d.id,x),
           onApprove:()=>setClosingStatus(d.id,x,"approved"),
@@ -3048,8 +3069,9 @@ function renderShiftSummary(c){
       const days={}; // dateStr -> {am:{}, pm:{}}
       s.forEach(d=>{ const x=d.data(); if(whIds.has(x.branchId)) return; if(x.status==="rejected") return;
         const dt=x.createdAt&&x.createdAt.seconds?new Date(x.createdAt.seconds*1000):new Date();
-        const key=dt.toLocaleDateString("ar-SA-u-ca-gregory",{year:"numeric",month:"long",day:"numeric"});
-        if(!days[key]) days[key]={ts:dt.getTime(),am:null,pm:null};
+        const bd=businessDate(dt); // التاريخ التجاري (يجمع الليل المتأخر مع يومه)
+        const key=bd.toLocaleDateString("ar-SA-u-ca-gregory",{year:"numeric",month:"long",day:"numeric"});
+        if(!days[key]) days[key]={ts:bd.getTime(),am:null,pm:null};
         const rec={emp:x.shiftEmployee||x.employeeName||"—", sales:Number(x.net)||0, branch:x.branchName||""};
         if(x.shift==="مساء") days[key].pm=rec; else if(x.shift==="صباح") days[key].am=rec; else days[key].am=rec;
       });
@@ -3277,7 +3299,7 @@ async function submitClosing(data,file){
     let photoUrl="";
     if(file){ photoUrl=await compressToBase64(file); if(!photoUrl) toast("تعذّرت معالجة الصورة، حُفظ بدونها",""); }
     await ref.set({...data, photoUrl, photoPath:"",
-      date:new Date().toISOString().slice(0,10),
+      date:fmtYMD(businessDate(new Date())),
       employeeUid:state.user.uid, employeeName:state.profile.name||state.user.email,
       status:"pending", createdAt:now()});
     logAction("submit_closing",data.date+" / "+data.branchName);
@@ -6213,6 +6235,7 @@ function pageSettings(c){
   const grid=el("div"); grid.style.cssText="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:16px";
   const cards=[
     {k:"profile",  t:"الملف التعريفي", ic:"", d:"بيانات الشركة"},
+    {k:"bizday",   t:"اليوم التجاري", ic:"", d:"متى يبدأ يوم عملك"},
     {k:"docs",     t:"الوثائق الرسمية", ic:"", d:"السجلات والتراخيص وتواريخها"},
     {k:"sub",      t:"معلومات الاشتراك", ic:"", d:"الخطة وتاريخ الانتهاء"},
     {k:"theme",    t:"الألوان والثيم", ic:"", d:"لون المنصة"},
@@ -6221,12 +6244,40 @@ function pageSettings(c){
   ];
   cards.forEach(x=>{const card=el("div","card");card.style.cssText="cursor:pointer;min-height:120px";
     card.innerHTML=(x.ic?"<div style='font-size:30px'>"+x.ic+"</div>":"")+"<div style='font-weight:800'>"+x.t+"</div><div class='muted' style='font-size:13px;margin-top:4px'>"+x.d+"</div>";
-    card.onclick=()=>{ const f={profile:settingsProfile,docs:settingsDocs,sub:settingsSub,theme:settingsTheme,icons:settingsIcons,audit:settingsAudit}[x.k]; f(c,canEdit); };
+    card.onclick=()=>{ const f={profile:settingsProfile,bizday:settingsBizDay,docs:settingsDocs,sub:settingsSub,theme:settingsTheme,icons:settingsIcons,audit:settingsAudit}[x.k]; f(c,canEdit); };
     grid.appendChild(card);
   });
   c.appendChild(grid);
 }
 function settingsBack(c){ const b=el("button","btn sm","← رجوع للإعدادات"); b.style.marginBottom="14px"; b.onclick=()=>pageSettings(c); return b; }
+
+// إعداد اليوم التجاري — ساعة بداية واحدة، والنهاية تُفهم تلقائياً
+async function settingsBizDay(c,canEdit){
+  c.innerHTML=""; c.appendChild(settingsBack(c)); c.appendChild(el("div",null,pageTitle("اليوم التجاري","حدّد متى يبدأ يوم عملك")));
+  const doc=await cRef().get(); const x=doc.data()||{};
+  const cur=(x.dayStartHour!=null)?Number(x.dayStartHour):0;
+  const hh=h=>{ const ap=h<12?"ص":"م"; let h12=h%12; if(h12===0)h12=12; return h12+":00 "+ap; };
+  const opts=[]; for(let h=0;h<24;h++){ opts.push("<option value='"+h+"' "+(h===cur?"selected":"")+">"+hh(h)+"</option>"); }
+  const box=el("div","card");
+  box.innerHTML=
+    "<label class='field'><span>بداية اليوم التجاري</span><select id='bizHour' class='input' "+(canEdit?"":"disabled")+">"+opts.join("")+"</select></label>"+
+    "<div class='review-row'><span>يبدأ اليوم</span><b id='bizStartTxt'>—</b></div>"+
+    "<div class='review-row'><span>ينتهي اليوم</span><b id='bizEndTxt'>—</b></div>"+
+    "<p class='muted' style='font-size:13px;line-height:1.9;margin-top:10px'>أي إقفال يصير <b>قبل</b> ساعة البداية يُحسب على اليوم السابق. مثال: لو بدأت اليوم <b>6:00 ص</b>، فإقفال شفت الليل الساعة 1 بعد منتصف الليل يُسجّل على يوم أمس التجاري — فيظهر شفت الصباح والليل تحت نفس اليوم.</p>"+
+    (canEdit?"<button class='btn primary' id='bizSave' style='margin-top:8px'>حفظ</button>":"<p class='muted'>التعديل متاح لصاحب الشركة فقط.</p>");
+  c.appendChild(box);
+  const upd=()=>{ const h=parseInt($("bizHour").value)||0; if($("bizStartTxt"))$("bizStartTxt").textContent=hh(h); if($("bizEndTxt"))$("bizEndTxt").textContent=hh(h)+" (اليوم التالي)"; };
+  if($("bizHour"))$("bizHour").onchange=upd; upd();
+  if(canEdit&&$("bizSave"))$("bizSave").onclick=async()=>{
+    const h=parseInt($("bizHour").value)||0;
+    try{
+      await cRef().update({dayStartHour:h});
+      state.dayStartHour=h;
+      logAction("edit_bizday","بداية اليوم التجاري: "+hh(h));
+      toast("تم الحفظ — سيُطبّق على الإقفالات الجديدة","ok");
+    }catch(e){ console.error(e); toast("تعذّر الحفظ","err"); }
+  };
+}
 
 async function settingsProfile(c,canEdit){
   c.innerHTML=""; c.appendChild(settingsBack(c)); c.appendChild(el("div",null,pageTitle("الملف التعريفي","بيانات الشركة")));
