@@ -3810,7 +3810,7 @@ async function warehousePage(c, wh){
       const statusHtml = min<=0 ? "<span class='muted'>—</span>"
         : isLow ? "<span class='tag red'>"+L("منخفض")+"</span>"
         : "<span class='tag green'>"+L("جيد")+"</span>";
-      tb.appendChild(el("tr",null,"<td><b>"+esc(p.name)+"</b> <span class='muted'>"+esc(p.baseUnit||p.unit||"")+"</span></td><td>"+q+"</td><td class='muted'>"+(min>0?min:"—")+"</td><td>"+statusHtml+"</td>"));
+      tb.appendChild(el("tr",null,"<td><b>"+esc(prodName(p))+"</b> <span class='muted'>"+esc(p.baseUnit||p.unit||"")+"</span></td><td>"+q+"</td><td class='muted'>"+(min>0?min:"—")+"</td><td>"+statusHtml+"</td>"));
     });
     // شريط تنبيه Low Stock + زر الطلب التلقائي
     const lb=$("whLowBar");
@@ -3885,7 +3885,7 @@ async function warehouseAddStockForm(c, wh){
   if(snap.empty){ toast(L("لا توجد منتجات"),"err"); return; }
   const prods=[]; snap.forEach(d=>prods.push({id:d.id,...d.data()}));
   const stock=await branchStockMap(wh.id);
-  const rows=prods.map((p,i)=>"<tr><td><b>"+esc(p.name)+"</b> <span class='muted'>"+esc(p.unit||"")+"</span><div class='muted' style='font-size:12px'>"+L("المتوفر")+": "+(stock[p.id]!=null?stock[p.id]:0)+"</div></td><td><input class='input addq' data-i='"+i+"' type='number' inputmode='decimal' style='width:100px;padding:6px' placeholder='0'></td></tr>").join("");
+  const rows=prods.map((p,i)=>"<tr><td><b>"+esc(prodName(p))+"</b> <span class='muted'>"+esc(p.unit||"")+"</span><div class='muted' style='font-size:12px'>"+L("المتوفر")+": "+(stock[p.id]!=null?stock[p.id]:0)+"</div></td><td><input class='input addq' data-i='"+i+"' type='number' inputmode='decimal' style='width:100px;padding:6px' placeholder='0'></td></tr>").join("");
   openModal(L("إضافة مخزون — ")+esc(wh.name),
     "<div class='muted' style='font-size:13px;margin-bottom:8px'>"+esc(L("أدخل الكمية المُضافة لكل منتج (تُضاف فوق الموجود، لا تستبدله)."))+"</div>"+
     "<table><thead><tr><th>"+esc(L("المنتج"))+"</th><th>"+esc(L("الكمية المُضافة"))+"</th></tr></thead><tbody>"+rows+"</tbody></table>",
@@ -4386,7 +4386,7 @@ async function invCountForm(c,br){
   if(snap.empty){toast("لا توجد منتجات للجرد","err");return;}
   const prods=[]; snap.forEach(d=>prods.push({id:d.id,...d.data()}));
   const stock=await branchStockMap(br.id);
-  const rows=prods.map((p,i)=>"<tr><td><b>"+esc(p.name)+"</b> <span class='muted'>"+esc(p.baseUnit||p.unit||"")+"</span></td><td class='muted' id='sys_"+i+"'>"+(stock[p.id]!=null?stock[p.id]:0)+"</td><td><input class='input cntv' data-i='"+i+"' type='number' inputmode='decimal' style='width:80px;padding:6px' placeholder='الفعلي'></td><td id='var_"+i+"' style='font-weight:700'>—</td></tr>").join("");
+  const rows=prods.map((p,i)=>"<tr><td><b>"+esc(prodName(p))+"</b> <span class='muted'>"+esc(p.baseUnit||p.unit||"")+"</span></td><td class='muted' id='sys_"+i+"'>"+(stock[p.id]!=null?stock[p.id]:0)+"</td><td><input class='input cntv' data-i='"+i+"' type='number' inputmode='decimal' style='width:80px;padding:6px' placeholder='الفعلي'></td><td id='var_"+i+"' style='font-weight:700'>—</td></tr>").join("");
   openModal(L("إضافة جرد — ")+esc(br.name),
     "<div class='muted' style='font-size:13px;margin-bottom:8px'>"+L("أدخل الكمية الفعلية. «بالنظام» = المخزون النظري (بعد المبيعات والهدر). الفرق يوضّح الخطورة.")+"</div>"+
     "<table><thead><tr><th>المنتج</th><th>"+L("نظري")+"</th><th>"+L("الفعلي")+"</th><th>"+L("الفرق")+"</th></tr></thead><tbody>"+rows+"</tbody></table>",
@@ -4475,7 +4475,7 @@ async function invOrderForm(c,br){
   if(snap.empty){toast("لا توجد منتجات","err");return;}
   const prods=[]; snap.forEach(d=>prods.push({id:d.id,...d.data()}));
   const stock=await branchStockMap(br.id);
-  const rows=prods.map((p,i)=>"<tr><td><b>"+esc(p.name)+"</b></td><td class='muted'>"+(stock[p.id]!=null?stock[p.id]:0)+" "+esc(p.unit||"")+"</td><td><input class='input ordq' data-i='"+i+"' type='number' inputmode='decimal' style='width:80px;padding:6px' placeholder='0'></td></tr>").join("");
+  const rows=prods.map((p,i)=>"<tr><td><b>"+esc(prodName(p))+"</b></td><td class='muted'>"+(stock[p.id]!=null?stock[p.id]:0)+" "+esc(p.unit||"")+"</td><td><input class='input ordq' data-i='"+i+"' type='number' inputmode='decimal' style='width:80px;padding:6px' placeholder='0'></td></tr>").join("");
   openModal(L("طلب مخزون — ")+esc(br.name),
     "<div class='muted' style='font-size:13px;margin-bottom:8px'>حدّد الكمية المطلوبة لكل منتج (اترك الباقي فارغ).</div>"+
     "<table><thead><tr><th>المنتج</th><th>المتوفر</th><th>المطلوب</th></tr></thead><tbody>"+rows+"</tbody></table>",
@@ -4576,7 +4576,7 @@ async function invWasteForm(c,br){
   catch(e){ console.error(e); toast("تعذّر فتح التالف — صلاحية قراءة المنتجات محجوبة. راجع قواعد الأمان","err"); return; }
   if(snap.empty){toast("لا توجد منتجات","err");return;}
   const prods=[]; snap.forEach(d=>prods.push({id:d.id,...d.data()}));
-  const opts=prods.map((p,i)=>"<option value='"+i+"'>"+esc(p.name)+"</option>").join("");
+  const opts=prods.map((p,i)=>"<option value='"+i+"'>"+esc(prodName(p))+"</option>").join("");
   const reasonOpts=WASTE_REASONS.map(r=>"<option value='"+esc(r)+"'>"+esc(r)+"</option>").join("");
   openModal(L("تسجيل تالف — ")+esc(br.name),
     "<label class='field'><span>المنتج *</span><select id='wsProd'>"+opts+"</select></label>"+
@@ -4766,7 +4766,7 @@ async function pageProducts(c,standalone){
       const min=Number(x.min)||0, price=Number(x.price)||0;
       const costCells=canSeeCost()?"<td>"+money(price)+"</td>":"";
       let supplier=x.supplier?esc(x.supplier):"—";
-      const tr=el("tr",null,"<td><b>"+esc(x.name)+"</b>"+(x.expiry?"<div class='muted' style='font-size:12px'>ينتهي: "+esc(x.expiry)+"</div>":"")+"</td>"+
+      const tr=el("tr",null,"<td><b>"+esc(prodName(x))+"</b>"+(x.expiry?"<div class='muted' style='font-size:12px'>ينتهي: "+esc(x.expiry)+"</div>":"")+"</td>"+
         "<td class='muted'>"+esc(x.category||"—")+"</td><td class='muted'>"+min+" "+esc(x.unit||"")+"</td>"+costCells+"<td class='muted'>"+supplier+"</td><td></td>");
       const act=tr.lastChild;
       const items=[];
@@ -4808,6 +4808,10 @@ async function categoriesModal(){
 }
 
 // نافذة إضافة/تعديل منتج
+// اسم المنتج حسب اللغة: إنجليزي لو اللغة en والاسم الإنجليزي موجود، وإلا العربي
+function prodName(x){ if(!x) return ""; if(LANG==="en" && x.nameEn && (""+x.nameEn).trim()) return x.nameEn; return x.name||""; }
+window.prodName=prodName;
+
 async function productModal(id,x){
   x=x||{};
   const cats=await loadCategories();
@@ -4816,6 +4820,7 @@ async function productModal(id,x){
   const baseOpts=baseUnits.map(u=>"<option value='"+u+"' "+(x.baseUnit===u?"selected":"")+">"+L(u)+"</option>").join("");
   openModal(id?"تعديل منتج":"إضافة منتج",
     "<label class='field'><span>اسم المنتج *</span><input id='pName' class='input' value='"+esc(x.name||"")+"'></label>"+
+    "<label class='field'><span>الاسم بالإنجليزي (اختياري)</span><input id='pNameEn' class='input' dir='ltr' placeholder='Product name (English)' value='"+esc(x.nameEn||"")+"'></label>"+
     "<label class='field'><span>التصنيف</span><select id='pCat'>"+catOpts+"</select></label>"+
     "<div class='sec'><div class='sec-title'>"+L("وحدة القياس والتحويل")+"</div>"+
       "<div class='grid' style='grid-template-columns:1fr 1fr'>"+
@@ -4848,7 +4853,7 @@ async function productModal(id,x){
       const baseUnit=$("pBaseUnit").value;
       const buyUnit=$("pBuyUnit").value.trim();
       const buyFactor=parseFloat($("pBuyFactor").value)||0;
-      const data={name,price,
+      const data={name,nameEn:$("pNameEn")?$("pNameEn").value.trim():"",price,
         baseUnit, unit:baseUnit, // unit للتوافق مع الشاشات القديمة
         buyUnit, buyFactor,
         min:parseFloat($("pMin").value)||0, max:parseFloat($("pMax").value)||0,
@@ -5034,7 +5039,7 @@ async function recipeModal(id,x){ x=x||{};
   const prodSnap=await cRef().collection("products").orderBy("name").get().catch(()=>null);
   const prods=[]; if(prodSnap) prodSnap.forEach(d=>prods.push({id:d.id,...d.data()}));
   const ings=(x.ingredients||[]).slice();
-  const prodOpts=(sel)=>"<option value=''>— "+L("اختر منتجاً")+" —</option>"+prods.map(p=>"<option value='"+p.id+"' "+(sel===p.id?"selected":"")+">"+esc(p.name)+" ("+esc(p.baseUnit||p.unit||"")+")</option>").join("");
+  const prodOpts=(sel)=>"<option value=''>— "+L("اختر منتجاً")+" —</option>"+prods.map(p=>"<option value='"+p.id+"' "+(sel===p.id?"selected":"")+">"+esc(prodName(p))+" ("+esc(p.baseUnit||p.unit||"")+")</option>").join("");
   const ingRow=(it)=>{ it=it||{}; return "<div class='ing-row' style='display:grid;grid-template-columns:1fr 80px 30px;gap:6px;align-items:center;margin-bottom:6px'>"+
       "<select class='ing-prod'>"+prodOpts(it.productId)+"</select>"+
       "<input class='ing-qty input' type='number' inputmode='decimal' placeholder='"+L("كمية")+"' value='"+(it.qty!=null?it.qty:"")+"' style='padding:6px'>"+
@@ -5129,7 +5134,7 @@ async function transferForm(c){
   if(snap.empty){ toast("لا توجد منتجات","err"); return; }
   const prods=[]; snap.forEach(d=>prods.push({id:d.id,...d.data()}));
   const opt=(sel)=>locs.map(l=>"<option value='"+l.id+"' "+(l.id===sel?"selected":"")+">"+esc(locLabel(l))+"</option>").join("");
-  const rows=prods.map((p,i)=>"<tr><td><b>"+esc(p.name)+"</b> <span class='muted' id='trav_"+i+"' style='font-size:12px'></span></td><td><input class='input trq' data-i='"+i+"' data-pid='"+esc(p.id)+"' type='number' inputmode='decimal' style='width:80px;padding:6px' placeholder='0'></td></tr>").join("");
+  const rows=prods.map((p,i)=>"<tr><td><b>"+esc(prodName(p))+"</b> <span class='muted' id='trav_"+i+"' style='font-size:12px'></span></td><td><input class='input trq' data-i='"+i+"' data-pid='"+esc(p.id)+"' type='number' inputmode='decimal' style='width:80px;padding:6px' placeholder='0'></td></tr>").join("");
   openModal("تحويل جديد",
     "<div class='grid' style='grid-template-columns:1fr 1fr;gap:10px'>"+
       "<label class='field'><span>من موقع *</span><select id='trFrom' class='input'>"+opt(locs[0].id)+"</select></label>"+
