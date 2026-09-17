@@ -2563,7 +2563,7 @@ async function computeShiftSales(){
   const ensure=(bid,name)=>{ if(!res[bid]) res[bid]={name:name||"",am:{sales:0,surplus:0,deficit:0,count:0},pm:{sales:0,surplus:0,deficit:0,count:0}}; return res[bid]; };
   try{
     const s=await cRef().collection("dailyClosings").where("date",">=",cur.start).where("date","<",cur.next).get();
-    s.forEach(d=>{ const x=d.data(); if(x.status==="rejected") return;
+    s.forEach(d=>{ const x=d.data(); if(x.status!=="approved") return; // المعتمد فقط
       const bid=x.branchId||"?"; const o=ensure(bid,x.branchName);
       const slot = x.shift==="مساء" ? o.pm : o.am; // الافتراضي صباح
       slot.sales += Number(x.net)||0; slot.count++;
