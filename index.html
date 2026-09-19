@@ -244,7 +244,31 @@ tr.ord-short td:first-child{box-shadow:inset 3px 0 0 var(--red)}
     <label class="field"><span id="lgPass">كلمة المرور</span><input id="loginPass" class="input" type="password" autocomplete="current-password" placeholder="••••••••"></label>
     <button id="loginBtn" class="btn primary login-btn">دخول</button>
     <p id="loginErr" class="login-err hidden"></p>
+    <div style="text-align:center;margin-top:18px;padding-top:18px;border-top:1px solid var(--border,rgba(0,0,0,.08))">
+      <span style="color:var(--muted);font-size:13px">ليس لديك حساب؟</span>
+      <button type="button" id="openSignupBtn" style="background:none;border:none;color:var(--brand);font-weight:700;font-size:14px;cursor:pointer;padding:4px">أنشئ حساب تجريبي مجاني ١٤ يوم</button>
+    </div>
     <div class="login-foot" id="lgFoot">دخول آمن ومشفّر</div>
+  </div>
+</div>
+
+<!-- ===== نافذة إنشاء حساب تجريبي (التسجيل الذاتي) ===== -->
+<div id="signupOverlay" class="hidden" style="position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.6);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;padding:20px;overflow-y:auto">
+  <div style="width:100%;max-width:440px;background:var(--surface,#fff);border-radius:22px;padding:28px 24px;box-shadow:0 24px 60px rgba(0,0,0,.35);position:relative;max-height:92vh;overflow-y:auto">
+    <button type="button" id="closeSignupBtn" style="position:absolute;top:16px;left:16px;background:none;border:none;font-size:22px;color:var(--muted);cursor:pointer;line-height:1">✕</button>
+    <h1 style="text-align:center;font-size:22px;font-weight:800;margin:0 0 4px;color:var(--text)">أنشئ حساب مطعمك</h1>
+    <p style="text-align:center;color:var(--muted);font-size:13.5px;margin:0 0 22px">تجربة كاملة مجاناً لمدة ١٤ يوم — بلا بطاقة</p>
+
+    <label class="field"><span>اسم المنشأة *</span><input id="suName" class="input" type="text" placeholder="مثال: مقهى نسيم"></label>
+    <label class="field"><span>اسم الرابط (بالإنجليزية) *</span><input id="suSlug" class="input" type="text" dir="ltr" placeholder="naseem-cafe" autocapitalize="off" autocomplete="off"></label>
+    <label class="field"><span>النشاط</span><input id="suActivity" class="input" type="text" placeholder="مقهى / مطعم / مخبز…"></label>
+    <label class="field"><span>رقم الجوال</span><input id="suPhone" class="input" type="tel" dir="ltr" placeholder="05xxxxxxxx"></label>
+    <label class="field"><span>البريد الإلكتروني *</span><input id="suEmail" class="input" type="email" dir="ltr" autocomplete="off" placeholder="you@example.com"></label>
+    <label class="field"><span>كلمة المرور *</span><input id="suPass" class="input" type="password" placeholder="٦ أحرف على الأقل"></label>
+
+    <button id="signupBtn" class="btn primary login-btn" style="margin-top:8px">إنشاء الحساب التجريبي</button>
+    <p id="signupErr" class="login-err hidden"></p>
+    <div id="signupOk" class="hidden" style="text-align:center;margin-top:16px;padding:16px;border-radius:14px;background:rgba(22,163,74,.1);color:var(--green,#16a34a);font-size:14px;font-weight:600"></div>
   </div>
 </div>
 
@@ -1364,6 +1388,71 @@ function logAction(action,details){
 /* ================================================================== */
 /*  5) الدخول والتوجيه                                                 */
 /* ================================================================== */
+/* ================================================================== */
+/*  التسجيل الذاتي (Self-Signup) — يتصل بـ Worker الآمن               */
+/* ================================================================== */
+const SIGNUP_WORKER_URL = "https://ruwaq-signup.ben-soud-009.workers.dev";
+
+(function initSelfSignup(){
+  const overlay = $("signupOverlay");
+  const openBtn = $("openSignupBtn");
+  const closeBtn = $("closeSignupBtn");
+  const btn = $("signupBtn");
+  if(!overlay || !openBtn || !btn) return;
+
+  const showErr = (m)=>{ const e=$("signupErr"); e.textContent=m; e.classList.remove("hidden"); };
+  const hideErr = ()=>{ $("signupErr").classList.add("hidden"); };
+
+  openBtn.onclick = ()=>{ overlay.classList.remove("hidden"); hideErr(); };
+  closeBtn.onclick = ()=>{ overlay.classList.add("hidden"); };
+  overlay.onclick = (e)=>{ if(e.target===overlay) overlay.classList.add("hidden"); };
+
+  btn.onclick = async ()=>{
+    hideErr();
+    const name     = ($("suName").value||"").trim();
+    const slug     = ($("suSlug").value||"").trim();
+    const activity = ($("suActivity").value||"").trim();
+    const phone    = ($("suPhone").value||"").trim();
+    const email    = ($("suEmail").value||"").trim().toLowerCase();
+    const password = $("suPass").value||"";
+
+    if(!name){ showErr("أدخل اسم المنشأة"); return; }
+    if(!slug || !/^[a-zA-Z0-9-]+$/.test(slug)){ showErr("اسم الرابط بالإنجليزية فقط (حروف وأرقام)"); return; }
+    if(!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)){ showErr("البريد الإلكتروني غير صحيح"); return; }
+    if(!password || password.length<6){ showErr("كلمة المرور ٦ أحرف على الأقل"); return; }
+
+    btn.disabled = true; btn.textContent = "جارٍ إنشاء الحساب…";
+    try{
+      const res = await fetch(SIGNUP_WORKER_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, slug, activity, phone, email, password }),
+      });
+      const data = await res.json().catch(()=>({}));
+      if(!res.ok || !data.ok){
+        showErr(data.msg || "تعذّر إنشاء الحساب، حاول مرة أخرى");
+        btn.disabled=false; btn.textContent="إنشاء الحساب التجريبي";
+        return;
+      }
+      // نجاح — عبّئ بيانات الدخول تلقائياً ووجّه المستخدم
+      const ok = $("signupOk");
+      ok.textContent = "تم إنشاء حسابك بنجاح ✅ سيتم تسجيل دخولك الآن…";
+      ok.classList.remove("hidden");
+      if($("loginEmail")) $("loginEmail").value = email;
+      if($("loginPass"))  $("loginPass").value  = password;
+      setTimeout(async ()=>{
+        overlay.classList.add("hidden");
+        try{ await auth.signInWithEmailAndPassword(email, password); }
+        catch(e){ /* لو تأخّر التفعيل، يسجّل يدوياً */ }
+        btn.disabled=false; btn.textContent="إنشاء الحساب التجريبي";
+      }, 1500);
+    }catch(e){
+      showErr("تعذّر الاتصال بالخادم، تأكد من الإنترنت");
+      btn.disabled=false; btn.textContent="إنشاء الحساب التجريبي";
+    }
+  };
+})();
+
 $("loginBtn").onclick = async ()=>{
   const email=$("loginEmail").value.trim(), pass=$("loginPass").value;
   $("loginErr").classList.add("hidden");
