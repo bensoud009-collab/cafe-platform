@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="ar" dir="rtl">
+<html lang="ar" dir="rtl" data-mode="dark">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -1481,7 +1481,7 @@ async function applyCompanyBranding(){
 }
 
 auth.onAuthStateChanged(async user=>{
-  if(!user){ state.user=null; show("loginScreen"); applyTheme("gold"); applyCompanyBranding(); return; }
+  if(!user){ state.user=null; show("loginScreen"); applyTheme("lime"); applyCompanyBranding(); return; }
   state.user=user;
   show("bootScreen");
   subscribeMaintenance();
@@ -1607,7 +1607,7 @@ async function enterCompanyAsAdmin(companyId,companyName){
 function exitAdminMode(){
   impersonation.active=false;
   state.role="super"; state.companyId=null;
-  applyTheme("gold");
+  applyTheme("lime");
   state.companyName="لوحة مالك المنصة"; state.profile={name:impersonation.superName||"مالك المنصة",permissions:{}};
   removeAdminBanner();
   buildShell(); renderSuperNav(); openPage("super_companies");
@@ -2480,13 +2480,13 @@ async function createCompany(){
     const ownerUid=cred.user.uid;
     await secondaryAuth.signOut();
     const compRef=db.collection("companies").doc();
-    await compRef.set({name,slug,code,ownerName:owner||("صاحب "+name),ownerEmail:email,ownerPhone:phone,ownerUid,status:"active",theme:"gold",plan,
+    await compRef.set({name,slug,code,ownerName:owner||("صاحب "+name),ownerEmail:email,ownerPhone:phone,ownerUid,status:"active",theme:"lime",plan,
       subscription:{plan:"monthly",months,startsAt:(isNaN(start)?new Date():start).toISOString(),endsAt:end.toISOString(),active:true},
       createdAt:now(), createdBy:state.user.uid});
     await db.collection("users").doc(ownerUid).set({role:"owner",companyId:compRef.id,name:owner||("صاحب الشركة "+name),createdAt:now()});
     await compRef.collection("users").doc(ownerUid).set({name:owner||"صاحب الشركة",email,phone,role:"owner",permissions:fullPermissions(),createdAt:now()});
     // بطاقة عامة للهوية على شاشة الدخول
-    await db.collection("publicCompanies").doc(slug).set({name,theme:"gold"}).catch(()=>{});
+    await db.collection("publicCompanies").doc(slug).set({name,theme:"lime"}).catch(()=>{});
     logAction("create_company",name);
     closeModal();
     openModal("تم إنشاء الشركة ✅",
@@ -6480,6 +6480,7 @@ async function settingsSub(c){
 }
 
 const THEMES=[
+  {k:"lime",  n:"ليموني", a:"#d4f720", b:"#b9d81c"},
   {k:"gold",  n:"ذهبي",   a:"#c8a15a", b:"#e0be7e"},
   {k:"green", n:"أخضر",   a:"#3fb984", b:"#63d3a3"},
   {k:"blue",  n:"أزرق",   a:"#5b8def", b:"#83a9f5"},
