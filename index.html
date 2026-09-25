@@ -1263,6 +1263,7 @@ firebase.initializeApp(firebaseConfig);
 const auth = firebase.auth();
 const db   = firebase.firestore();
 const storage = firebase.storage();
+try{ db.enablePersistence({synchronizeTabs:true}).catch(e=>{ console.warn("Persistence not enabled:",e&&e.code); }); }catch(e){}
 // ضغط الصورة وتحويلها Base64 (بدون Storage) — يُحفظ داخل قاعدة البيانات مباشرة
 function compressToBase64(file, maxDim, quality){
   maxDim=maxDim||1200; quality=quality||0.6;
@@ -3338,7 +3339,7 @@ async function openClosingModal(){
     const sel=$("clEmp"); if(!sel) return; const brId=$("clBranch")?$("clBranch").value:"";
     sel.innerHTML="<option value=''>"+L("اختر الموظف…")+"</option>";
     try{
-      const s=await cRef().collection("users").get();
+      const s=await cRef().collection("users").limit(300).get();
       const seen=new Set();
       s.forEach(d=>{ const u=d.data(); const nm=u.name||u.email; if(!nm||seen.has(nm)) return;
         // موظفو هذا الفرع (أو غير المربوطين بفرع محدد)
