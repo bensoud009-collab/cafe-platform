@@ -1263,7 +1263,6 @@ firebase.initializeApp(firebaseConfig);
 const auth = firebase.auth();
 const db   = firebase.firestore();
 const storage = firebase.storage();
-try{ db.enablePersistence({synchronizeTabs:true}).catch(e=>{ console.warn("Persistence not enabled:",e&&e.code); }); }catch(e){}
 // ضغط الصورة وتحويلها Base64 (بدون Storage) — يُحفظ داخل قاعدة البيانات مباشرة
 function compressToBase64(file, maxDim, quality){
   maxDim=maxDim||1200; quality=quality||0.6;
@@ -2669,9 +2668,9 @@ function targetColor(pct){ const p=Math.max(0,Math.min(100,pct))/100;
   const r=Math.round(229 + (139-229)*p), g=Math.round(72 + (191-72)*p), b=Math.round(77 + (63-77)*p);
   return "rgb("+r+","+g+","+b+")"; }
 
-// جمع مبيعات الشفتات لكل فرع للشهر الحالي + التارقت
-async function computeShiftSales(){
-  const cur=monthRange(0);
+// جمع مبيعات الشفتات لكل فرع لشهر معيّن (offset=0 الحالي، -1 الماضي...) + التارقت
+async function computeShiftSales(offset){
+  const cur=monthRange(offset||0);
   const res={}; // branchId -> {am:{sales,surplus,deficit,count}, pm:{...}, name}
   const ensure=(bid,name)=>{ if(!res[bid]) res[bid]={name:name||"",am:{sales:0,surplus:0,deficit:0,count:0},pm:{sales:0,surplus:0,deficit:0,count:0}}; return res[bid]; };
   try{
@@ -2706,11 +2705,80 @@ async function renderDashShiftCards(wrap){
       "<div style='font-size:12px;font-weight:800;margin-top:6px;text-align:left;color:"+col+"'>"+pct+"%</div>"+
     "</div>";
   };
-  wrap.innerHTML="<div style='display:grid;grid-template-columns:1fr 1fr;gap:12px'>"+
+  wrap.innerHTML="<div style='display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:10px'>"+
     mk(L("شفت الصباح"), amSales, amTarget, amSurplus, amDeficit, amCount)+
     mk(L("شفت المساء"), pmSales, pmTarget, pmSurplus, pmDeficit, pmCount)+
-  "</div>";
+  "</div>"+
+  "<button class='btn sm' id='targetHistBtn' style='width:100%;border:1.5px dashed var(--line);background:transparent;color:var(--muted)'>📅 "+L("سجل الأشهر السابقة")+"</button>";
   wrap.querySelectorAll(".shift-card").forEach(cd=>{ cd.onclick=()=>shiftDetailModal(cd.dataset); });
+  if($("targetHistBtn"))$("targetHistBtn").onclick=()=>openTargetHistoryModal();
+}
+
+// سجل التارقت لآخر 6 أشهر — يقارن كل شهر بالهدف الحالي المحدّد (نفس الهدف لكل الأشهر)
+async function openTargetHistoryModal(){
+  openModal(L("سجل التارقت الشهري"),
+    "<div class='muted' style='font-size:13px;margin-bottom:12px'>جارٍ التحميل…</div>","",()=>true,true,640);
+  const targets=await loadShiftTargets();
+  let amTargetTot=0,pmTargetTot=0;
+  Object.values(targets).forEach(t=>{ amTargetTot+=Number(t.am)||0; pmTargetTot+=Number(t.pm)||0; });
+  const targetTot=amTargetTot+pmTargetTot;
+  const months=[];
+  for(let i=0;i<6;i++){
+    const offset=-i;
+    const sales=await computeShiftSales(offset);
+    let amSales=0,pmSales=0,amSurplus=0,amDeficit=0,pmSurplus=0,pmDeficit=0,amCount=0,pmCount=0;
+    Object.values(sales).forEach(o=>{ amSales+=o.am.sales; pmSales+=o.pm.sales; amSurplus+=o.am.surplus; amDeficit+=o.am.deficit; pmSurplus+=o.pm.surplus; pmDeficit+=o.pm.deficit; amCount+=o.am.count; pmCount+=o.pm.count; });
+    months.push({label:monthName(offset), amSales,pmSales,amSurplus,amDeficit,pmSurplus,pmDeficit,amCount,pmCount,
+      total:amSales+pmSales});
+  }
+  const shiftBox=(title,sales,target,surplus,deficit,count)=>{
+    const p=target>0?Math.round(sales/target*100):0;
+    return "<div style='background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px'>"+
+      "<div class='muted' style='font-size:12.5px;font-weight:800;margin-bottom:8px'>"+title+" — "+p+"%</div>"+
+      "<div class='review-row'><span>المبيعات</span><b>"+money(sales)+"</b></div>"+
+      "<div class='review-row'><span>الهدف</span><b>"+(target>0?money(target):"—")+"</b></div>"+
+      "<div class='review-row'><span>عدد الإقفالات</span><b>"+count+"</b></div>"+
+      "<div class='review-row'><span style='color:var(--green)'>الفائض</span><b style='color:var(--green)'>+"+money(surplus)+"</b></div>"+
+      "<div class='review-row'><span style='color:var(--red)'>العجز</span><b style='color:var(--red)'>−"+money(deficit)+"</b></div></div>";
+  };
+  const rows=months.map((m,i)=>{
+    const pct=targetTot>0?Math.round(m.total/targetTot*100):0;
+    const col=targetColor(pct);
+    const ok=pct>=100;
+    return "<div class='mrow-hist' data-i='"+i+"' style='cursor:pointer;padding:12px 4px;border-bottom:1px solid var(--line)'>"+
+        "<div style='display:flex;align-items:center;gap:12px'>"+
+          "<div style='width:80px;font-weight:800;font-size:13.5px'>"+esc(m.label)+"</div>"+
+          "<div style='flex:1'>"+
+            "<div class='muted' style='font-size:12px;display:flex;justify-content:space-between;margin-bottom:4px'><span>المبيعات <b style='color:var(--text)'>"+money(m.total)+"</b></span><span>الهدف "+(targetTot>0?money(targetTot):"—")+"</span></div>"+
+            "<div style='height:8px;border-radius:99px;background:var(--surface-2);overflow:hidden'><div style='height:100%;border-radius:99px;width:"+Math.min(100,pct)+"%;background:"+col+"'></div></div>"+
+          "</div>"+
+          "<div style='min-width:64px;text-align:center;font-weight:800;font-size:12.5px;color:"+col+"'>"+(ok?"✅ ":"❌ ")+pct+"%</div>"+
+        "</div>"+
+        "<div class='hist-detail' id='histDet"+i+"' style='display:none;margin-top:10px;grid-template-columns:1fr 1fr;gap:10px'>"+
+          shiftBox("☀️ "+L("شفت الصباح"),m.amSales,amTargetTot,m.amSurplus,m.amDeficit,m.amCount)+
+          shiftBox("🌙 "+L("شفت المساء"),m.pmSales,pmTargetTot,m.pmSurplus,m.pmDeficit,m.pmCount)+
+        "</div>"+
+      "</div>";
+  }).join("");
+  const achieved=months.filter(m=>targetTot>0 && m.total>=targetTot).length;
+  const body="<div class='muted' style='font-size:12.5px;margin-bottom:12px'>آخر 6 أشهر — كل شهر يُقارن بالهدف الحالي ("+(targetTot>0?money(targetTot):"غير محدّد")+")</div>"+
+    "<div style='display:flex;gap:8px;margin-bottom:14px'>"+
+      "<div class='card' style='flex:1;text-align:center;padding:12px'><div class='muted' style='font-size:11.5px'>أشهر تحقق فيها الهدف</div><div style='font-weight:800;color:var(--green)'>"+achieved+" / 6</div></div>"+
+    "</div>"+
+    "<div>"+rows+"</div>"+
+    (targetTot<=0?"<div class='muted' style='font-size:12px;margin-top:10px'>⚠️ ما فيه هدف محدّد حالياً — حدّد تارقت الفرع أولاً.</div>":"")+
+    "<div class='muted' style='font-size:11.5px;margin-top:12px'>ملاحظة: المقارنة تستخدم الهدف الحالي لكل الأشهر، لأن النظام يخزّن هدفاً واحداً فقط (بدون سجل تاريخي للتغييرات).</div>";
+  openModal(L("سجل التارقت الشهري"), body, "", ()=>true, true, 640);
+  setTimeout(()=>{
+    document.querySelectorAll("#modalRoot .mrow-hist").forEach(row=>{
+      row.onclick=()=>{
+        const i=row.dataset.i; const det=$("histDet"+i);
+        const willOpen=det.style.display==="none";
+        document.querySelectorAll("#modalRoot .hist-detail").forEach(d=>d.style.display="none");
+        if(willOpen) det.style.display="grid";
+      };
+    });
+  },30);
 }
 
 function shiftDetailModal(d){
@@ -2724,7 +2792,7 @@ function shiftDetailModal(d){
     (target>0?"<div class='review-row'><span>"+L("المتبقّي للهدف")+"</span><b>"+money(remain)+"</b></div>":""),
     "تم",()=>true,true);
 }
-function monthName(){ const d=new Date(); return d.toLocaleDateString(LANG==="en"?"en-US":"ar-SA-u-ca-gregory",{month:"long",year:"numeric"}); }
+function monthName(offset){ const d=new Date(); d.setDate(1); d.setMonth(d.getMonth()+(offset||0)); return d.toLocaleDateString(LANG==="en"?"en-US":"ar-SA-u-ca-gregory",{month:"long",year:"numeric"}); }
 
 // تحميل/حفظ تارقت الفروع (وثيقة meta/shiftTargets)
 async function loadShiftTargets(){ try{ const d=await cRef().collection("meta").doc("shiftTargets").get(); return d.exists?(d.data()||{}):{}; }catch(e){ return {}; } }
@@ -3339,7 +3407,7 @@ async function openClosingModal(){
     const sel=$("clEmp"); if(!sel) return; const brId=$("clBranch")?$("clBranch").value:"";
     sel.innerHTML="<option value=''>"+L("اختر الموظف…")+"</option>";
     try{
-      const s=await cRef().collection("users").limit(300).get();
+      const s=await cRef().collection("users").get();
       const seen=new Set();
       s.forEach(d=>{ const u=d.data(); const nm=u.name||u.email; if(!nm||seen.has(nm)) return;
         // موظفو هذا الفرع (أو غير المربوطين بفرع محدد)
@@ -4728,7 +4796,8 @@ async function pageExpenses(c, forcedBr, backFn){
   // زر (+) مربّع أعلى + عنوان
   c.innerHTML=(forcedBr?"<button class='btn sm' id='exBack' style='margin-bottom:14px'>← رجوع</button>":"");
   const head=el("div"); head.style.cssText="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:16px";
-  head.innerHTML="<button class='inv-add-sq' id='newExp' title='"+L("تسجيل مصروف")+"'>+</button>"+
+  head.innerHTML="<div style='display:flex;gap:8px'><button class='inv-add-sq' id='newExp' title='"+L("تسجيل مصروف")+"'>+</button>"+
+    "<button class='btn sm' id='newWithdraw' style='align-self:flex-start'>"+L("سحب شخصي")+"</button></div>"+
     "<div class='page-title' style='text-align:right;margin-bottom:0'><h2>"+L("المصروفات")+"</h2><p>"+L("مصاريف التشغيل حسب التكرار")+"</p></div>";
   c.appendChild(head);
   if($("exBack"))$("exBack").onclick=back;
@@ -4736,6 +4805,7 @@ async function pageExpenses(c, forcedBr, backFn){
   if(forcedBr){ br=forcedBr; c.insertAdjacentHTML("beforeend","<div class='muted' style='margin-bottom:12px'>الفرع: <b>"+esc(br.name)+"</b></div>"); }
   else { br=await invBranchBar(c, ()=>pageExpenses(c)); if(!br) return; }
   if($("newExp"))$("newExp").onclick=()=>expenseForm(c,br);
+  if($("newWithdraw"))$("newWithdraw").onclick=()=>withdrawalForm(c,br);
 
   // ===== بطاقات الملخّص + الجدول (المالك) =====
   const kpisWrap=el("div"); kpisWrap.id="expKpis"; kpisWrap.style.cssText="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:10px"; c.appendChild(kpisWrap);
@@ -4745,6 +4815,10 @@ async function pageExpenses(c, forcedBr, backFn){
   const card=el("div","card");
   card.innerHTML="<table><thead><tr><th>المصروف</th><th>المبلغ</th><th>"+L("النوع")+"</th><th>"+L("شهري موحّد")+"</th><th>الحالة</th></tr></thead><tbody id='exRows'><tr><td colspan='5' class='muted'>جارٍ التحميل…</td></tr></tbody></table>";
   c.appendChild(card);
+
+  // ===== الملخّص المالي الذكي =====
+  const smartWrap=el("div"); smartWrap.id="smartSummaryWrap"; smartWrap.style.marginTop="22px"; c.appendChild(smartWrap);
+  renderSmartSummary(smartWrap,br);
 
   cRef().collection("expenses").where("branchId","==",br.id).onSnapshot(s=>{
     const tb=$("exRows");if(!tb)return;const rows=[];s.forEach(d=>rows.push({id:d.id,...d.data()}));
@@ -4844,6 +4918,107 @@ async function expenseForm(c,br){
       b.classList.add("active"); b.style.background="var(--brand)"; b.style.color="#fff";
     }; });
   },30);
+}
+
+/* ================================================================== */
+/*  الملخّص المالي الذكي — يربط المصروفات بالمبيعات والفواتير والسيولة  */
+/* ================================================================== */
+const VAT_RATE=0.15; // نسبة ضريبة القيمة المضافة (بافتراض أن الأسعار شاملة الضريبة)
+
+async function loadLiquidity(brId){
+  try{ const d=await cRef().collection("liquidity").doc(brId).get(); return d.exists?d.data():{bank:0,cash:0}; }
+  catch(e){ return {bank:0,cash:0}; }
+}
+async function saveLiquidity(brId,bank,cash){
+  await cRef().collection("liquidity").doc(brId).set({bank,cash,updatedAt:now()},{merge:true});
+}
+
+function liquidityEditModal(br,cur,onSaved){
+  openModal(L("تحديث السيولة الفعلية"),
+    "<label class='field'><span>رصيد البنك</span><input id='liqBank' class='input' type='number' inputmode='decimal' value='"+(cur.bank||0)+"'></label>"+
+    "<label class='field'><span>الكاش الموجود</span><input id='liqCash' class='input' type='number' inputmode='decimal' value='"+(cur.cash||0)+"'></label>"+
+    "<div class='muted' style='font-size:12px'>هذي الأرقام تُدخل يدويًا وتُستخدم لمطابقة الربح الحقيقي مع السيولة الفعلية.</div>",
+    "حفظ", async ()=>{
+      const bank=parseFloat($("liqBank").value)||0, cash=parseFloat($("liqCash").value)||0;
+      await saveLiquidity(br.id,bank,cash);
+      toast(L("تم الحفظ"),"ok"); if(onSaved) onSaved(); return true;
+    });
+}
+
+async function withdrawalForm(c,br){
+  openModal(L("تسجيل سحب شخصي — ")+esc(br.name),
+    "<label class='field'><span>المبلغ *</span><input id='wdAmount' class='input' type='number' inputmode='decimal' placeholder='0.00'></label>"+
+    "<label class='field'><span>البيان (اختياري)</span><input id='wdNote' class='input' placeholder='وصف السحب'></label>"+
+    "<div class='muted' style='font-size:12px'>يُسجَّل مستقل عن المصروفات التشغيلية، ويُستخدم لتفسير الفرق بين الربح والسيولة.</div>",
+    "حفظ", async ()=>{
+      const amount=parseFloat($("wdAmount").value)||0;
+      if(amount<=0){toast("أدخل المبلغ","err");return false;}
+      await cRef().collection("withdrawals").add({branchId:br.id,branchName:br.name,amount,note:$("wdNote").value.trim(),byName:state.profile.name||state.user.email,byUid:state.user.uid,date:todayStr(),at:now()});
+      logAction("withdrawal",money(amount)+" — "+br.name);
+      toast(L("تم حفظ السحب"),"ok"); return true;
+    });
+}
+
+async function renderSmartSummary(wrap,br){
+  wrap.innerHTML="<div class='card muted' style='text-align:center;padding:20px'>جارٍ حساب الملخّص المالي…</div>";
+  try{
+    const r=monthRange(0);
+    const [cloS,invS,expS,wdS,liq]=await Promise.all([
+      cRef().collection("dailyClosings").where("branchId","==",br.id).where("date",">=",r.start).where("date","<",r.next).get(),
+      cRef().collection("invoices").where("date",">=",r.start).where("date","<",r.next).get().catch(()=>({forEach:()=>{}})),
+      cRef().collection("expenses").where("branchId","==",br.id).get(),
+      cRef().collection("withdrawals").where("branchId","==",br.id).where("date",">=",r.start).where("date","<",r.next).get().catch(()=>({forEach:()=>{}})),
+      loadLiquidity(br.id)
+    ]);
+    // المبيعات المعتمدة هذا الشهر
+    let salesTot=0; cloS.forEach(d=>{const x=d.data(); if(x.status!=="approved")return; salesTot+=Number(x.actualSales)||0;});
+    // المشتريات/الفواتير المعتمدة هذا الشهر
+    let buyTot=0; invS.forEach(d=>{const x=d.data(); if(x.status!=="approved")return; buyTot+=Number(x.total)||0;});
+    // المصروفات الثابتة — موحّدة شهريًا (نفس منطق بطاقات الملخّص أعلاه)
+    let sumDaily=0,sumMonthly=0,sumYearly=0;
+    expS.forEach(d=>{const x=d.data(); const amt=Number(x.amount)||0; const rr=x.recur||"monthly";
+      if(rr==="daily") sumDaily+=amt; else if(rr==="yearly") sumYearly+=amt; else sumMonthly+=amt;});
+    const monthlyExp = sumYearly/12 + sumMonthly + sumDaily*30;
+    const yearlyCommit = sumYearly + sumMonthly*12; // الالتزامات القابلة للتسنين (إيجار/رسوم مشابهة)
+    const monthlyReserve = yearlyCommit/12;
+    // السحوبات الشخصية هذا الشهر
+    let wdTot=0; wdS.forEach(d=>{wdTot+=Number(d.data().amount)||0;});
+    // الضريبة (تقديرية)
+    const vat = salesTot*VAT_RATE/(1+VAT_RATE);
+    // الربح الحقيقي
+    const realProfit = salesTot - vat - buyTot - monthlyExp;
+    const liquidity = (Number(liq.bank)||0)+(Number(liq.cash)||0);
+    const gap = realProfit - liquidity - wdTot;
+
+    const row=(label,val,opt)=>{ opt=opt||{};
+      return "<div class='review-row'><span>"+(opt.dot?"<span style='display:inline-block;width:8px;height:8px;border-radius:50%;background:"+opt.dot+";margin-left:6px'></span>":"")+label+(opt.small?" <small class='muted' style='font-size:12px'>"+opt.small+"</small>":"")+"</span><b style='color:"+(opt.color||"var(--text)")+"'>"+(opt.sign||"")+money(val)+"</b></div>";
+    };
+
+    wrap.innerHTML=
+      "<div class='card' style='margin-bottom:14px'>"+
+        "<h3 style='margin-bottom:14px'>💰 "+L("الملخّص المالي الذكي")+" <span class='muted' style='font-size:12px;font-weight:400'>("+L("الشهر الحالي")+")</span></h3>"+
+        row("إجمالي المبيعات (معتمد)",salesTot)+
+        row("ضريبة القيمة المضافة",vat,{color:"var(--red)",sign:"− ",small:"غير قابلة للصرف"})+
+        row("الفواتير والمشتريات (معتمد)",buyTot,{color:"var(--red)",sign:"− "})+
+        row("المصروفات الثابتة (موحّدة شهريًا)",monthlyExp,{color:"var(--red)",sign:"− "})+
+        "<div class='review-row' style='border:0;padding-top:12px;margin-top:6px;border-top:2px solid var(--line)'><span style='font-weight:800'>الربح الحقيقي</span><b style='font-size:20px;color:"+(realProfit>=0?"var(--green)":"var(--red)")+"'>"+money(realProfit)+"</b></div>"+
+      "</div>"+
+      "<div class='card' style='margin-bottom:14px'>"+
+        "<div style='display:flex;justify-content:space-between;align-items:center;margin-bottom:14px'><h3 style='margin:0'>⚖️ "+L("مطابقة السيولة")+"</h3><button class='btn sm' id='editLiq'>تحديث الأرصدة</button></div>"+
+        row("الربح الحقيقي المُحتسب",realProfit)+
+        row("رصيد البنك",Number(liq.bank)||0)+
+        row("الكاش الموجود",Number(liq.cash)||0)+
+        row("سحوبات شخصية هذا الشهر",wdTot,{color:"var(--amber,#c98a1a)",sign:"− "})+
+        "<div class='review-row' style='border:0;padding-top:12px;margin-top:6px;border-top:2px solid var(--line)'><span style='font-weight:800'>"+(Math.abs(gap)<50?"✅ متطابق تقريبًا":"⚠️ فجوة غير مفسَّرة")+"</span><b style='font-size:20px;color:"+(Math.abs(gap)<50?"var(--green)":"var(--red)")+"'>"+money(Math.abs(gap))+"</b></div>"+
+      "</div>"+
+      "<div class='card'>"+
+        "<h3 style='margin-bottom:14px'>🏦 "+L("مخصص الالتزامات السنوية")+"</h3>"+
+        row("الالتزامات القابلة للتسنين سنويًا",yearlyCommit,{small:"إيجار ومصروفات شهرية/سنوية مشابهة"})+
+        "<div class='review-row' style='border:0;padding-top:12px;margin-top:6px;border-top:2px solid var(--line)'><span style='font-weight:800'>المفروض يكون مجنّب هذا الشهر</span><b style='font-size:18px;color:var(--brand)'>"+money(monthlyReserve)+"</b></div>"+
+      "</div>";
+    if($("editLiq"))$("editLiq").onclick=()=>liquidityEditModal(br,liq,()=>renderSmartSummary(wrap,br));
+    if(typeof translateTree==="function") translateTree(wrap);
+  }catch(e){ console.error(e); wrap.innerHTML="<div class='card' style='color:var(--red);text-align:center;padding:20px'>تعذّر حساب الملخّص المالي</div>"; }
 }
 
 
