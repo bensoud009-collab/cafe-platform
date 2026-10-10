@@ -1770,18 +1770,27 @@ function renderCardsHome(){
   document.getElementById("sidebar").classList.remove("open");
   const c=$("pageContent"); c.innerHTML=pageTitle("لوحة التحكم","أهلاً "+esc(state.profile.name||""));
   const grid=el("div"); grid.style.cssText="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:16px";
-  MODULES.forEach(m=>{
-    if(m.key==="settings") return; // الإعدادات للمالك
-    if(moduleHidden(m.key)&&!bypassMaintenance()) return; // مخفي عن الشركات
-    const isOwner=(state.role==="owner"||state.role==="super"||impersonation.active);
-    if(m.key==="expenses" && !isOwner) return; // المصروفات لمالك الشركة فقط
-    const allowed = (m.key==="staff"||m.key==="recipes"||(m.key==="inventory"&&isWarehouseKeeper())||can(m.key,"view")||can(m.key,"add"));
-    if(!allowed) return;
-    const card=el("div","card animin"); card.style.cssText="cursor:pointer;min-height:120px;text-align:center;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;animation-delay:"+(grid.children.length*0.05)+"s";
-    card.innerHTML=(m.icon?"<div style='font-size:34px'>"+m.icon+"</div>":"")+"<div style='font-weight:800'>"+esc(t("nav_"+m.key)||m.name)+"</div>";
-    card.onclick=()=>openPage(m.key);
-    card.dataset.cardKey=m.key; card.style.position="relative";
-    grid.appendChild(card);
+  const isOwnerC=(state.role==="owner"||state.role==="super"||impersonation.active);
+  NAV_GROUPS.forEach(grp=>{
+    const cards=[];
+    grp.keys.forEach(k=>{
+      let key=k, label;
+      if(k==="purchases"){ const tabs=purchaseTabs(); if(!tabs.length) return; key=tabs[0]; label=L("المشتريات"); }
+      else {
+        if(k==="settings") return; // الإعدادات للمالك
+        const m=MODULES.find(x=>x.key===k); if(!m||!navAllowed(m,isOwnerC)) return;
+        label=(k==="expenses")?L("المصروفات والمالية"):(t("nav_"+m.key)||m.name);
+      }
+      const m=MODULES.find(x=>x.key===key)||{icon:""};
+      const card=el("div","card animin"); card.style.cssText="cursor:pointer;min-height:120px;text-align:center;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;position:relative;animation-delay:"+((grid.children.length+cards.length)*0.05)+"s";
+      card.innerHTML=(m.icon?"<div style='font-size:34px'>"+m.icon+"</div>":"")+"<div style='font-weight:800'>"+esc(label)+"</div>";
+      card.onclick=()=>openPage(key);
+      card.dataset.cardKey=(key==="suppliers")?"invoices":key;
+      cards.push(card);
+    });
+    if(!cards.length) return;
+    const h=el("div","",esc(L(grp.g))); h.style.cssText="grid-column:1/-1;font-size:12.5px;font-weight:700;color:var(--muted);margin-top:6px";
+    grid.appendChild(h); cards.forEach(cd=>grid.appendChild(cd));
   });
   c.appendChild(grid);
   try{ renderPurchTabs(""); applyBadges(); refreshNavBadges(false); }catch(e){}
