@@ -1263,6 +1263,7 @@ firebase.initializeApp(firebaseConfig);
 const auth = firebase.auth();
 const db   = firebase.firestore();
 const storage = firebase.storage();
+try{ db.enablePersistence({synchronizeTabs:true}).catch(e=>{ console.warn("Persistence not enabled:",e&&e.code); }); }catch(e){}
 // ضغط الصورة وتحويلها Base64 (بدون Storage) — يُحفظ داخل قاعدة البيانات مباشرة
 function compressToBase64(file, maxDim, quality){
   maxDim=maxDim||1200; quality=quality||0.6;
@@ -3407,7 +3408,7 @@ async function openClosingModal(){
     const sel=$("clEmp"); if(!sel) return; const brId=$("clBranch")?$("clBranch").value:"";
     sel.innerHTML="<option value=''>"+L("اختر الموظف…")+"</option>";
     try{
-      const s=await cRef().collection("users").get();
+      const s=await cRef().collection("users").limit(300).get();
       const seen=new Set();
       s.forEach(d=>{ const u=d.data(); const nm=u.name||u.email; if(!nm||seen.has(nm)) return;
         // موظفو هذا الفرع (أو غير المربوطين بفرع محدد)
@@ -4567,10 +4568,12 @@ async function invCountForm(c,br){
   if(snap.empty){toast("لا توجد منتجات للجرد","err");return;}
   const prods=[]; snap.forEach(d=>prods.push({id:d.id,...d.data()}));
   const stock=await branchStockMap(br.id);
-  const rows=prods.map((p,i)=>"<tr><td><b>"+esc(prodName(p))+"</b> <span class='muted'>"+esc(p.baseUnit||p.unit||"")+"</span></td><td class='muted' id='sys_"+i+"'>"+(stock[p.id]!=null?stock[p.id]:0)+"</td><td><input class='input cntv' data-i='"+i+"' type='number' inputmode='decimal' style='width:80px;padding:6px' placeholder='الفعلي'></td><td id='var_"+i+"' style='font-weight:700'>—</td></tr>").join("");
+  // الموظف يرى المنتج + خانة الفعلي فقط — النظري والفرق للمدير والمالك
+  const showSys = invApprover()||state.role==="super"||(typeof impersonation!=="undefined"&&impersonation.active);
+  const rows=prods.map((p,i)=>"<tr><td><b>"+esc(prodName(p))+"</b> <span class='muted'>"+esc(p.baseUnit||p.unit||"")+"</span></td>"+(showSys?"<td class='muted' id='sys_"+i+"'>"+(stock[p.id]!=null?stock[p.id]:0)+"</td>":"")+"<td><input class='input cntv' data-i='"+i+"' type='number' inputmode='decimal' style='width:80px;padding:6px' placeholder='الفعلي'></td>"+(showSys?"<td id='var_"+i+"' style='font-weight:700'>—</td>":"")+"</tr>").join("");
   openModal(L("إضافة جرد — ")+esc(br.name),
-    "<div class='muted' style='font-size:13px;margin-bottom:8px'>"+L("أدخل الكمية الفعلية. «بالنظام» = المخزون النظري (بعد المبيعات والهدر). الفرق يوضّح الخطورة.")+"</div>"+
-    "<table><thead><tr><th>المنتج</th><th>"+L("نظري")+"</th><th>"+L("الفعلي")+"</th><th>"+L("الفرق")+"</th></tr></thead><tbody>"+rows+"</tbody></table>",
+    "<div class='muted' style='font-size:13px;margin-bottom:8px'>"+(showSys?L("أدخل الكمية الفعلية. «بالنظام» = المخزون النظري (بعد المبيعات والهدر). الفرق يوضّح الخطورة."):L("أدخل الكمية الفعلية لكل منتج. تُرسل للإدارة للاعتماد."))+"</div>"+
+    "<table><thead><tr><th>المنتج</th>"+(showSys?"<th>"+L("نظري")+"</th>":"")+"<th>"+L("الفعلي")+"</th>"+(showSys?"<th>"+L("الفرق")+"</th>":"")+"</tr></thead><tbody>"+rows+"</tbody></table>",
     "إرسال الجرد", async ()=>{
       const results=[]; let shortageVal=0;
       document.querySelectorAll("#modalRoot .cntv").forEach(inp=>{ const i=+inp.dataset.i; const v=inp.value.trim(); if(v==="")return;
@@ -4704,9 +4707,12 @@ async function invWaste(c, forcedBr, backFn){
     rows.forEach(x=>{
       const tr=el("tr",null,"<td>"+fmtDT(x.at)+"</td><td><b>"+esc(x.name)+"</b></td><td>"+esc(x.qty)+"</td><td class='muted'>"+esc(x.reason||"—")+"</td><td style='color:var(--red)'>"+money(x.cost||0)+"</td><td></td>");
       const b=statusActionBtn(x.status,{
+        approveWhenPending:true,
         onView:()=>viewWaste(x.id,x),
         onApprove:()=>viewWaste(x.id,x,true),
-        onReject:()=>setWasteStatus(x.id,x,"rejected")
+        onReject:()=>setWasteStatus(x.id,x,"rejected"),
+        canDelete:true,
+        onDelete:()=>deleteWaste(x.id,x)
       });
       tr.lastChild.appendChild(b);
       tb.appendChild(tr);
@@ -4749,7 +4755,17 @@ async function setWasteStatus(id,x,newStatus){
   }
   await cRef().collection("waste").doc(id).update({status:newStatus,approvedBy:state.user.uid,approvedAt:now()});
   logAction(newStatus==="rejected"?"reject_waste":"update_waste",x.name+" — "+(x.branchName||""));
-  toast(newStatus==="rejected"?"تم رفض التالف وإرجاع الكمية":"تم التحديث","ok");
+  toast(newStatus==="rejected"?(x.status==="approved"?"تم رفض التالف وإرجاع الكمية":"تم رفض التالف"):"تم التحديث","ok");
+}
+// حذف طلب تالف (إن كان معتمداً تُرجَع الكمية للمخزون أولاً)
+async function deleteWaste(id,x){
+  if(!confirm(L("حذف طلب التالف؟"))) return;
+  if(x.status==="approved"){
+    if(await newerCountAfterWaste(x.branchId,x.at)){ toast("لا يمكن الحذف — يوجد جرد أحدث معتمد لهذا الفرع. سجّل جرداً جديداً للتصحيح.","err"); return; }
+    try{ const ref=cRef().collection("branchStock").doc(bsId(x.branchId,x.productId)); const pd=await ref.get(); const cur=pd.exists?(Number(pd.data().qty)||0):0; await ref.set({branchId:x.branchId,productId:x.productId,name:x.name,qty:cur+(Number(x.qty)||0),updatedAt:now()},{merge:true}); }catch(e){ console.error(e); toast("تعذّر إرجاع الكمية — لم يُحذف","err"); return; }
+  }
+  try{ await cRef().collection("waste").doc(id).delete(); logAction("delete_waste",x.name+" — "+(x.branchName||"")); toast(L("تم الحذف"),"ok"); }
+  catch(e){ console.error(e); toast(L("تعذّر الحذف"),"err"); }
 }
 async function invWasteForm(c,br){
   let snap;
