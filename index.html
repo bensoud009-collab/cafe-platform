@@ -131,6 +131,21 @@ tbody tr:hover{background:var(--surface-2)}
 .nav-item:hover{background:var(--surface-2);color:var(--text)}
 .nav-item.active{background:var(--surface-2);color:var(--brand-2)}
 .nav-item .ic{width:20px;text-align:center}
+.nav-grp{font-size:11.5px;color:var(--muted);font-weight:700;padding:14px 12px 4px;opacity:.85}
+.nav-badge,.card-badge{background:#d5493f;color:#fff;font-size:11px;font-weight:800;min-width:20px;height:20px;border-radius:99px;display:inline-flex;align-items:center;justify-content:center;padding:0 6px;margin-inline-start:auto}
+.card-badge{position:absolute;top:10px;inset-inline-start:10px;margin:0}
+#purchTabs{display:none;gap:6px;padding:12px 24px 0}
+#purchTabs button{border:1px solid var(--line);background:var(--surface);color:var(--muted);border-radius:10px;padding:8px 18px;font:inherit;font-weight:700;font-size:13.5px;cursor:pointer}
+#purchTabs button.on{background:var(--brand-2);color:#fff;border-color:var(--brand-2)}
+#bottomBar{display:none}
+@media(max-width:820px){
+  #purchTabs{padding:12px 16px 0}
+  #appScreen.has-bottom #bottomBar{display:flex;position:fixed;bottom:0;left:0;right:0;z-index:35;background:var(--surface);border-top:1px solid var(--line)}
+  #appScreen.has-bottom .content{padding-bottom:84px}
+  #bottomBar div{flex:1;text-align:center;padding:11px 0 10px;font-size:12.5px;font-weight:700;color:var(--muted);position:relative;cursor:pointer}
+  #bottomBar div.act{color:var(--brand-2)}
+  #bottomBar .nav-badge{position:absolute;top:3px;margin:0;inset-inline-start:calc(50% + 8px);min-width:16px;height:16px;font-size:10px}
+}
 .main{flex:1;min-width:0;display:flex;flex-direction:column}
 .topbar{display:flex;align-items:center;justify-content:space-between;padding:16px 24px;border-bottom:1px solid var(--line);gap:12px}
 .content{padding:24px;max-width:1200px;width:100%}
@@ -295,11 +310,13 @@ tr.ord-short td:first-child{box-shadow:inset 3px 0 0 var(--red)}
         <button class="btn ghost sm" id="homeBtn" title="الرئيسية" onclick="navHome()" style="display:none;font-size:14px;padding:6px 14px;font-weight:700;color:var(--brand-2);border-color:var(--brand-2)">🏠 الرئيسية</button>
         <button class="btn ghost sm" id="profileBtn" title="ملف شخصي" onclick="openProfile()" style="font-size:14px;padding:5px 9px">👤</button>
       </div>
+      <div id="purchTabs"></div>
       <div class="content" id="pageContent"></div>
     </div>
   </div>
 </div>
 
+<div id="bottomBar"></div>
 <div id="modalRoot"></div>
 <button id="helpFab" onclick="openHelp()" title="الدعم الفني" style="display:none"></button>
 <div id="toast"></div>
@@ -1583,6 +1600,7 @@ function buildShell(){
   if(sb) sb.style.display = cardsMode() ? "none" : "";
   const main=document.querySelector(".main"); if(main) main.style.marginInlineStart = cardsMode() ? "0" : "";
   updateNavButtons();
+  try{ buildBottomBar(); }catch(e){}
 }
 
 function navButton(label,icon,pageKey){
@@ -1598,12 +1616,87 @@ function renderSuperNav(){
   nav.appendChild(navButton("إدارة الأقسام","","super_maint"));
   nav.appendChild(navButton("سجل العمليات","","super_audit"));
 }
+const NAV_GROUPS=[
+  {g:"التشغيل اليومي",keys:["dashboard","sales","checklist"]},
+  {g:"المشتريات والمخزون",keys:["inventory","purchases","recipes"]},
+  {g:"المال",keys:["expenses","reports"]},
+  {g:"الإدارة",keys:["staff","branches","settings"]}
+];
+function navAllowed(m,isOwner){
+  if(moduleHidden(m.key)&&!bypassMaintenance()) return false;
+  if(m.key==="expenses" && !isOwner) return false; // المصروفات لمالك الشركة فقط
+  return !!(m.key==="staff" || m.key==="recipes" || (m.key==="inventory"&&isWarehouseKeeper()) || can(m.key,"view")||can(m.key,"add"));
+}
+function purchaseTabs(){
+  const isOwner=(state.role==="owner"||state.role==="super"||impersonation.active);
+  return ["invoices","suppliers"].filter(k=>{ const m=MODULES.find(x=>x.key===k); return m&&navAllowed(m,isOwner); });
+}
 function renderCompanyNav(){
   const nav=$("navList");nav.innerHTML="";
   const isOwner=(state.role==="owner"||state.role==="super"||impersonation.active);
-  MODULES.forEach(m=>{ if(moduleHidden(m.key)&&!bypassMaintenance()) return;
-    if(m.key==="expenses" && !isOwner) return; // المصروفات لمالك الشركة فقط
-    if(m.key==="staff" || m.key==="recipes" || (m.key==="inventory"&&isWarehouseKeeper()) || can(m.key,"view")||can(m.key,"add")) nav.appendChild(navButton(t("nav_"+m.key)||m.name,m.icon,m.key)); });
+  NAV_GROUPS.forEach(grp=>{
+    const btns=[];
+    grp.keys.forEach(k=>{
+      if(k==="purchases"){
+        const tabs=purchaseTabs(); if(!tabs.length) return;
+        btns.push(navButton(L("المشتريات"),"",tabs[0]));
+        return;
+      }
+      const m=MODULES.find(x=>x.key===k); if(!m||!navAllowed(m,isOwner)) return;
+      const label=(k==="expenses")?L("المصروفات والمالية"):(t("nav_"+m.key)||m.name);
+      btns.push(navButton(label,m.icon,m.key));
+    });
+    if(!btns.length) return;
+    nav.appendChild(el("div","nav-grp",esc(L(grp.g))));
+    btns.forEach(b=>nav.appendChild(b));
+  });
+  buildBottomBar(); refreshNavBadges(true);
+}
+
+/* شارات الطلبات المعلّقة + الشريط السفلي للجوال */
+const PEND_MAP={closing:"sales",invoice:"invoices",waste:"inventory",count:"inventory",order:"inventory"};
+let __pendAt=0;
+async function refreshNavBadges(force){
+  try{
+    if(!state.companyId||!(invApprover()||canApproveSales())) return;
+    if(!force && Date.now()-__pendAt<60000) return;
+    __pendAt=Date.now();
+    const list=await loadPendingRequests();
+    const cnt={}; list.forEach(r=>{ const k=PEND_MAP[r.t]; if(k) cnt[k]=(cnt[k]||0)+1; });
+    window.__pendCounts=cnt; applyBadges();
+  }catch(e){ console.error(e); }
+}
+function applyBadges(){
+  const cnt=window.__pendCounts||{};
+  document.querySelectorAll(".nav-item .nav-badge,.card-badge,#bottomBar .nav-badge").forEach(b=>b.remove());
+  const add=(host,n,cls)=>{ if(!n) return; host.appendChild(el("span",cls,String(n))); };
+  document.querySelectorAll(".nav-item").forEach(n=>{
+    const k=n.dataset.page; add(n,(k==="invoices"||k==="suppliers")?cnt.invoices:cnt[k],"nav-badge");
+  });
+  document.querySelectorAll("[data-card-key]").forEach(cd=>{ const k=cd.dataset.cardKey; add(cd,(k==="suppliers")?0:cnt[k],"card-badge"); });
+  document.querySelectorAll("#bottomBar div").forEach(d=>{
+    const k=d.dataset.k; add(d,k==="more"?(cnt.invoices||0):cnt[k],"nav-badge");
+  });
+}
+function buildBottomBar(){
+  const bar=$("bottomBar"), app=$("appScreen"); if(!bar||!app) return;
+  const on=(state.role==="owner"||impersonation.active) && !cardsMode();
+  app.classList.toggle("has-bottom",!!on);
+  bar.innerHTML=""; if(!on) return;
+  [["dashboard","الرئيسية"],["sales","الإقفال"],["inventory","المخزون"],["more","المزيد"]].forEach(a=>{
+    const d=el("div","",esc(L(a[1]))); d.dataset.k=a[0];
+    d.onclick=()=>{ if(a[0]==="more") document.getElementById("sidebar").classList.toggle("open"); else openPage(a[0]); };
+    bar.appendChild(d);
+  });
+  applyBadges();
+}
+function navKeyFor(k){ return k==="suppliers"?"invoices":k; }
+function renderPurchTabs(key){
+  const box=$("purchTabs"); if(!box) return;
+  const tabs=purchaseTabs();
+  if(!(key==="invoices"||key==="suppliers")||tabs.length<2){ box.style.display="none"; box.innerHTML=""; return; }
+  box.innerHTML=""; box.style.display="flex";
+  tabs.forEach(k=>{ const m=MODULES.find(x=>x.key===k); const b=el("button",k===key?"on":"",esc(t("nav_"+k)||m.name)); b.onclick=()=>openPage(k); box.appendChild(b); });
 }
 
 // مولّد كلمة مرور عشوائية قوية
@@ -1648,7 +1741,11 @@ function renderAdminBanner(){
   const main=document.querySelector(".main"); if(main) main.insertBefore(b,main.firstChild);
 }
 function removeAdminBanner(){ const b=$("adminBanner"); if(b) b.remove(); }
-function setActiveNav(pageKey){[...document.querySelectorAll(".nav-item")].forEach(n=>n.classList.toggle("active",n.dataset.page===pageKey));}
+function setActiveNav(pageKey){
+  const nk=navKeyFor(pageKey);
+  [...document.querySelectorAll(".nav-item")].forEach(n=>n.classList.toggle("active",navKeyFor(n.dataset.page)===nk));
+  [...document.querySelectorAll("#bottomBar div")].forEach(d=>d.classList.toggle("act",d.dataset.k===pageKey));
+}
 
 // وضع البطاقات للموظف والمدير (بدون قائمة جانبية)
 function cardsMode(){ return state.role==="employee" || state.role==="manager"; }
@@ -1683,9 +1780,11 @@ function renderCardsHome(){
     const card=el("div","card animin"); card.style.cssText="cursor:pointer;min-height:120px;text-align:center;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;animation-delay:"+(grid.children.length*0.05)+"s";
     card.innerHTML=(m.icon?"<div style='font-size:34px'>"+m.icon+"</div>":"")+"<div style='font-weight:800'>"+esc(t("nav_"+m.key)||m.name)+"</div>";
     card.onclick=()=>openPage(m.key);
+    card.dataset.cardKey=m.key; card.style.position="relative";
     grid.appendChild(card);
   });
   c.appendChild(grid);
+  try{ renderPurchTabs(""); applyBadges(); refreshNavBadges(false); }catch(e){}
   setTimeout(()=>translateTree(c),0);
   updateNavButtons();
 }
@@ -1695,6 +1794,7 @@ function openPage(key,isBack){
   if(!isBack && cardsMode() && state.current==="__home__"){ /* من الرئيسية للقسم: نبدأ سجل جديد */ pageHistory=[]; }
   state.current=key; setActiveNav(key);
   document.getElementById("sidebar").classList.remove("open");
+  try{ renderPurchTabs(key); refreshNavBadges(false); }catch(e){}
   const c=$("pageContent"); c.innerHTML=""; c.classList.remove("inv-hub");
   const routes={
     super_companies:pageSuperCompanies, super_subs:pageSuperSubs, super_audit:pageSuperAudit, super_maint:pageMaintenance,
