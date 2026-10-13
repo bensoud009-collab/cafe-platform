@@ -4009,82 +4009,111 @@ function pageInventory(c){
   }
 }
 
-// بطاقتا المخزون: المنتجات + المستودع (للمالك)
+// صفحة المخزون للمالك: عرض ومتابعة الجرد (الجرد نفسه يتم من صفحة الفرع)
 function inventoryHub(c){
   c.classList.add("inv-hub");
-  // رأس الصفحة: العنوان يمين + زر إضافة منتج (+) مربّع يسار
   c.innerHTML=
     "<div class='head-row'>"+
-      "<button class='inv-add-sq animin' style='animation-delay:.05s' id='invAddProd' title='"+esc(L("إضافة منتج"))+"'>+</button>"+
-      "<div class='page-title' style='text-align:right;margin-bottom:0'><h2>"+esc(L("المخزون"))+"</h2><p>"+esc(L("المنتجات والمستودع"))+"</p></div>"+
-    "</div>";
-  // زر (+) يفتح نافذة إضافة منتج مباشرة
+      "<button class='inv-add-sq animin' id='invAddProd' title='"+esc(L("إضافة منتج"))+"'>+</button>"+
+      "<div class='page-title' style='text-align:right;margin-bottom:0'><h2>"+esc(L("المخزون"))+"</h2><p>"+esc(L("متابعة الجرد"))+"</p></div>"+
+    "</div>"+
+    "<div id='ivBranchSel'></div><div id='ivStatus'></div><div id='ivLatest'></div><div id='ivOld'></div>"+
+    "<div class='section-label' style='margin:6px 4px 8px'>"+esc(L("اختصارات"))+"</div><div id='ivShort' style='display:flex;gap:6px'></div>";
   const addBtn=$("invAddProd"); if(addBtn) addBtn.onclick=()=>{ if(typeof productModal==="function") productModal(); };
 
-  // بطاقة المنتجات — تفتح كتالوج المنتجات (تعديل/حذف/تصنيفات)
-  const pr=el("div","card tapc animin"); pr.style.animationDelay=".08s";
-  pr.innerHTML="<div class='t'>"+esc(L("المنتجات"))+"</div><div class='d'>"+esc(L("الكتالوج والتصنيفات — إضافة وتعديل"))+"</div>";
-  pr.onclick=()=>{ pageProducts(c); };
-  c.appendChild(pr);
+  const S={counts:[],branch:"all",low:0,pend:{waste:0,order:0,tr:0}};
+  const sum=x=>{ let neg=0,pos=0; (x.results||[]).forEach(r=>{ const v=Number(r.diffValue)||0; if(v<0)neg+=v; else pos+=v; }); return {neg,pos}; };
+  const isOpening=x=>(x.results||[]).length>0 && (x.results||[]).every(r=>!(Number(r.systemQty)>0));
+  const fmt=n=>Math.round(n).toLocaleString("en-US");
+  const stLabel=s=>s==="approved"?L("معتمد"):s==="rejected"?L("مرفوض"):L("ينتظر الاعتماد");
+  const box=(id)=>$(id);
 
-  // بطاقة المستودع الرئيسي — عرض كامل
-  const wh=el("div","card tapc wh-card animin"); wh.style.animationDelay=".14s";
-  wh.innerHTML="<div class='t'>"+esc(L("المستودع الرئيسي"))+"</div><div class='d'>"+esc(L("جرد المستودع والتحويلات"))+"</div>";
-  wh.onclick=()=>{ openMainWarehouse(c); };
-  c.appendChild(wh);
-
-  // بطاقة التحويلات — في المنتصف
-  const trWrap=el("div","tr-wrap");
-  const tr=el("div","card tapc tr-card animin"); tr.style.animationDelay=".2s";
-  tr.innerHTML="<div class='t'>"+esc(L("التحويلات"))+"</div><div class='d'>"+esc(L("تحويل بين المستودعات والفروع"))+"</div>"+
-    "<span id='invTrBadge' style='position:absolute;top:10px;left:10px;background:var(--red);color:#fff;border-radius:999px;min-width:20px;height:20px;font-size:12px;display:none;align-items:center;justify-content:center;padding:0 5px'></span>";
-  tr.onclick=()=>transfersHub(c,()=>{ openPage("inventory"); });
-  trWrap.appendChild(tr); c.appendChild(trWrap);
-
-  // قسم الفروع — تظهر تلقائياً (٣ في صف، أصغر) عند وجود فروع
-  const brSection=el("div"); brSection.id="invBrSection"; brSection.style.display="none";
-  brSection.innerHTML="<div class='section-label animin' style='animation-delay:.28s'>"+esc(L("الفروع"))+"</div><div class='branches-row' id='invBrRow'></div>";
-  c.appendChild(brSection);
-
-  // شارة التحويلات المعلّقة
-  if(canApproveTransfer()){
-    cRef().collection("transfers").onSnapshot(s=>{ let n=0; s.forEach(d=>{const st=d.data().status; if(st!=="approved"&&st!=="rejected")n++;}); const b=$("invTrBadge"); if(b){ if(n){b.textContent=n;b.style.display="flex";}else b.style.display="none"; } },()=>{});
-  }
-
-  // تحميل الفروع (بدون المستودعات) وعرضها كبطاقات صغيرة
-  cRef().collection("branches").orderBy("name").onSnapshot(async s=>{
-    const row=$("invBrRow"); const sec=$("invBrSection"); if(!row||!sec) return;
-    const branchDocs=[]; s.forEach(d=>{ if(!d.data().isWarehouse) branchDocs.push(d); });
-    if(!branchDocs.length){ sec.style.display="none"; row.innerHTML=""; return; }
-    sec.style.display="block"; row.innerHTML="";
-    // متوسط تقييم كل فرع
-    const evalsSnap=await cRef().collection("branchEvals").get().catch(()=>null);
-    const byBranch={}; if(evalsSnap) evalsSnap.forEach(d=>{const x=d.data();(byBranch[x.branchId]=byBranch[x.branchId]||[]).push(x.pct||0);});
-    branchDocs.forEach((d,i)=>{ const x=d.data();
-      const arr=byBranch[d.id]||[]; const avg=arr.length?arr.reduce((a,b)=>a+b,0)/arr.length:0;
-      const stars=Math.round(avg/20);
-      let starHtml=""; for(let k=1;k<=5;k++) starHtml+="<span style='color:"+(k<=stars?"var(--brand)":"var(--line)")+"'>★</span>";
-      const card=el("div","card tapc br-card animin"); card.style.animationDelay=(0.32+i*0.06)+"s";
-      card.innerHTML="<span id='invbrbadge_"+d.id+"' style='position:absolute;top:8px;left:8px;background:var(--red);color:#fff;border-radius:999px;min-width:18px;height:18px;font-size:11px;font-weight:700;display:none;align-items:center;justify-content:center;padding:0 5px'></span>"+
-        "<div class='t'>"+esc(x.name)+"</div><div class='st'>"+starHtml+"</div>";
-      card.onclick=()=>branchInventoryPage(c,{id:d.id,name:x.name});
-      row.appendChild(card);
-    });
-    // شارة المعلّق لكل فرع
-    if(invApprover()){
-      const pend={}; const per={};
-      const paint=()=>{ branchDocs.forEach(d=>{ const b=$("invbrbadge_"+d.id); if(b){ const n=pend[d.id]||0; if(n){b.textContent=n;b.style.display="flex";}else b.style.display="none"; } }); };
-      const watch=(coll)=>{ cRef().collection(coll).onSnapshot(cs=>{
-        const local={}; cs.forEach(dd=>{const y=dd.data(); const st=y.status; if(st!=="approved"&&st!=="rejected"&&st!=="done"){ local[y.branchId]=(local[y.branchId]||0)+1; }});
-        per[coll]=local; for(const kk in pend) delete pend[kk];
-        Object.values(per).forEach(m=>{ for(const bid in m) pend[bid]=(pend[bid]||0)+m[bid]; });
-        paint();
-      },()=>{}); };
-      ["stockCounts","stockOrders","waste","expenses","dailyClosings","invoices"].forEach(watch);
+  function render(){
+    if(!$("ivLatest")) return;
+    const all=S.counts.filter(x=>S.branch==="all"||x.branchId===S.branch);
+    const live=all.filter(x=>x.status!=="rejected");
+    const pending=S.counts.filter(x=>x.status==="pending");
+    // اختيار الفرع (يظهر فقط لو أكثر من فرع)
+    const br={}; S.counts.forEach(x=>{ if(x.branchId) br[x.branchId]=x.branchName||""; });
+    const ids=Object.keys(br);
+    $("ivBranchSel").innerHTML="";
+    if(ids.length>1){
+      const sel=el("select","input"); sel.style.cssText="margin-bottom:12px";
+      sel.innerHTML="<option value='all'>"+esc(L("كل الفروع"))+"</option>"+ids.map(i=>"<option value='"+i+"' "+(S.branch===i?"selected":"")+">"+esc(br[i])+"</option>").join("");
+      sel.onchange=()=>{ S.branch=sel.value; render(); };
+      $("ivBranchSel").appendChild(sel);
     }
-    if(typeof translateTree==="function") translateTree(row);
+    // شريط الحالة
+    const st=$("ivStatus"); st.innerHTML="";
+    const warn=pending.length>0 || S.low>0;
+    const lines=[]; if(pending.length) lines.push(pending.length+" "+L("جرد ينتظر اعتمادك")); if(S.low>0) lines.push(S.low+" "+L("منتجات تحت الحد الأدنى"));
+    const bar=el("div","",""); bar.style.cssText="border-radius:16px;padding:14px 16px;margin-bottom:18px;display:flex;align-items:center;gap:12px;cursor:pointer;font-weight:800;font-size:14px;line-height:1.8;"+(warn?"background:#fdf3e1;color:#8a5a08":"background:#eaf7f0;color:#1a9a5c");
+    bar.innerHTML="<span style='font-size:20px'>"+(warn?"⚠️":"✓")+"</span><div>"+(warn?lines.map(esc).join("<br>"):esc(L("كل شي سليم")))+"</div>"+(warn?"<span style='margin-inline-start:auto;opacity:.6;font-size:18px'>‹</span>":"");
+    bar.onclick=()=>{ if(pending.length) openPage("pending"); else if(S.low>0) pageProducts(c); };
+    st.appendChild(bar);
+    // آخر جرد
+    const L1=$("ivLatest"); L1.innerHTML="";
+    const last=live[0];
+    if(!last){ L1.innerHTML="<div class='card muted' style='text-align:center;padding:26px'>"+esc(L("لا توجد جرود بعد — الجرد يتم من صفحة الفرع"))+"</div>"; $("ivOld").innerHTML=""; return; }
+    const op=isOpening(last), s=sum(last);
+    const items=(last.results||[]).filter(r=>Math.abs(Number(r.diff)||0)>0).sort((a,b)=>Math.abs(Number(b.diffValue)||0)-Math.abs(Number(a.diffValue)||0));
+    const card=el("div","card"); card.style.cssText="padding:18px;border-radius:20px;margin-bottom:20px";
+    let h="<div style='font-size:12.5px;color:var(--muted);font-weight:700;margin-bottom:8px'>"+esc(L("آخر جرد"))+"</div>"+
+      "<div style='font-weight:800;font-size:16px'>"+esc(last.branchName||"")+(op?" <span style='font-size:12px;background:#e4f6ec;color:#1a9a5c;padding:3px 10px;border-radius:99px'>"+esc(L("افتتاحي"))+"</span>":"")+"</div>"+
+      "<div class='muted' style='font-size:12.5px;margin-top:3px'>"+fmtDT(last.at)+" · "+esc(last.byName||"")+" · "+stLabel(last.status)+"</div>";
+    if(op){
+      h+="<div class='muted' style='margin-top:14px;font-size:13px;line-height:1.8'>"+esc(L("جرد افتتاحي: النظام كان فاضي، فلا يُحسب كعجز أو زيادة."))+"</div>";
+    } else {
+      if(canSeeCost()) h+="<div style='display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:16px 0 12px'>"+
+        "<div style='border-radius:14px;padding:14px 8px;text-align:center;"+(s.neg<0?"background:#fdeceb;color:#d5493f":"background:#f3f4f8;color:var(--muted)")+"'><div style='font-size:22px;font-weight:800'>"+(s.neg<0?"−":"")+fmt(Math.abs(s.neg))+"</div><div style='font-size:12px;margin-top:3px'>"+esc(L("عجز (ريال)"))+"</div></div>"+
+        "<div style='border-radius:14px;padding:14px 8px;text-align:center;background:#eaf7f0;color:#1a9a5c'><div style='font-size:22px;font-weight:800'>+"+fmt(s.pos)+"</div><div style='font-size:12px;margin-top:3px'>"+esc(L("زيادة (ريال)"))+"</div></div></div>";
+      if(!items.length) h+="<div style='padding:12px 2px;border-top:1px solid var(--line);margin-top:12px;font-weight:800;color:#1a9a5c'>"+esc(L("لا فروقات — كل الأصناف مطابقة"))+" ✓</div>";
+      items.slice(0,3).forEach(r=>{ const d=Math.round((Number(r.diff)||0)*100)/100;
+        h+="<div style='display:flex;justify-content:space-between;align-items:center;padding:11px 2px;border-top:1px solid var(--line);font-size:14px'><div><b>"+esc(r.name)+"</b><div class='muted' style='font-size:12px;margin-top:2px'>"+esc(L("نظري"))+" "+r.systemQty+" · "+esc(L("فعلي"))+" "+r.actualQty+"</div></div><b style='color:var(--"+(d<0?"red":"green")+")'>"+(d>0?"+":"")+d+"</b></div>"; });
+      h+="<div id='ivAll' style='text-align:center;color:var(--brand-2);font-weight:800;font-size:13.5px;padding:12px 0 2px;cursor:pointer'>"+esc(L("عرض كل الأصناف"))+" ("+(last.results||[]).length+") ‹</div>";
+    }
+    if(op) h+="<div id='ivAll' style='text-align:center;color:var(--brand-2);font-weight:800;font-size:13.5px;padding:14px 0 2px;cursor:pointer'>"+esc(L("عرض الأصناف"))+" ("+(last.results||[]).length+") ‹</div>";
+    if(last.status==="pending" && (invApprover()||canApproveSales())) h+="<div style='display:flex;gap:10px;margin-top:14px'><button class='btn' id='ivOk' style='flex:1;background:#1a9a5c;color:#fff;border:none;padding:13px;font-weight:800'>"+esc(L("اعتماد"))+"</button><button class='btn' id='ivNo' style='flex:1;background:#fdeceb;color:#d5493f;border:none;padding:13px;font-weight:800'>"+esc(L("رفض"))+"</button></div>";
+    card.innerHTML=h; L1.appendChild(card);
+    const ia=$("ivAll"); if(ia) ia.onclick=()=>viewCount(last);
+    const dec=async(ok)=>{ if(!confirm(ok?L("اعتماد هذا الجرد؟"):L("رفض هذا الجرد؟"))) return; try{ await setCountStatus(last.id,last,ok?"approved":"rejected"); }catch(e){ console.error(e); toast(L("تعذّر تنفيذ العملية"),"err"); } };
+    const ok=$("ivOk"), no=$("ivNo"); if(ok) ok.onclick=()=>dec(true); if(no) no.onclick=()=>dec(false);
+    // الجرود السابقة
+    const O=$("ivOld"); O.innerHTML="";
+    const rest=live.slice(1,9);
+    if(rest.length){
+      let o="<div style='font-size:12.5px;color:var(--muted);font-weight:700;margin:0 4px 8px'>"+esc(L("الجرود السابقة"))+"</div><div class='card' style='padding:0;overflow:hidden;margin-bottom:20px'>";
+      rest.forEach((x,i)=>{ const so=sum(x), opn=isOpening(x);
+        o+="<div class='ivrow' data-i='"+i+"' style='display:flex;justify-content:space-between;align-items:center;padding:14px 16px;"+(i<rest.length-1?"border-bottom:1px solid var(--line);":"")+"cursor:pointer'><div><div style='font-weight:800;font-size:13px'>"+fmtDT(x.at)+"</div><div class='muted' style='font-size:12px;margin-top:2px'>"+esc(x.byName||"")+" · "+(opn?esc(L("افتتاحي")):stLabel(x.status))+"</div></div><b style='color:"+(opn||!so.neg?"var(--muted)":"var(--red)")+"'>"+(opn||!so.neg?"—":"−"+fmt(Math.abs(so.neg)))+"</b></div>"; });
+      o+="</div>"; O.innerHTML=o;
+      O.querySelectorAll(".ivrow").forEach(r=>{ r.onclick=()=>viewCount(rest[+r.dataset.i]); });
+    }
+  }
+  function shortcuts(){
+    const box=$("ivShort"); if(!box) return; box.innerHTML="";
+    const defs=[["📦","المنتجات",0,()=>pageProducts(c)],["🏬","المستودع",0,()=>openMainWarehouse(c)],["🔁","التحويلات",S.pend.tr,()=>transfersHub(c,()=>{ openPage("inventory"); })],["🗑️","التوالف",S.pend.waste,()=>invWaste(c)],["🛒","الطلبات",S.pend.order,()=>invOrders(c)]];
+    defs.forEach(d=>{ const b=el("div","card"); b.style.cssText="flex:1;padding:12px 2px;text-align:center;font-size:11.5px;font-weight:700;color:var(--muted);cursor:pointer;position:relative";
+      b.innerHTML=(d[2]?"<span style='position:absolute;top:-6px;left:-3px;background:var(--red);color:#fff;font-size:10.5px;min-width:18px;height:18px;border-radius:99px;display:flex;align-items:center;justify-content:center;padding:0 5px;font-weight:800'>"+d[2]+"</span>":"")+"<div style='font-size:19px;margin-bottom:3px'>"+d[0]+"</div>"+esc(L(d[1]));
+      b.onclick=()=>{ d[3](); setTimeout(()=>{ if(typeof translateTree==="function") translateTree(c); },60); };
+      box.appendChild(b); });
+  }
+  shortcuts();
+  // الجرود (حيّة)
+  cRef().collection("stockCounts").onSnapshot(sn=>{
+    const a=[]; sn.forEach(d=>a.push({id:d.id,...d.data()}));
+    a.sort((x,y)=>((y.at&&y.at.seconds)||0)-((x.at&&x.at.seconds)||0));
+    S.counts=a; render();
   },()=>{});
-
+  // منتجات تحت الحد (نفس حساب لوحة التحكم)
+  (async()=>{ try{
+    const ps=await cRef().collection("products").get(); const minMap={}; ps.forEach(d=>{ minMap[d.id]=Number(d.data().min)||0; });
+    const bs=await cRef().collection("branchStock").get(); let low=0; bs.forEach(d=>{ const x=d.data(); const q=Number(x.qty)||0; if((minMap[x.productId]||0)>0 && q<=minMap[x.productId]) low++; });
+    S.low=low; render();
+  }catch(e){} })();
+  // شارات الاختصارات
+  const watch=(coll,key)=>{ cRef().collection(coll).onSnapshot(s=>{ let n=0; s.forEach(d=>{const st=d.data().status; if(st!=="approved"&&st!=="rejected"&&st!=="done")n++;}); S.pend[key]=n; shortcuts(); },()=>{}); };
+  if(invApprover()){ watch("waste","waste"); watch("stockOrders","order"); }
+  if(canApproveTransfer()) watch("transfers","tr");
   setTimeout(()=>{ if(typeof translateTree==="function") translateTree(c); },0);
 }
 
@@ -4811,14 +4840,16 @@ async function invCountForm(c,br){
   const stock=await branchStockMap(br.id);
   // الموظف يرى المنتج + خانة الفعلي فقط — النظري والفرق للمدير والمالك
   const showSys = invApprover()||state.role==="super"||(typeof impersonation!=="undefined"&&impersonation.active);
-  const rows=prods.map((p,i)=>"<tr><td><b>"+esc(prodName(p))+"</b> <span class='muted'>"+esc(p.baseUnit||p.unit||"")+"</span></td>"+(showSys?"<td class='muted' id='sys_"+i+"'>"+(stock[p.id]!=null?stock[p.id]:0)+"</td>":"")+"<td><input class='input cntv' data-i='"+i+"' type='number' inputmode='decimal' style='width:80px;padding:6px' placeholder='الفعلي'></td>"+(showSys?"<td id='var_"+i+"' style='font-weight:700'>—</td>":"")+"</tr>").join("");
+  const cf=p=>(p.countUnit==="buy"&&Number(p.buyFactor)>1)?Number(p.buyFactor):1; // معامل وحدة الجرد
+  const cu=p=>cf(p)>1?(p.buyUnit||""):(p.baseUnit||p.unit||"");
+  const rows=prods.map((p,i)=>"<tr><td><b>"+esc(prodName(p))+"</b> <span class='muted'>"+esc(cu(p))+"</span></td>"+(showSys?"<td class='muted' id='sys_"+i+"'>"+(Math.round(((stock[p.id]!=null?stock[p.id]:0)/cf(p))*100)/100)+"</td>":"")+"<td><input class='input cntv' data-i='"+i+"' type='number' inputmode='decimal' style='width:80px;padding:6px' placeholder='الفعلي'></td>"+(showSys?"<td id='var_"+i+"' style='font-weight:700'>—</td>":"")+"</tr>").join("");
   openModal(L("إضافة جرد — ")+esc(br.name),
     "<div class='muted' style='font-size:13px;margin-bottom:8px'>"+(showSys?L("أدخل الكمية الفعلية. «بالنظام» = المخزون النظري (بعد المبيعات والهدر). الفرق يوضّح الخطورة."):L("أدخل الكمية الفعلية لكل منتج. تُرسل للإدارة للاعتماد."))+"</div>"+
     "<table><thead><tr><th>المنتج</th>"+(showSys?"<th>"+L("نظري")+"</th>":"")+"<th>"+L("الفعلي")+"</th>"+(showSys?"<th>"+L("الفرق")+"</th>":"")+"</tr></thead><tbody>"+rows+"</tbody></table>",
     "إرسال الجرد", async ()=>{
       const results=[]; let shortageVal=0;
       document.querySelectorAll("#modalRoot .cntv").forEach(inp=>{ const i=+inp.dataset.i; const v=inp.value.trim(); if(v==="")return;
-        const actual=parseFloat(v)||0; const sys=Number(stock[prods[i].id])||0; const diff=actual-sys; const price=Number(prods[i].price)||0;
+        const actual=(parseFloat(v)||0)*cf(prods[i]); const sys=Number(stock[prods[i].id])||0; const diff=actual-sys; const price=Number(prods[i].price)||0;
         const variancePct = sys>0 ? (diff/sys*100) : (diff!==0?-100:0);
         results.push({productId:prods[i].id,name:prods[i].name,systemQty:sys,actualQty:actual,diff,diffValue:diff*price,variancePct});
         if(diff<0) shortageVal+=Math.abs(diff)*price;
@@ -4834,10 +4865,10 @@ async function invCountForm(c,br){
   setTimeout(()=>{
     document.querySelectorAll("#modalRoot .cntv").forEach(inp=>{ inp.oninput=()=>{ const i=+inp.dataset.i; const v=inp.value.trim();
       const cell=$("var_"+i); if(!cell) return; if(v===""){ cell.textContent="—"; cell.style.color="inherit"; return; }
-      const actual=parseFloat(v)||0; const sys=Number(stock[prods[i].id])||0; const diff=actual-sys;
+      const actual=(parseFloat(v)||0)*cf(prods[i]); const sys=Number(stock[prods[i].id])||0; const diff=actual-sys;
       const pct = sys>0 ? (diff/sys*100) : (diff!==0?-100:0);
       const dot = riskDot(pct);
-      cell.textContent=(diff>0?"+":"")+(Math.round(diff*100)/100)+" "+dot;
+      cell.textContent=(diff>0?"+":"")+(Math.round(diff/cf(prods[i])*100)/100)+" "+dot;
       cell.style.color = Math.abs(pct)>=10?"var(--red)":Math.abs(pct)>=5?"var(--amber)":"var(--green)";
     }; });
   },30);
@@ -5361,22 +5392,32 @@ async function productModal(id,x){
   x=x||{};
   const cats=await loadCategories();
   const catOpts="<option value=''>— بدون —</option>"+cats.map(cc=>"<option value='"+esc(cc)+"' "+(x.category===cc?"selected":"")+">"+esc(cc)+"</option>").join("");
-  const baseUnits=["جرام","مل","حبة","كوب","قطعة"];
-  const baseOpts=baseUnits.map(u=>"<option value='"+u+"' "+(x.baseUnit===u?"selected":"")+">"+L(u)+"</option>").join("");
+  const BUYS=["كرتون","كيلو","علبة","كيس","لتر","حبة"];
+  const BASES=["حبة","كوب","قطعة","جرام","مل"];
+  const legacy=!!id && !x.buyUnit;
+  const st={
+    buy: x.buyUnit||(id?(x.baseUnit||x.unit||"حبة"):"كرتون"),
+    base: x.baseUnit||x.unit||"حبة",
+    tax: x.taxIncl===true,
+    count: x.countUnit?(x.countUnit==="buy"?"buy":"base"):(id?"base":"buy")
+  };
+  const fixedBase=b=>b==="كيلو"?"جرام":b==="لتر"?"مل":null;
+  const fmt=(n,d)=>Number(n).toLocaleString("en-US",{minimumFractionDigits:d,maximumFractionDigits:d});
+  const buyPrice0 = x.buyPrice!=null ? x.buyPrice : (x.price!=null ? (legacy?x.price:(Number(x.price)*(Number(x.buyFactor)||1))) : "");
+  const factor0 = x.buyFactor!=null ? x.buyFactor : (legacy?1:"");
+  const baseOpts=BASES.map(u=>"<option value='"+u+"'>"+L(u)+"</option>").join("");
   openModal(id?"تعديل منتج":"إضافة منتج",
     "<label class='field'><span>اسم المنتج *</span><input id='pName' class='input' value='"+esc(x.name||"")+"'></label>"+
     "<label class='field'><span>الاسم بالإنجليزي (اختياري)</span><input id='pNameEn' class='input' dir='ltr' placeholder='Product name (English)' value='"+esc(x.nameEn||"")+"'></label>"+
     "<label class='field'><span>التصنيف</span><select id='pCat'>"+catOpts+"</select></label>"+
-    "<div class='sec'><div class='sec-title'>"+L("وحدة القياس والتحويل")+"</div>"+
-      "<div class='grid' style='grid-template-columns:1fr 1fr'>"+
-        "<label class='field'><span>"+L("الوحدة الأساسية")+" *</span><select id='pBaseUnit'>"+baseOpts+"</select></label>"+
-        "<label class='field'><span>"+L("تكلفة الوحدة الأساسية")+" *</span><input id='pPrice' class='input' type='number' inputmode='decimal' value='"+(x.price!=null?x.price:"")+"'></label>"+
-      "</div>"+
-      "<div class='grid' style='grid-template-columns:1fr 1fr'>"+
-        "<label class='field'><span>"+L("وحدة الشراء")+"</span><input id='pBuyUnit' class='input' placeholder='"+L("كرتون / كيلو / علبة")+"' value='"+esc(x.buyUnit||"")+"'></label>"+
-        "<label class='field'><span>"+L("كم وحدة أساسية بها؟")+"</span><input id='pBuyFactor' class='input' type='number' inputmode='decimal' placeholder='"+L("مثال: 1000")+"' value='"+(x.buyFactor!=null?x.buyFactor:"")+"'></label>"+
-      "</div>"+
-      "<p class='muted' style='font-size:12px'>"+L("مثال: وحدة الشراء «كيلو»، الوحدة الأساسية «جرام»، والمعامل 1000. أو «كرتون» = 10 حبات.")+"</p>"+
+    "<div class='sec'><div class='sec-title'>"+L("التسعير")+"</div>"+
+      "<div style='font-weight:800;font-size:13.5px;margin-bottom:6px'>1) "+L("كيف تشتريه؟")+"</div><div id='pfBuy' style='display:flex;flex-wrap:wrap;gap:7px;margin-bottom:12px'></div>"+
+      "<div id='pfBaseRow' style='margin-bottom:12px'><label class='field'><span>"+L("الوحدة الصغرى (اللي تُستهلك بها)")+"</span><select id='pBaseUnit'>"+baseOpts+"</select></label></div>"+
+      "<label class='field'><span id='pfLblPrice'>2) …</span><input id='pBuyPrice' class='input' type='number' inputmode='decimal' value='"+buyPrice0+"'></label>"+
+      "<label style='display:flex;gap:8px;align-items:center;font-size:13px;font-weight:700;margin:-4px 0 12px'><input type='checkbox' id='pTax' "+(st.tax?"checked":"")+"> "+L("السعر شامل الضريبة 15%")+" <span class='muted' style='font-weight:400'>("+L("اختياري")+")</span></label>"+
+      "<label class='field'><span id='pfLblFactor'>3) …</span><input id='pBuyFactor' class='input' type='number' inputmode='decimal' value='"+factor0+"'></label>"+
+      "<div id='pfRes' style='background:#f3fbf6;border:1px solid #bfe6cf;border-radius:14px;padding:13px;margin-bottom:12px;color:#1c2230'></div>"+
+      "<div id='pfCntRow'><div style='font-weight:800;font-size:13.5px;margin-bottom:6px'>4) "+L("بأي وحدة يتم الجرد؟")+"</div><div id='pfCnt' style='display:flex;gap:7px;flex-wrap:wrap'></div><div class='muted' style='font-size:12px;margin-top:6px'>"+L("الموظف يكتب الكمية بهذي الوحدة، والنظام يحوّلها تلقائيًا.")+"</div></div>"+
     "</div>"+
     "<div class='grid' style='grid-template-columns:1fr 1fr'>"+
       "<label class='field'><span>"+L("الحد الأدنى للمخزون")+"</span><input id='pMin' class='input' type='number' inputmode='decimal' value='"+(x.min!=null?x.min:"")+"'></label>"+
@@ -5391,16 +5432,19 @@ async function productModal(id,x){
     "<p class='muted' style='font-size:12px'>المنتج يظهر لكل الفروع. الكميات تُدار عبر جرد كل فرع.</p>",
     "حفظ", async ()=>{
       const name=$("pName").value.trim();
-      const price=parseFloat($("pPrice").value);
+      const buyPrice=parseFloat($("pBuyPrice").value);
+      const factor=parseFloat($("pBuyFactor").value);
       if(!name){toast("أدخل اسم المنتج","err");return false;}
-      if(isNaN(price)){toast("أدخل تكلفة الوحدة الأساسية","err");return false;}
+      if(isNaN(buyPrice)||buyPrice<0){toast("أدخل سعر الشراء","err");return false;}
+      if(isNaN(factor)||factor<=0){toast("أدخل كم وحدة داخل وحدة الشراء","err");return false;}
+      const net=$("pTax").checked?buyPrice/1.15:buyPrice;
+      const price=Math.round(net/factor*1e6)/1e6; // تكلفة الوحدة الصغرى
       let url=$("pUrl").value.trim(); if(url&&!/^https?:\/\//i.test(url)) url="https://"+url;
-      const baseUnit=$("pBaseUnit").value;
-      const buyUnit=$("pBuyUnit").value.trim();
-      const buyFactor=parseFloat($("pBuyFactor").value)||0;
+      const baseUnit=fixedBase(st.buy)||$("pBaseUnit").value;
       const data={name,nameEn:$("pNameEn")?$("pNameEn").value.trim():"",price,
         baseUnit, unit:baseUnit, // unit للتوافق مع الشاشات القديمة
-        buyUnit, buyFactor,
+        buyUnit:st.buy, buyFactor:factor, buyPrice, taxIncl:$("pTax").checked,
+        countUnit:(st.count==="buy"&&factor>1&&st.buy!==baseUnit)?"buy":"base",
         min:parseFloat($("pMin").value)||0, max:parseFloat($("pMax").value)||0,
         category:$("pCat").value,expiry:$("pExpiry").value,
         supplier:$("pSupplier").value.trim(),supplierPhone:$("pSupPhone").value.trim(),url};
@@ -5408,6 +5452,46 @@ async function productModal(id,x){
       else{ data.createdAt=now(); await cRef().collection("products").add(data); logAction("add_product",name); }
       return true;
     });
+  // منطق النموذج الحيّ
+  const chip=(txt,on)=>"<span data-v='"+esc(txt)+"' style='padding:8px 15px;border-radius:99px;border:1px solid "+(on?"var(--brand-2)":"var(--line)")+";background:"+(on?"rgba(200,161,90,.15)":"transparent")+";font-weight:700;font-size:13.5px;cursor:pointer'>"+esc(txt)+"</span>";
+  const refresh=()=>{
+    const fb=fixedBase(st.buy);
+    const base=fb||$("pBaseUnit").value;
+    if(fb) $("pBaseUnit").value=fb;
+    $("pfBaseRow").style.display=fb?"none":"";
+    const list=BUYS.includes(st.buy)?BUYS:BUYS.concat([st.buy]);
+    $("pfBuy").innerHTML=list.map(b=>chip(b,b===st.buy)).join("")+chip("أخرى…",false);
+    $("pfLblPrice").textContent="2) "+L("كم سعر ال")+st.buy+"؟";
+    $("pfLblFactor").textContent="3) "+L("كم ")+base+L(" داخل ال")+st.buy+"؟";
+    const price=parseFloat($("pBuyPrice").value)||0, factor=parseFloat($("pBuyFactor").value)||0;
+    const net=$("pTax").checked?price/1.15:price;
+    const each=factor?net/factor:0; const dec=each<1?4:2;
+    let h="<div style='font-size:12px;color:#1a9a5c;font-weight:800;margin-bottom:6px'>✔ "+L("تكلفة المنتج (تُحسب تلقائيًا)")+"</div>"+
+      "<div style='font-size:19px;font-weight:800;color:#1a9a5c'>"+esc(base)+" "+L("الواحد")+" = "+fmt(each,dec)+" "+L("ريال")+"</div>"+
+      "<div style='font-size:12.5px;color:#8b90a0;margin-top:4px'>"+($("pTax").checked?fmt(price,2)+" ÷ 1.15 = "+fmt(net,2)+" ("+L("بدون ضريبة")+")<br>":"")+fmt(net,2)+" ÷ "+fmt(factor,0)+" = "+fmt(each,dec)+"</div>";
+    if(base==="جرام"&&factor) h+="<div style='display:flex;justify-content:space-between;border-top:1px dashed #bfe6cf;margin-top:8px;padding-top:6px;font-size:13px'><span>"+L("تكلفة الكيلو")+"</span><b>"+fmt(each*1000,2)+" "+L("ريال")+"</b></div>";
+    if(base==="مل"&&factor) h+="<div style='display:flex;justify-content:space-between;border-top:1px dashed #bfe6cf;margin-top:8px;padding-top:6px;font-size:13px'><span>"+L("تكلفة اللتر")+"</span><b>"+fmt(each*1000,2)+" "+L("ريال")+"</b></div>";
+    if(!fb&&st.buy!==base) h+="<div style='display:flex;justify-content:space-between;border-top:1px dashed #bfe6cf;margin-top:8px;padding-top:6px;font-size:13px'><span>"+L("تكلفة ال")+esc(st.buy)+L(" كامل")+"</span><b>"+fmt(net,2)+" "+L("ريال")+"</b></div>";
+    $("pfRes").innerHTML=h;
+    const same=(st.buy===base)||factor<=1;
+    $("pfCntRow").style.display=same?"none":"";
+    $("pfCnt").innerHTML=chip(st.buy,st.count==="buy")+chip(base,st.count==="base");
+  };
+  setTimeout(()=>{
+    if(!$("pfBuy")) return;
+    $("pBaseUnit").value=BASES.includes(st.base)?st.base:"حبة";
+    $("pfBuy").onclick=e=>{ const s=e.target.closest("span"); if(!s) return; let v=s.dataset.v;
+      if(v==="أخرى…"){ v=(prompt(L("اكتب اسم وحدة الشراء"))||"").trim(); if(!v) return; }
+      const prev=st.buy; st.buy=v; const fb=fixedBase(v);
+      if(fb) $("pBuyFactor").value=1000;
+      else if(v==="حبة") $("pBuyFactor").value=1;
+      else if(fixedBase(prev)||prev==="حبة") $("pBuyFactor").value="";
+      st.count=(!fb&&["كرتون","علبة","كيس"].includes(v))?"buy":"base"; refresh(); };
+    $("pfCnt").onclick=e=>{ const s=e.target.closest("span"); if(!s) return; st.count=(s.dataset.v===st.buy)?"buy":"base"; refresh(); };
+    ["pBuyPrice","pBuyFactor"].forEach(i=>$(i).oninput=refresh);
+    $("pTax").onchange=refresh; $("pBaseUnit").onchange=refresh;
+    refresh();
+  },30);
 }
 
 /* ================================================================== */
