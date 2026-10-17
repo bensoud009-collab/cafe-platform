@@ -1612,6 +1612,7 @@ function navButton(label,icon,pageKey){
 function renderSuperNav(){
   const nav=$("navList");nav.innerHTML="";
   nav.appendChild(navButton("الشركات","","super_companies"));
+  nav.appendChild(navButton("الحسابات التجريبية","","super_trials"));
   nav.appendChild(navButton("الاشتراكات","","super_subs"));
   nav.appendChild(navButton("إدارة الأقسام","","super_maint"));
   nav.appendChild(navButton("سجل العمليات","","super_audit"));
@@ -1806,7 +1807,7 @@ function openPage(key,isBack){
   try{ renderPurchTabs(key); refreshNavBadges(false); }catch(e){}
   const c=$("pageContent"); c.innerHTML=""; c.classList.remove("inv-hub");
   const routes={
-    super_companies:pageSuperCompanies, super_subs:pageSuperSubs, super_audit:pageSuperAudit, super_maint:pageMaintenance,
+    super_companies:pageSuperCompanies, super_trials:pageSuperTrials, super_subs:pageSuperSubs, super_audit:pageSuperAudit, super_maint:pageMaintenance,
     dashboard:pageDashboard, sales:pageSales, invoices:pageInvoices, inventory:pageInventory, expenses:pageExpenses, suppliers:pageSuppliers, staff:pageStaff, checklist:pageChecklist, recipes:pageRecipes, branches:pageBranches, employees:pageStaff, reports:pageReports, settings:pageSettings, pending:pagePending
   };
   // بوابة الإخفاء: القسم المخفي لا تدخله الشركة إطلاقاً → تُحوّل للوحة التحكم
@@ -2378,13 +2379,88 @@ window.toggleMaintenance=toggleMaintenance;
 /* ================================================================== */
 /*  7) مالك المنصة — الشركات                                           */
 /* ================================================================== */
+/* ================================================================== */
+/*  الحسابات التجريبية (لمالك المنصة)                                   */
+/* ================================================================== */
+// حساب تجريبي = علامة trial من التسجيل الذاتي، أو اشتراك مدته 15 يوم أو أقل
+function isTrialCompany(cd){
+  if(!cd) return false;
+  if(cd.trial===true||cd.isTrial===true||cd.source==="signup"||cd.signupSource==="self") return true;
+  const s=cd.subscription; if(!s) return false;
+  if(s.plan==="trial"||s.trial===true) return true;
+  const a=toDate(s.startsAt), b=toDate(s.endsAt);
+  return !!(a&&b&&((b-a)/86400000)<=15);
+}
+// آخر تسجيل دخول للشركة (من سجل عملياتها)
+async function lastLoginOf(id){
+  try{
+    const s=await db.collection("companies").doc(id).collection("auditLog").orderBy("at","desc").limit(30).get();
+    let r=null; s.forEach(d=>{ const x=d.data(); if(!r&&x.action==="login") r=toDate(x.at); });
+    return r;
+  }catch(e){ return null; }
+}
+function loginAgoText(d){
+  if(!d) return L("ما دخل");
+  const days=Math.floor((Date.now()-d.getTime())/86400000);
+  return days<=0?L("اليوم"):days===1?L("أمس"):L("قبل ")+days+L(" أيام");
+}
+async function pageSuperTrials(c){
+  const ACTIVE_DAYS=3;
+  let filter="all";
+  c.innerHTML=pageTitle("الحسابات التجريبية","العملاء في فترة التجربة")+"<div id='trBody'><p class='muted'>"+L("جارٍ التحميل…")+"</p></div>";
+  let rows=[];
+  try{
+    const snap=await db.collection("companies").get();
+    const list=[]; snap.forEach(d=>{ const cd=d.data(); if(isTrialCompany(cd)) list.push({id:d.id,cd}); });
+    rows=await Promise.all(list.map(async r=>{
+      const last=await lastLoginOf(r.id);
+      const active=!!last && (Date.now()-last.getTime())<=ACTIVE_DAYS*86400000;
+      return {id:r.id,cd:r.cd,left:subDaysLeft(r.cd),last,active};
+    }));
+  }catch(e){ console.error(e); $("trBody").innerHTML="<div class='card' style='color:var(--red)'>"+L("تعذّر التحميل — تحقّق من قواعد الأمان")+"</div>"; return; }
+  rows.sort((a,b)=>{ const x=a.left==null?9999:(a.left<0?5000-a.left:a.left), y=b.left==null?9999:(b.left<0?5000-b.left:b.left); return x-y; });
+  const draw=()=>{
+    const body=$("trBody"); if(!body) return;
+    const act=rows.filter(r=>r.active).length, off=rows.length-act;
+    const shown=rows.filter(r=>filter==="all"||(filter==="on"?r.active:!r.active));
+    const kp=(n,l,col)=>"<div class='card' style='text-align:center;padding:12px 4px'><div style='font-size:20px;font-weight:800;"+(col?"color:"+col:"")+"'>"+n+"</div><div class='muted' style='font-size:12px'>"+l+"</div></div>";
+    let h="<div style='display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px'>"+kp(rows.length,L("إجمالي"))+kp(act,L("نشط"),"var(--green)")+kp(off,L("غير نشط"),"var(--muted)")+"</div>"+
+      "<div style='display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap'>"+[["all","الكل"],["on","نشط"],["off","غير نشط"]].map(f=>"<button class='btn sm "+(filter===f[0]?"primary":"")+"' data-f='"+f[0]+"'>"+L(f[1])+"</button>").join("")+"<button class='btn sm' id='trRefresh' style='margin-inline-start:auto'>⟳ "+L("تحديث")+"</button></div>";
+    if(!shown.length) h+="<div class='card muted' style='text-align:center;padding:24px'>"+L("لا توجد حسابات")+"</div>";
+    else{
+      h+="<div class='card' style='padding:0;overflow-x:auto'><table><thead><tr><th>"+L("الشركة")+"</th><th>"+L("المالك")+"</th><th>"+L("الجوال")+"</th><th>"+L("المتبقي")+"</th><th>"+L("الحالة")+"</th></tr></thead><tbody>";
+      shown.forEach((r,i)=>{
+        const cd=r.cd, left=r.left;
+        const leftCell=left==null?"<span class='muted'>—</span>":left<0?"<span class='tag red'>"+L("منتهٍ")+"</span>":"<b style='"+(left<=2?"color:var(--red)":left<=5?"color:var(--amber)":"")+"'>"+left+" "+L("يوم")+"</b>";
+        const ph=cd.ownerPhone||"";
+        h+="<tr><td><b class='trName' data-i='"+i+"' style='color:var(--brand-2);cursor:pointer'>"+esc(cd.name||"")+"</b><div class='muted' style='font-size:11.5px'>"+L("آخر دخول")+": "+esc(loginAgoText(r.last))+"</div></td>"+
+          "<td>"+esc(cd.ownerName||"—")+"</td>"+
+          "<td style='white-space:nowrap;direction:ltr'>"+(ph?esc(ph)+" <a href='"+esc(waLink(ph))+"' target='_blank' rel='noopener' class='tag green' style='text-decoration:none'>"+L("واتساب")+"</a>":"—")+"</td>"+
+          "<td>"+leftCell+"</td><td><span class='tag "+(r.active?"green":"")+"'>"+(r.active?L("نشط"):L("غير نشط"))+"</span></td></tr>";
+      });
+      h+="</tbody></table></div>";
+    }
+    h+="<p class='muted' style='font-size:12px;margin-top:10px'>"+L("«نشط» = دخل خلال آخر 3 أيام.")+"</p>";
+    body.innerHTML=h;
+    body.querySelectorAll("[data-f]").forEach(b=>{ b.onclick=()=>{ filter=b.dataset.f; draw(); }; });
+    body.querySelectorAll(".trName").forEach(n=>{ n.onclick=()=>{ const r=shown[+n.dataset.i]; companyDetailsModal(r.id,r.cd); }; });
+    const rf=$("trRefresh"); if(rf) rf.onclick=()=>pageSuperTrials(c);
+  };
+  draw();
+}
+
 function pageSuperCompanies(c){
   c.innerHTML=pageTitle("الشركات","إنشاء وإدارة شركات العملاء — اضغط اسم الشركة لعرض التفاصيل")+
     "<div style='margin-bottom:16px'><button class='btn primary' id='newCompanyBtn'>+ شركة جديدة</button></div>"+
     "<div class='card'><table><thead><tr><th>الشركة</th><th>الكود</th><th>الاشتراك</th><th>الحالة</th><th>إجراء</th></tr></thead><tbody id='compRows'><tr><td colspan='5' class='muted'>جارٍ التحميل…</td></tr></tbody></table></div>";
   $("newCompanyBtn").onclick=openNewCompanyModal;
+  const trCard=el("div","card"); trCard.id="trialCard"; trCard.style.cssText="cursor:pointer;margin-bottom:16px;display:flex;justify-content:space-between;align-items:center;border:1px solid var(--brand-2)";
+  trCard.innerHTML="<div><div style='font-weight:800'>"+L("الحسابات التجريبية")+"</div><div class='muted' style='font-size:12.5px' id='trialCardSub'>…</div></div><span style='font-size:20px;opacity:.6'>‹</span>";
+  trCard.onclick=()=>openPage("super_trials");
+  c.insertBefore(trCard,c.querySelector(".card"));
   db.collection("companies").orderBy("createdAt","desc").onSnapshot(snap=>{
     const tb=$("compRows"); if(!tb) return; tb.innerHTML="";
+    try{ let n=0,live=0; snap.forEach(d=>{ const cd=d.data(); if(isTrialCompany(cd)){ n++; const l=subDaysLeft(cd); if(l!==null&&l>=0) live++; } }); const sub=$("trialCardSub"); if(sub) sub.textContent=n+" "+L("حساب")+" · "+live+" "+L("ما زال في التجربة"); }catch(e){}
     if(snap.empty){tb.innerHTML="<tr><td colspan='5' class='muted'>لا توجد شركات بعد</td></tr>";return;}
     snap.forEach(d=>{const cd=d.data();
       const tag=cd.status==="suspended"?"<span class='tag red'>موقوفة</span>":"<span class='tag green'>نشطة</span>";
